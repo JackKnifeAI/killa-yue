@@ -1,0 +1,4 @@
+out/
+local.env
+*.keystore
+*.jks

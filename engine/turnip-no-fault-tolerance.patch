@@ -1,0 +1,19 @@
+diff --git a/src/freedreno/vulkan/tu_knl_kgsl.cc b/src/freedreno/vulkan/tu_knl_kgsl.cc
+index e12798f..f6ebf3a 100644
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -51,9 +51,13 @@ static int
+ kgsl_submitqueue_new(struct tu_device *dev, struct tu_queue *queue)
+ {
+    struct kgsl_drawctxt_create req = {
++      /* NO_FAULT_TOLERANCE: compute jobs for large models run for many
++       * seconds; without it the kernel's long-IB detection kills them and
++       * the app sees VK_ERROR_DEVICE_LOST. */
+       .flags = KGSL_CONTEXT_SAVE_GMEM |
+               KGSL_CONTEXT_NO_GMEM_ALLOC |
+-              KGSL_CONTEXT_PREAMBLE,
++              KGSL_CONTEXT_PREAMBLE |
++              KGSL_CONTEXT_NO_FAULT_TOLERANCE,
+    };
+ 
+    int ret = safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_DRAWCTXT_CREATE, &req);

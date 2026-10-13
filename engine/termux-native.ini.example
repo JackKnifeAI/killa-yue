@@ -1,0 +1,8 @@
+[binaries]
+c = '/data/data/com.termux/files/usr/bin/clang'
+cpp = '/data/data/com.termux/files/usr/bin/clang++'
+ar = '/data/data/com.termux/files/usr/bin/llvm-ar'
+strip = '/data/data/com.termux/files/usr/bin/llvm-strip'
+pkg-config = '/usr/bin/pkg-config'
+[built-in options]
+pkg_config_path = '/data/data/com.termux/files/usr/lib/pkgconfig'

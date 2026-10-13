@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ai.jackknife.killayue" android:versionCode="2" android:versionName="1.0.0">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <application android:label="Killa YuE" android:icon="@mipmap/ic_launcher"
+        android:theme="@style/App" android:extractNativeLibs="true"
+        android:usesCleartextTraffic="true" android:largeHeap="true" android:allowBackup="false">
+        <activity android:name=".MainActivity" android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <service android:name=".EngineService" android:exported="false"/>
+        <provider android:name=".TrackProvider" android:authorities="ai.jackknife.killayue.tracks"
+            android:exported="false" android:grantUriPermissions="true"/>
+    </application>
+</manifest>
