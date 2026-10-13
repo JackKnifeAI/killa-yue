@@ -76,7 +76,8 @@ public class Skin {
     }
 
     private static final float[] STAFF_GOLD = {1027, 155, 172, 80, 34, 993, 21, 133, 176, 978, 37.4f, 53f, 68.5f, 84f, 100f};
-    private static float[] STAFF_CYBER = STAFF_GOLD, STAFF_FOUNDRY = STAFF_GOLD;
+    private static final float[] STAFF_CYBER = {1030, 171, 112, 83, 41, 989, 23, 141, 116, 975, 45f, 61f, 77f, 93f, 109f};
+    private static final float[] STAFF_FOUNDRY = {1030, 164, 136, 100, 66, 972, 20, 141, 140, 958, 33.5f, 52f, 71f, 89.5f, 108f};
 
     /** The glow colour of the skin at the given opacity (0 to 255). */
     static int glow(int alpha) {
@@ -105,7 +106,7 @@ public class Skin {
             round = bitmap(c, id, "round", 1);
             for (int i = 0; i < notes.length; i++) notes[i] = bitmap(c, id, "note" + (i + 1), 1);
             tileBg = "gold".equals(id);
-            bg = bitmap(c, id, "bg", tileBg ? 2 : 1);
+            bg = bitmap(c, id, tileBg ? "bg" : "wall", tileBg ? 2 : 1);
             if (text == null) {
                 script = Typeface.createFromAsset(c.getAssets(), "fonts/KillaGel-BoldScript.ttf");
                 text = Typeface.createFromAsset(c.getAssets(), "fonts/KillaMeridian-Text.ttf");
@@ -164,7 +165,8 @@ public class Skin {
     }
 
     private static Bitmap bitmap(Context c, String id, String name, int sample) throws Exception {
-        InputStream in = c.getAssets().open("skins/" + id + "/" + name + ".png");
+        // wallpapers are photographs, so they are stored as JPEG; everything else needs transparency
+        InputStream in = c.getAssets().open("skins/" + id + "/" + name + ("wall".equals(name) ? ".jpg" : ".png"));
         try {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inSampleSize = sample;
