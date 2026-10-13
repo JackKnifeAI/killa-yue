@@ -149,16 +149,24 @@ public class NowPlaying extends Service {
         });
     }
 
-    /** The skin's record on a square, turned to the given angle. */
+    /**
+     * The skin's record, turned to the given angle, on a field of the skin's colour.
+     * Samsung colours the status-bar chip and the media card from this picture, so the
+     * field is what makes the chip gold, cyan or orange and not grey.
+     */
     private static Bitmap record(float degrees) {
         Bitmap out = Bitmap.createBitmap(ART, ART, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
-        c.drawColor(Skin.DECK);
+        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+        p.setShader(new android.graphics.RadialGradient(ART / 2f, ART / 2f, ART * 0.75f,
+                new int[] {Skin.HI, Skin.ACCENT, Skin.LO}, new float[] {0f, 0.55f, 1f}, android.graphics.Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, ART, ART, p);
+        p.setShader(null);
         Bitmap disc = Skin.dial();
         if (disc != null) {
             c.rotate(degrees, ART / 2f, ART / 2f);
-            float inset = ART * 0.04f;
-            c.drawBitmap(disc, null, new RectF(inset, inset, ART - inset, ART - inset), new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG));
+            float inset = ART * 0.2f;
+            c.drawBitmap(disc, null, new RectF(inset, inset, ART - inset, ART - inset), p);
         }
         return out;
     }
@@ -194,6 +202,18 @@ public class NowPlaying extends Service {
                         shownPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
                         shownPlaying ? "Pause" : "Play", button(TOGGLE)).build())
                 .addAction(new Notification.Action.Builder(android.R.drawable.ic_media_next, "Next", button(NEXT)).build());
+        // Samsung's status-bar chip reads these: a colour for the pill and a picture to put in it.
+        // Other phones ignore them.
+        android.os.Bundle chip = new android.os.Bundle();
+        chip.putInt("android.ongoingActivityNoti.style", 1);
+        chip.putString("android.ongoingActivityNoti.primaryInfo", shownTitle);
+        chip.putString("android.ongoingActivityNoti.secondaryInfo", "Killa YuE");
+        chip.putString("android.ongoingActivityNoti.chipExpandedText", shownTitle);
+        chip.putInt("android.ongoingActivityNoti.chipBgColor", Skin.LO);
+        chip.putParcelable("android.ongoingActivityNoti.chipIcon", android.graphics.drawable.Icon.createWithBitmap(art));
+        chip.putString("android.ongoingActivityNoti.nowbarPrimaryInfo", shownTitle);
+        chip.putString("android.ongoingActivityNoti.nowbarSecondaryInfo", "Killa YuE");
+        b.setExtras(chip);
         Notification.MediaStyle style = new Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2);
         if (session != null) style.setMediaSession(session.getSessionToken());
         b.setStyle(style);

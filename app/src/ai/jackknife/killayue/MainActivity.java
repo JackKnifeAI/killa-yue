@@ -1954,6 +1954,7 @@ public class MainActivity extends Activity {
             player.setDataSource(f.getAbsolutePath());
             player.prepare();
             player.setOnCompletionListener(PlayerView.onEnd(this));
+            takeFocus();
             player.start();
             playingFile = f.getName();
             playTitle = m.optString("_title", "Untitled");
@@ -1968,6 +1969,22 @@ public class MainActivity extends Activity {
         if (player != null) NowPlaying.update(this);
     }
 
+    /** Asks other apps to stop their sound while ours plays, and stops ours when another app takes over. */
+    final android.media.AudioManager.OnAudioFocusChangeListener focus = new android.media.AudioManager.OnAudioFocusChangeListener() {
+        public void onAudioFocusChange(int change) {
+            if (change < 0 && player != null && player.isPlaying()) { // every kind of loss is negative
+                player.pause();
+                playerView.invalidate();
+                NowPlaying.update(MainActivity.this);
+            }
+        }
+    };
+
+    void takeFocus() {
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        am.requestAudioFocus(focus, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN);
+    }
+
     int playingIndex() {
         for (int i = 0; i < playlist.size(); i++) if (playlist.get(i).optString("_audio").equals(playingFile)) return i;
         return -1;
@@ -1979,8 +1996,12 @@ public class MainActivity extends Activity {
             else play(playlist.get(0));
             return;
         }
-        if (player.isPlaying()) player.pause();
-        else player.start();
+        if (player.isPlaying()) {
+            player.pause();
+        } else {
+            takeFocus();
+            player.start();
+        }
         playerView.invalidate();
         NowPlaying.update(this);
     }
