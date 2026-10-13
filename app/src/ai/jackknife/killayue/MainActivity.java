@@ -48,7 +48,7 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     // filled from the skin when the activity starts
     static int BG, CARD, TEXT, DIM, ACCENT, EDGE;
-    static final int PICK_AUDIO = 7, PICK_ADAPTER = 8;
+    static final int PICK_AUDIO = 7, PICK_ADAPTER = 8, PICK_RECIPE = 9;
     static volatile String adapterMsg = "";
 
     static final String[] STYLES = {
@@ -1322,6 +1322,10 @@ public class MainActivity extends Activity {
             importAdapterFile(data.getData());
             return;
         }
+        if (code == PICK_RECIPE) {
+            openRecipe(data.getData());
+            return;
+        }
         if (code != PICK_AUDIO) return;
         final Uri u = data.getData();
         String last = u.getLastPathSegment();
@@ -1450,16 +1454,40 @@ public class MainActivity extends Activity {
             libraryBox.addView(t);
             return;
         }
+        libraryBox.addView(chipRow(new String[] {"Sleep timer", "Open a recipe"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    askSleepTimer();
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.setType("*/*");
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(Intent.createChooser(i, "Pick a .killa recipe"), PICK_RECIPE);
+                }
+            },
+        }));
         playlist.clear();
         SimpleDateFormat df = new SimpleDateFormat("d MMM, HH:mm", Locale.US);
+        java.util.HashMap<String, Integer> familySize = new java.util.HashMap<String, Integer>();
+        ArrayList<JSONObject> loaded = new ArrayList<JSONObject>();
+        for (int i = 0; i < metas.size(); i++) {
+            try {
+                JSONObject j = new JSONObject(new String(Store.read(metas.get(i)), "UTF-8"));
+                loaded.add(j);
+                String fam = family(j);
+                Integer n = familySize.get(fam);
+                familySize.put(fam, Integer.valueOf(n == null ? 1 : n.intValue() + 1));
+            } catch (Exception e) {
+                loaded.add(null);
+            }
+        }
         for (int i = 0; i < metas.size(); i++) {
             final File mf = metas.get(i);
-            final JSONObject m;
-            try {
-                m = new JSONObject(new String(Store.read(mf), "UTF-8"));
-            } catch (Exception e) {
-                continue;
-            }
+            final JSONObject m = loaded.get(i);
+            if (m == null) continue;
             playlist.add(m);
             LinearLayout r = row();
             r.setBackground(glass(EDGE));
@@ -1469,6 +1497,8 @@ public class MainActivity extends Activity {
             t.setSingleLine(true);
             info.addView(t);
             String sub = clock(m.optInt("_seconds")) + "  ·  " + df.format(new Date(m.optLong("_created")));
+            int takes = familySize.get(family(m)).intValue();
+            if (takes > 1) sub += "  ·  one of " + takes + " takes";
             String st = m.optString("style");
             if (st.length() > 0) sub += "\n" + (st.length() > 60 ? st.substring(0, 60) + "…" : st);
             info.addView(text(sub, DIM, 12));
@@ -1509,18 +1539,20 @@ public class MainActivity extends Activity {
     void trackMenu(final File mf, final JSONObject m) {
         final String title = m.optString("_title", "Untitled");
         final String tokens = m.optString("semantic_tokens");
-        String[] items = {
-            "Play", "Lyrics, karaoke style", "New sound, same song", "Edit the score and render again", "Continue from this song",
-            "Use the same style and lyrics", "Share", "Change the title", "Details", "Delete",
+        final String[] items = {
+            "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
+            "Continue from this song", "Use the same style and lyrics", "Share", "Share as a recipe", "Change the title",
+            "Details", "Delete",
         };
         new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
-                if (w == 0) {
+                final String pick = items[w];
+                if ("Play".equals(pick)) {
                     play(m);
-                } else if (w == 1) {
+                } else if ("Show the lyrics".equals(pick)) {
                     if (!m.optString("_audio").equals(playingFile)) play(m);
                     showTab(TAB_LYRICS);
-                } else if (w == 2) {
+                } else if ("New sound, same song".equals(pick)) {
                     if (tokens.length() == 0) {
                         toast("This song has no saved melody data");
                         return;
@@ -1532,14 +1564,14 @@ public class MainActivity extends Activity {
                     seed.setText("");
                     showBanner();
                     showTab(0);
-                } else if (w == 3) {
+                } else if ("Edit the score and render again".equals(pick)) {
                     clearCarry();
                     loadPrompt(m, true);
                     showScore(true);
                     lmSeed.setText("");
                     showTab(0);
                     toast("Change the score, then Generate. The song is written again from it.");
-                } else if (w == 4) {
+                } else if ("Continue from this song".equals(pick)) {
                     if (tokens.length() == 0) {
                         toast("This song has no saved melody data");
                         return;
@@ -1549,20 +1581,20 @@ public class MainActivity extends Activity {
                     srcTokens = tokens;
                     carryName = title;
                     askSection(tokens.split(",").length / 25);
-                } else if (w == 5) {
+                } else if ("Use the same style and lyrics".equals(pick)) {
                     clearCarry();
                     loadPrompt(m, false);
                     showTab(0);
-                } else if (w == 6) {
+                } else if ("Share".equals(pick)) {
                     Intent s = new Intent(Intent.ACTION_SEND);
                     String a = m.optString("_audio");
                     s.setType(a.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
                     s.putExtra(Intent.EXTRA_STREAM, TrackProvider.uri(a));
                     s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     startActivity(Intent.createChooser(s, "Share song"));
-                } else if (w == 7) {
+                } else if ("Change the title".equals(pick)) {
                     retitle(mf, m);
-                } else if (w == 8) {
+                } else if ("Details".equals(pick)) {
                     String abc = m.optString("abc");
                     alert(title, "File: " + new File(Store.library(MainActivity.this), m.optString("_audio")).getAbsolutePath()
                             + "\n\nStyle: " + m.optString("style")
@@ -1570,6 +1602,10 @@ public class MainActivity extends Activity {
                             + "\nRender steps: " + m.optString("steps")
                             + "\n\nLyrics:\n" + m.optString("lyrics")
                             + (abc.length() > 0 ? "\n\nScore:\n" + abc : ""));
+                } else if ("Other takes of this song".equals(pick)) {
+                    showTakes(m);
+                } else if ("Share as a recipe".equals(pick)) {
+                    shareRecipe(m);
                 } else {
                     new AlertDialog.Builder(MainActivity.this).setTitle("Delete this song?")
                             .setMessage(title + "\nThe audio file and its saved melody are removed for good.")
@@ -1582,6 +1618,114 @@ public class MainActivity extends Activity {
                                 }
                             }).setNegativeButton("Keep", null).show();
                 }
+            }
+        }).show();
+    }
+
+    /** Songs with the same words and the same score are takes of one song. */
+    static String family(JSONObject m) {
+        return (m.optString("lyrics").trim() + "\u0001" + m.optString("abc").trim()).hashCode() + "";
+    }
+
+    void showTakes(final JSONObject m) {
+        final ArrayList<JSONObject> takes = new ArrayList<JSONObject>();
+        String fam = family(m);
+        for (int i = playlist.size() - 1; i >= 0; i--) if (family(playlist.get(i)).equals(fam)) takes.add(playlist.get(i));
+        if (takes.size() < 2) {
+            toast("This is the only take. \"New sound, same song\" makes another.");
+            return;
+        }
+        String[] names = new String[takes.size()];
+        SimpleDateFormat df = new SimpleDateFormat("d MMM, HH:mm", Locale.US);
+        for (int i = 0; i < names.length; i++) {
+            JSONObject t = takes.get(i);
+            names[i] = "Take " + (i + 1) + "   " + df.format(new Date(t.optLong("_created"))) + "   " + t.optString("steps", "32") + " steps"
+                    + (t.optString("_audio").equals(m.optString("_audio")) ? "   (this one)" : "");
+        }
+        new AlertDialog.Builder(this).setTitle("Takes of " + m.optString("_title", "this song"))
+                .setItems(names, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        play(takes.get(w));
+                    }
+                }).setNegativeButton("Close", null).show();
+    }
+
+    /** A recipe is everything needed to make this exact song again on another phone, without the audio. */
+    void shareRecipe(JSONObject m) {
+        try {
+            JSONObject r = new JSONObject(m.toString());
+            r.remove("_audio");
+            r.remove("_times");
+            r.put("_recipe", 1);
+            String a = m.optString("_audio");
+            int dot = a.lastIndexOf('.');
+            File f = new File(Store.library(this), (dot > 0 ? a.substring(0, dot) : a) + ".killa");
+            Store.write(f, r.toString().getBytes("UTF-8"));
+            Intent s = new Intent(Intent.ACTION_SEND);
+            s.setType("application/octet-stream");
+            s.putExtra(Intent.EXTRA_STREAM, TrackProvider.uri(f.getName()));
+            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(s, "Share this song's recipe"));
+        } catch (Exception e) {
+            toast("Could not write the recipe: " + e.getMessage());
+        }
+    }
+
+    void openRecipe(Uri u) {
+        try {
+            InputStream in = getContentResolver().openInputStream(u);
+            JSONObject r;
+            try {
+                r = new JSONObject(new String(Api.readAll(in), "UTF-8"));
+            } finally {
+                in.close();
+            }
+            if (r.optString("lyrics").length() == 0 && r.optString("style").length() == 0) throw new Exception("empty");
+            clearCarry();
+            loadPrompt(r, true);
+            songTitle.setText(r.optString("_title"));
+            if (r.optString("lm_seed").length() > 0) lmSeed.setText(r.optString("lm_seed"));
+            if (r.optString("seed").length() > 0) seed.setText(r.optString("seed"));
+            if (r.optString("steps").length() > 0) steps.setText(r.optString("steps"));
+            String tokens = r.optString("semantic_tokens");
+            if (tokens.length() > 0) {
+                // with the melody data the song comes out the same; without it the model writes a new take
+                semTokens = tokens;
+                carryName = r.optString("_title", "the shared song");
+                showBanner();
+            }
+            settle();
+            showTab(TAB_CREATE);
+            toast("Recipe loaded. Press Generate to make the song.");
+        } catch (Exception e) {
+            alert("Not a recipe", "That file is not a Killa YuE song recipe.");
+        }
+    }
+
+    // ---------- sleep timer ----------
+
+    Runnable sleepStop;
+
+    void askSleepTimer() {
+        final int[] minutes = {0, 15, 30, 45, 60, 90};
+        String[] names = {"Off", "15 minutes", "30 minutes", "45 minutes", "1 hour", "1 hour 30"};
+        new AlertDialog.Builder(this).setTitle("Stop the music after").setItems(names, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                if (sleepStop != null) ui.removeCallbacks(sleepStop);
+                sleepStop = null;
+                if (minutes[w] == 0) {
+                    toast("Sleep timer off");
+                    return;
+                }
+                sleepStop = new Runnable() {
+                    public void run() {
+                        sleepStop = null;
+                        if (player != null && player.isPlaying()) player.pause();
+                        playerView.invalidate();
+                    }
+                };
+                ui.postDelayed(sleepStop, minutes[w] * 60000L);
+                toast("The music will stop in " + minutes[w] + " minutes");
             }
         }).show();
     }
