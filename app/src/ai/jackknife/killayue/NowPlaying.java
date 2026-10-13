@@ -95,7 +95,9 @@ public class NowPlaying extends Service {
                         | PlaybackState.ACTION_SKIP_TO_NEXT | PlaybackState.ACTION_SKIP_TO_PREVIOUS | PlaybackState.ACTION_SEEK_TO)
                 .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, pos, playing ? 1f : 0f)
                 .build());
-        Bitmap art = record(angle);
+        // a song with a cover shows its cover; one without shows the skin's turning record
+        Bitmap cover = a.playMeta == null ? null : Covers.load(Covers.coverFor(a, a.playMeta), 2);
+        Bitmap art = cover != null ? cover : record(angle);
         session.setMetadata(new MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, a.playTitle)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, "Killa YuE")

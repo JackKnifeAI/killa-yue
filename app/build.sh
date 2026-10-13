@@ -31,6 +31,12 @@ cp "$DRIVER_DIR/libz.so.1" out/apk/lib/arm64-v8a/libkz.so
 cp "$DRIVER_DIR/libzstd.so.1" out/apk/lib/arm64-v8a/libkzstd.so
 cp "$DRIVER_DIR/libexpat.so.1" out/apk/lib/arm64-v8a/libkexpat.so
 
+# NPU cover painter: our runner plus Qualcomm's QNN runtime. The runtime is fetched from Maven
+# (com.qualcomm.qti:qnn-runtime) into NPU_DIR; its licence lets it ship inside the APK but not in this repository.
+if [ -n "$NPU_DIR" ]; then
+    cp "$NPU_DIR/sdnpu" out/apk/lib/arm64-v8a/libsdnpu.so
+    cp "$NPU_DIR"/lib/libQnnHtp.so "$NPU_DIR"/lib/libQnnSystem.so "$NPU_DIR"/lib/libQnnHtpV79Stub.so "$NPU_DIR"/lib/libQnnHtpV79Skel.so out/apk/lib/arm64-v8a/
+fi
 cp out/base.apk out/unsigned.apk
 python3 - <<'PY'
 import zipfile, os

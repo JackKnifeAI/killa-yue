@@ -7,7 +7,8 @@ import java.util.Locale;
 
 /**
  * Timed lyrics that travel with a song: an .lrc file beside the audio, and, for MP3,
- * an ID3v2.4 tag holding the title, the plain lyrics (USLT) and the timed lyrics (SYLT).
+ * an ID3v2.4 tag holding the title, the plain lyrics (USLT), the timed lyrics (SYLT) and,
+ * when the song has one, its cover (APIC).
  */
 public class Tags {
     static String lrc(String title, ArrayList<Karaoke.Line> lines) {
@@ -40,7 +41,7 @@ public class Tags {
         return b.toByteArray();
     }
 
-    static byte[] id3(String title, ArrayList<Karaoke.Line> lines) throws Exception {
+    static byte[] id3(String title, ArrayList<Karaoke.Line> lines, byte[] cover) throws Exception {
         ByteArrayOutputStream frames = new ByteArrayOutputStream();
         frame(frames, "TIT2", text(title));
         frame(frames, "TSSE", text("Killa YuE"));
@@ -68,6 +69,16 @@ public class Tags {
             }
             frame(frames, "SYLT", s.toByteArray());
         }
+        if (cover != null) {
+            ByteArrayOutputStream a = new ByteArrayOutputStream();
+            a.write(0);                                  // Latin-1 text
+            a.write("image/jpeg".getBytes("ISO-8859-1"));
+            a.write(0);
+            a.write(3);                                  // front cover
+            a.write(0);                                  // empty description
+            a.write(cover);
+            frame(frames, "APIC", a.toByteArray());
+        }
         ByteArrayOutputStream tag = new ByteArrayOutputStream();
         tag.write(new byte[] {'I', 'D', '3', 4, 0, 0});
         tag.write(synchsafe(frames.size()));
@@ -92,7 +103,9 @@ public class Tags {
             byte[] d = Store.read(audio);
             int skip = existingTag(d);
             ByteArrayOutputStream out = new ByteArrayOutputStream(d.length + 4096);
-            out.write(id3(title, lines));
+            // the song's cover, when it has one, travels inside the file too
+            File art = new File(audio.getParentFile(), (dot > 0 ? name.substring(0, dot) : name) + ".cover.jpg");
+            out.write(id3(title, lines, art.isFile() ? Store.read(art) : null));
             out.write(d, skip, d.length - skip);
             File tmp = new File(audio.getParentFile(), name + ".tagging");
             Store.write(tmp, out.toByteArray());

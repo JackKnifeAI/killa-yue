@@ -123,7 +123,7 @@ public class MainActivity extends Activity {
     DialView lengthDial;
     Spinner cotSpin, formatSpin, deviceSpin, quantSpin, seqSpin;
     LinearLayout advBox, libraryBox, modelBox, adapterBox;
-    TextView adapterStatus;
+    TextView adapterStatus, coverStatus;
     String adapterSeen = "", packsSeen = null;
     Button genBtn, engineBtn, scoreToggle;
     StaffProgress prog;
@@ -1032,6 +1032,7 @@ public class MainActivity extends Activity {
             }
 
             public void done() {
+                coverNewest();
                 if (fromQueue) {
                     refreshLibrary();
                     toast(queue.size() > 0 ? "Song ready. " + queue.size() + " more in the queue." : "Song ready. The queue is finished.");
@@ -1041,6 +1042,12 @@ public class MainActivity extends Activity {
                 }
             }
         });
+    }
+
+    /** After a song is saved: paint a cover for it if the cover model is installed. */
+    void coverNewest() {
+        refreshLibrary();
+        if (playlist.size() > 0 && !Covers.coverFor(this, playlist.get(0)).isFile()) makeCover(playlist.get(0), false);
     }
 
     // ---------- queue: songs lined up to be made one after another ----------
@@ -1499,6 +1506,14 @@ public class MainActivity extends Activity {
             LinearLayout r = row();
             r.setBackground(glass(EDGE));
             r.setPadding(dp(14), dp(12), dp(8), dp(12));
+            android.graphics.Bitmap thumb = Covers.load(Covers.coverFor(this, m), 8);
+            if (thumb != null) {
+                android.widget.ImageView iv = new android.widget.ImageView(this);
+                iv.setImageBitmap(thumb);
+                LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(dp(54), dp(54));
+                tl.rightMargin = dp(12);
+                r.addView(iv, tl);
+            }
             LinearLayout info = column();
             TextView t = text(m.optString("_title", "Untitled"), TEXT, 15);
             t.setSingleLine(true);
@@ -1548,7 +1563,7 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Share", "Share as a recipe", "Change the title",
+            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Share", "Share as a recipe", "Change the title",
             "Details", "Delete",
         };
         new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
@@ -1611,6 +1626,8 @@ public class MainActivity extends Activity {
                             + (abc.length() > 0 ? "\n\nScore:\n" + abc : ""));
                 } else if ("Other takes of this song".equals(pick)) {
                     showTakes(m);
+                } else if ("Make a cover".equals(pick)) {
+                    makeCover(m, true);
                 } else if ("Share as a recipe".equals(pick)) {
                     shareRecipe(m);
                 } else {
@@ -1627,6 +1644,40 @@ public class MainActivity extends Activity {
                 }
             }
         }).show();
+    }
+
+    /** Paints a cover on the NPU in the background, then embeds it in the song and refreshes the list. */
+    void makeCover(final JSONObject m, final boolean tell) {
+        if (!Covers.ready(this)) {
+            if (tell) {
+                alert("One more download needed", "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB).");
+                showTab(TAB_ENGINE);
+            }
+            return;
+        }
+        if (tell) toast("Painting a cover. It takes a few seconds.");
+        final Context app = getApplicationContext();
+        final int variation = Covers.coverFor(this, m).isFile() ? (int) (System.currentTimeMillis() % 100000) : 0;
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    Covers.make(app, m, variation);
+                    File audio = new File(Store.library(app), m.optString("_audio"));
+                    Tags.write(audio, m.optString("_title", "Untitled"), linesFor(m, m.optInt("_seconds") * 1000));
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final String ferr = err;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null && tell) alert("No cover this time", ferr);
+                        refreshLibrary();
+                        if (m.optString("_audio").equals(playingFile)) NowPlaying.update(MainActivity.this);
+                    }
+                });
+            }
+        }, "cover").start();
     }
 
     /** Songs with the same words and the same score are takes of one song. */
@@ -2142,6 +2193,29 @@ public class MainActivity extends Activity {
         c.addView(storageNote, gap(8));
         refreshModels();
 
+        c.addView(label("Album covers (painted on the NPU)"));
+        final Button coverGet = button("Get the cover model (710 MB)", false);
+        c.addView(coverGet);
+        coverStatus = text("", DIM, 12);
+        c.addView(coverStatus, gap(6));
+        coverGet.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (Covers.ready(MainActivity.this)) {
+                    toast("The cover model is already installed");
+                    return;
+                }
+                new AlertDialog.Builder(MainActivity.this).setTitle("Cover model")
+                        .setMessage("Stable Diffusion 1.5, compiled by Qualcomm for the Snapdragon 8 Elite. 710 MB. "
+                                + "It is licensed under CreativeML OpenRAIL-M, which forbids using it to break the law, "
+                                + "to harm people, or to spread false information to cause harm. It only runs on phones with this chip.")
+                        .setPositiveButton("Download", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                Covers.download(getApplicationContext());
+                            }
+                        }).setNegativeButton("Cancel", null).show();
+            }
+        });
+
         c.addView(label("Style adapters (LoRA)"));
         c.addView(chipRow(new String[] {"Add from Hugging Face", "Add from a file"}, new Runnable[] {
             new Runnable() {
@@ -2636,6 +2710,9 @@ public class MainActivity extends Activity {
             if (packsSeen != null && !packs.equals(packsSeen) && EngineService.running && !jobBusy) EngineService.stop(this);
             packsSeen = packs;
             adapterStatus.setText(adapterMsg);
+            coverStatus.setText(Covers.state.length() > 0 ? Covers.state
+                    : Covers.ready(this) ? "Installed. New songs get a cover by themselves; \"Make a cover\" in a song's menu paints another."
+                    : "Not installed.");
             StringBuilder now = new StringBuilder();
             ArrayList<File> have = installedAdapters();
             for (int i = 0; i < have.size(); i++) now.append(have.get(i).getName()).append('|');
