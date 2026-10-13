@@ -269,7 +269,7 @@ public class PlayerView extends View {
         if (action == MotionEvent.ACTION_UP) {
             // the record and title open the large player with the lyrics
             if (pressed < 0 && y < trackY() - 16 * dp) {
-                a.showKaraoke(a.karaokeView.getVisibility() != VISIBLE);
+                a.showTab(MainActivity.TAB_LYRICS);
                 performClick();
             }
             int hit = buttonAt(x, y);

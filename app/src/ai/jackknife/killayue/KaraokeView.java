@@ -16,7 +16,8 @@ import java.util.ArrayList;
 /**
  * The large player: a big spinning record and the lyrics, karaoke style. The line being
  * sung sits in the middle and fills with gold from left to right; sung lines drift up and
- * fade, coming lines wait below. Line times are estimates (see Karaoke). Tap to close.
+ * fade, coming lines wait below. Line times are estimates (see Karaoke) until the user
+ * times the song by hand: in that mode each tap marks the start of the next line.
  */
 public class KaraokeView extends View {
     private final MainActivity a;
@@ -107,6 +108,7 @@ public class KaraokeView extends View {
             // which line is being sung, or the last one that was
             int cur = -1;
             for (int i = 0; i < lines.size(); i++) if (pos >= lines.get(i).start) cur = i;
+            if (a.timing) cur = a.timingIndex - 1; // while timing, follow the taps, not the estimate
             float target = cur < 0 ? -0.6f : cur;
             // between lines the list keeps gliding, so the next line arrives as its time comes
             if (cur >= 0 && cur + 1 < lines.size() && pos > lines.get(cur).end) {
@@ -137,6 +139,7 @@ public class KaraokeView extends View {
                     continue;
                 }
                 float f = Math.max(0f, Math.min(1f, (pos - l.start) / (float) Math.max(1, l.end - l.start)));
+                if (a.timing) f = 1f;
                 float left = rx - tw / 2f;
                 txt.setColor(0xFF6E6552); // not yet sung
                 c.drawText(l.text, rx, y, txt);
@@ -161,7 +164,7 @@ public class KaraokeView extends View {
             // a long wait before the next line: three gold dots count it in
             int nextStart = cur + 1 < lines.size() ? lines.get(cur + 1).start : -1;
             boolean resting = cur < 0 || pos > lines.get(cur).end;
-            if (nextStart > 0 && resting && nextStart - pos > 2500) {
+            if (!a.timing && nextStart > 0 && resting && nextStart - pos > 2500) {
                 for (int i = 0; i < 3; i++) {
                     double pulse = 0.5 + 0.5 * Math.sin(now / 300.0 - i * 0.9);
                     p.setColor(((int) (70 + 150 * pulse * energy) << 24) | 0xE7BD61);
@@ -174,18 +177,21 @@ public class KaraokeView extends View {
         txt.setShader(null);
         txt.setColor(0xFF6E6552);
         txt.setTextSize(11 * dp);
-        c.drawText("Lyric timing is estimated from the score  ·  tap to close", rx, h - 12 * dp, txt);
+        String note = a.timing ? "Tap anywhere here the moment the next line begins"
+                : a.timedByHand ? "Timed by hand" : "Timing is estimated from the score";
+        if (a.timing) txt.setColor(Skin.GOLD);
+        c.drawText(note, rx, h - 12 * dp, txt);
 
         if (getVisibility() == VISIBLE && (on || energy > 0.01f)) postInvalidateOnAnimation();
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent e) {
-        if (e.getActionMasked() == MotionEvent.ACTION_UP) {
-            a.showKaraoke(false);
+        if (e.getActionMasked() == MotionEvent.ACTION_DOWN && a.timing) {
+            a.tapLine();
             performClick();
         }
-        return true;
+        return a.timing;
     }
 
     @Override

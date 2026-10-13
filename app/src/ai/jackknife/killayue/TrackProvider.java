@@ -37,6 +37,7 @@ public class TrackProvider extends ContentProvider {
     @Override
     public String getType(Uri uri) {
         String n = String.valueOf(uri.getLastPathSegment());
+        if (n.endsWith(".lrc")) return "text/plain";
         return n.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
     }
 

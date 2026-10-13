@@ -151,6 +151,37 @@ public class Karaoke {
         }
     }
 
+    /** The sung lines in order, without times. */
+    public static ArrayList<Line> lines(String lyrics) {
+        ArrayList<Line> all = new ArrayList<Line>();
+        ArrayList<LyricSection> ls = lyricSections(lyrics);
+        for (int i = 0; i < ls.size(); i++) all.addAll(ls.get(i).lines);
+        return all;
+    }
+
+    /** Lines with start times that were set by hand (one per line), and ends worked out from them. */
+    public static ArrayList<Line> timed(String lyrics, int[] starts, int durationMs) {
+        ArrayList<Line> all = lines(lyrics);
+        for (int i = 0; i < all.size() && i < starts.length; i++) all.get(i).start = starts[i];
+        finish(all, durationMs);
+        return all;
+    }
+
+    private static void finish(ArrayList<Line> all, int durationMs) {
+        for (int i = 0; i < all.size(); i++) {
+            Line l = all.get(i);
+            if (i > 0 && l.start < all.get(i - 1).start) l.start = all.get(i - 1).start; // keep order
+            l.start = Math.max(0, Math.min(durationMs, l.start));
+        }
+        for (int i = 0; i < all.size(); i++) {
+            Line l = all.get(i);
+            int until = i + 1 < all.size() ? all.get(i + 1).start : durationMs;
+            // a line is not held longer than it could take to sing; the gap after it is a rest
+            int sung = 600 + l.syllables * 330;
+            l.end = Math.max(l.start + 300, Math.min(until, l.start + sung));
+        }
+    }
+
     /** Lines with estimated start and end times. durationMs is the length of the audio. */
     public static ArrayList<Line> build(String lyrics, String abc, int durationMs) {
         ArrayList<LyricSection> ls = lyricSections(lyrics);
@@ -200,18 +231,7 @@ public class Karaoke {
             }
         }
 
-        for (int i = 0; i < all.size(); i++) {
-            Line l = all.get(i);
-            if (i > 0 && l.start < all.get(i - 1).start) l.start = all.get(i - 1).start; // keep order
-            l.start = Math.max(0, Math.min(durationMs, l.start));
-        }
-        for (int i = 0; i < all.size(); i++) {
-            Line l = all.get(i);
-            int until = i + 1 < all.size() ? all.get(i + 1).start : durationMs;
-            // a line is not held longer than it could take to sing; the gap after it is a rest
-            int sung = 600 + l.syllables * 330;
-            l.end = Math.max(l.start + 300, Math.min(until, l.start + sung));
-        }
+        finish(all, durationMs);
         return all;
     }
 }

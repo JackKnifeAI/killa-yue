@@ -86,7 +86,7 @@ public class Skin {
         return text;
     }
 
-    /** A button plate stretched to any width: the gold capsule, or the brushed black tab. */
+    /** A button plate stretched to any width: the gold capsule, or its slim-rimmed sibling. */
     static class Plate extends Drawable {
         private final boolean gold;
         private final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
@@ -103,7 +103,7 @@ public class Skin {
             Rect s = new Rect(0, 0, bmp.getWidth(), bmp.getHeight());
             float scale = b.height() / (float) s.height();
             // the rounded, knurled ends keep their shape; only the plain middle stretches
-            int capSrc = gold ? 150 : 40;
+            int capSrc = gold ? 150 : 140;
             int capDst = Math.min((int) (capSrc * scale), b.width() / 2);
             p.setColorFilter(pressed ? new LightingColorFilter(0xFFFFFFFF, 0x00302410) : null);
             canvas.drawBitmap(bmp, new Rect(s.left, s.top, s.left + capSrc, s.bottom),

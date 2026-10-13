@@ -103,13 +103,19 @@ public class MainActivity extends Activity {
     boolean ready;
 
     TextView header, banner, lengthLabel, progText, engineStatus, logView, storageNote;
-    View[] panels = new View[3];
-    Button[] tabs = new Button[3];
+    static final int TAB_CREATE = 0, TAB_LIBRARY = 1, TAB_LYRICS = 2, TAB_ENGINE = 3;
+    View[] panels = new View[4];
+    Button[] tabs = new Button[4];
     EditText style, lyrics, score, steps, variations, lmSeed, seed, cfgScale, bitrate, tempScore, tempSong, adaptersBox;
     SeekBar lengthBar;
     PlayerView playerView;
     KaraokeView karaokeView;
     ArrayList<Karaoke.Line> karaoke = new ArrayList<Karaoke.Line>();
+    FrameLayout lyricsChips;
+    JSONObject playMeta;
+    boolean timing, timedByHand;
+    int timingIndex;
+    int[] timingTimes;
     EditText songTitle;
     static volatile String pendingTitle = "";
     String playTitle = "";
@@ -218,7 +224,7 @@ public class MainActivity extends Activity {
             b.setTextSize(15);
             b.setTextColor(Skin.CREAM);
             b.setBackground(new Skin.Plate(false));
-            b.setPadding(dp(14), 0, dp(14), dp(6));
+            b.setPadding(dp(18), 0, dp(18), dp(1));
             b.setMinHeight(dp(50));
             b.setMinimumHeight(dp(50));
         }
@@ -345,13 +351,14 @@ public class MainActivity extends Activity {
 
         LinearLayout tabRow = row();
         tabRow.setPadding(dp(12), dp(4), dp(12), dp(4));
-        String[] names = {"Create", "Library", "Engine"};
-        for (int i = 0; i < 3; i++) {
+        String[] names = {"Create", "Library", "Lyrics", "Engine"};
+        for (int i = 0; i < 4; i++) {
             final int idx = i;
             tabs[i] = button(names[i], false);
+            tabs[i].setTextSize(14);
             LinearLayout.LayoutParams lp = weight();
-            lp.leftMargin = dp(4);
-            lp.rightMargin = dp(4);
+            lp.leftMargin = dp(3);
+            lp.rightMargin = dp(3);
             tabRow.addView(tabs[i], lp);
             tabs[i].setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
@@ -364,11 +371,9 @@ public class MainActivity extends Activity {
         FrameLayout content = new FrameLayout(this);
         panels[0] = scroll(buildCreate());
         panels[1] = scroll(buildLibrary());
-        panels[2] = scroll(buildEngine());
-        for (int i = 0; i < 3; i++) content.addView(panels[i]);
-        karaokeView = new KaraokeView(this);
-        karaokeView.setVisibility(View.GONE);
-        content.addView(karaokeView);
+        panels[2] = buildLyrics();
+        panels[3] = scroll(buildEngine());
+        for (int i = 0; i < 4; i++) content.addView(panels[i]);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
         root.addView(buildPlayer());
         setContentView(root);
@@ -380,7 +385,7 @@ public class MainActivity extends Activity {
         if (score.getText().length() > 0) showScore(true);
         refreshLibrary();
         ready = true;
-        showTab(Store.coreReady(this) ? 0 : 2);
+        showTab(Store.coreReady(this) ? TAB_CREATE : TAB_ENGINE);
         tick.run();
         healthLoop();
     }
@@ -392,21 +397,17 @@ public class MainActivity extends Activity {
         return s;
     }
 
-    void showKaraoke(boolean show) {
-        karaokeView.setVisibility(show ? View.VISIBLE : View.GONE);
-        if (show) karaokeView.invalidate();
-    }
-
     void showTab(int idx) {
-        if (karaokeView != null) showKaraoke(false);
-        for (int i = 0; i < 3; i++) {
+        if (timing && idx != TAB_LYRICS) endTiming(false);
+        for (int i = 0; i < 4; i++) {
             panels[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
             boolean on = i == idx;
             tabs[i].setBackground(new Skin.Plate(true));
             tabs[i].setTextColor(on ? 0xFFFFE2A6 : 0xFF8C7A4E);
-            tabs[i].setPadding(dp(18), 0, dp(18), dp(2));
+            tabs[i].setPadding(dp(12), 0, dp(12), dp(2));
         }
-        if (idx == 1) refreshLibrary();
+        if (idx == TAB_LIBRARY) refreshLibrary();
+        if (idx == TAB_LYRICS) karaokeView.invalidate();
     }
 
     @Override
@@ -961,6 +962,7 @@ public class MainActivity extends Activity {
             toast("Write a style or some lyrics first");
             return;
         }
+        if (dropMissingAdapters()) toast("An adapter that is no longer installed was left out");
         final JSONObject req;
         try {
             req = buildRequest();
@@ -1119,6 +1121,12 @@ public class MainActivity extends Activity {
                 meta.put("_created", System.currentTimeMillis());
                 meta.put("_seconds", frames / 25);
                 Store.write(new File(lib, base + ".json"), meta.toString().getBytes("UTF-8"));
+                try {
+                    Tags.write(new File(lib, base + ext), meta.optString("_title"),
+                            Karaoke.build(meta.optString("lyrics"), meta.optString("abc"), frames * 40));
+                } catch (Exception e) {
+                    // the song itself is saved; the lyrics file can be made later from the Lyrics tab
+                }
                 meta = null;
                 n++;
             }
@@ -1159,7 +1167,7 @@ public class MainActivity extends Activity {
         if (!Store.have(app, Store.MERT) || !Store.have(app, transcribe ? Store.SHEET : Store.TOKENIZER)) {
             alert("One more download needed", "Working from a recording needs the "
                     + (transcribe ? "cover pack" : "recording pack") + ". Download it on the Engine tab, then stop and start the engine.");
-            showTab(2);
+            showTab(TAB_ENGINE);
             return;
         }
         final String[] out = new String[1];
@@ -1332,7 +1340,7 @@ public class MainActivity extends Activity {
                     play(m);
                 } else if (w == 1) {
                     if (!m.optString("_audio").equals(playingFile)) play(m);
-                    showKaraoke(true);
+                    showTab(TAB_LYRICS);
                 } else if (w == 2) {
                     if (tokens.length() == 0) {
                         toast("This song has no saved melody data");
@@ -1416,6 +1424,8 @@ public class MainActivity extends Activity {
                             Store.write(mf, m.toString().getBytes("UTF-8"));
                             mf.setLastModified(stamp); // keep the song's place in the list
                             if (m.optString("_audio").equals(playingFile)) playTitle = t;
+                            Tags.write(new File(Store.library(MainActivity.this), m.optString("_audio")), t,
+                                    linesFor(m, m.optInt("_seconds") * 1000));
                         } catch (Exception ex) {
                             toast("Could not save the new title");
                         }
@@ -1425,6 +1435,162 @@ public class MainActivity extends Activity {
     }
 
     // ---------- player ----------
+
+    // ---------- Lyrics tab ----------
+
+    View buildLyrics() {
+        LinearLayout c = column();
+        karaokeView = new KaraokeView(this);
+        c.addView(karaokeView, new LinearLayout.LayoutParams(-1, 0, 1f));
+        lyricsChips = new FrameLayout(this);
+        lyricsChips.setBackgroundColor(0xFF080909);
+        lyricsChips.setPadding(dp(12), 0, dp(12), dp(8));
+        c.addView(lyricsChips);
+        lyricsButtons();
+        return c;
+    }
+
+    void lyricsButtons() {
+        lyricsChips.removeAllViews();
+        if (timing) {
+            lyricsChips.addView(chipRow(new String[] {"Back one line", "Finish and save", "Cancel"}, new Runnable[] {
+                new Runnable() {
+                    public void run() {
+                        backLine();
+                    }
+                },
+                new Runnable() {
+                    public void run() {
+                        endTiming(true);
+                    }
+                },
+                new Runnable() {
+                    public void run() {
+                        endTiming(false);
+                    }
+                },
+            }));
+        } else {
+            lyricsChips.addView(chipRow(new String[] {"Time the lyrics by tapping", "Share timed lyrics"}, new Runnable[] {
+                new Runnable() {
+                    public void run() {
+                        startTiming();
+                    }
+                },
+                new Runnable() {
+                    public void run() {
+                        shareLyrics();
+                    }
+                },
+            }));
+        }
+    }
+
+    File metaFile(JSONObject m) {
+        String a = m.optString("_audio");
+        int dot = a.lastIndexOf('.');
+        return new File(Store.library(this), (dot > 0 ? a.substring(0, dot) : a) + ".json");
+    }
+
+    /** Hand-set line times when the song has them, the estimate otherwise. */
+    static ArrayList<Karaoke.Line> linesFor(JSONObject m, int durationMs) {
+        JSONArray t = m.optJSONArray("_times");
+        ArrayList<Karaoke.Line> plain = Karaoke.lines(m.optString("lyrics"));
+        if (t != null && t.length() == plain.size() && t.length() > 0) {
+            int[] starts = new int[t.length()];
+            for (int i = 0; i < starts.length; i++) starts[i] = t.optInt(i);
+            return Karaoke.timed(m.optString("lyrics"), starts, durationMs);
+        }
+        return Karaoke.build(m.optString("lyrics"), m.optString("abc"), durationMs);
+    }
+
+    void startTiming() {
+        if (player == null || playMeta == null) {
+            toast("Play a song first, then time its lyrics");
+            return;
+        }
+        if (karaoke.size() == 0) {
+            toast("This song has no lyrics to time");
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Time the lyrics")
+                .setMessage("The song starts from the beginning. Tap the lyrics the moment each line begins. "
+                        + "\"Back one line\" lets you redo a line you missed.")
+                .setPositiveButton("Start", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        timing = true;
+                        timingIndex = 0;
+                        timingTimes = new int[karaoke.size()];
+                        player.seekTo(0);
+                        player.start();
+                        lyricsButtons();
+                        karaokeView.invalidate();
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    void tapLine() {
+        if (!timing || player == null) return;
+        // a tap lands a moment after the ear hears the line
+        timingTimes[timingIndex++] = Math.max(0, player.getCurrentPosition() - 150);
+        if (timingIndex >= timingTimes.length) endTiming(true);
+        else karaokeView.invalidate();
+    }
+
+    void backLine() {
+        if (!timing || timingIndex == 0 || player == null) return;
+        timingIndex--;
+        player.seekTo(Math.max(0, (timingIndex > 0 ? timingTimes[timingIndex - 1] : 0) - 1500));
+        karaokeView.invalidate();
+    }
+
+    void endTiming(boolean save) {
+        if (!timing) return;
+        timing = false;
+        if (save && timingIndex > 0 && playMeta != null && player != null) {
+            try {
+                // lines that were not reached keep their estimated times, pushed later if need be
+                JSONArray t = new JSONArray();
+                int last = 0;
+                for (int i = 0; i < karaoke.size(); i++) {
+                    int v = i < timingIndex ? timingTimes[i] : Math.max(last, karaoke.get(i).start);
+                    t.put(v);
+                    last = v;
+                }
+                playMeta.put("_times", t);
+                File mf = metaFile(playMeta);
+                long stamp = mf.lastModified();
+                Store.write(mf, playMeta.toString().getBytes("UTF-8"));
+                mf.setLastModified(stamp);
+                karaoke = linesFor(playMeta, player.getDuration());
+                timedByHand = true;
+                Tags.write(new File(Store.library(this), playMeta.optString("_audio")), playTitle, karaoke);
+                toast(timingIndex >= karaoke.size() ? "Timing saved with the song"
+                        : "Saved. " + timingIndex + " of " + karaoke.size() + " lines were timed by hand.");
+            } catch (Exception e) {
+                toast("Could not save the timing: " + e.getMessage());
+            }
+        }
+        lyricsButtons();
+        karaokeView.invalidate();
+    }
+
+    void shareLyrics() {
+        if (playMeta == null || player == null || karaoke.size() == 0) {
+            toast("Play a song with lyrics first");
+            return;
+        }
+        try {
+            File lrc = Tags.write(new File(Store.library(this), playMeta.optString("_audio")), playTitle, karaoke);
+            Intent s = new Intent(Intent.ACTION_SEND);
+            s.setType("text/plain");
+            s.putExtra(Intent.EXTRA_STREAM, TrackProvider.uri(lrc.getName()));
+            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(s, "Share timed lyrics (.lrc)"));
+        } catch (Exception e) {
+            toast("Could not write the lyrics file: " + e.getMessage());
+        }
+    }
 
     View buildPlayer() {
         playerView = new PlayerView(this);
@@ -1436,8 +1602,14 @@ public class MainActivity extends Activity {
             player.release();
             player = null;
         }
+        if (timing) {
+            timing = false;
+            lyricsButtons();
+        }
         playingFile = "";
         playTitle = "";
+        playMeta = null;
+        timedByHand = false;
         karaoke = new ArrayList<Karaoke.Line>();
         if (playerView != null) playerView.invalidate();
     }
@@ -1453,7 +1625,9 @@ public class MainActivity extends Activity {
             player.start();
             playingFile = f.getName();
             playTitle = m.optString("_title", "Untitled");
-            karaoke = Karaoke.build(m.optString("lyrics"), m.optString("abc"), player.getDuration());
+            playMeta = m;
+            karaoke = linesFor(m, player.getDuration());
+            timedByHand = m.optJSONArray("_times") != null && m.optJSONArray("_times").length() == karaoke.size();
         } catch (Exception e) {
             stopPlayer();
             toast("Could not play this file");
@@ -1785,6 +1959,8 @@ public class MainActivity extends Activity {
                             .setPositiveButton("Remove", new DialogInterface.OnClickListener() {
                                 public void onClick(DialogInterface d, int w) {
                                     deleteAll(f);
+                                    adapterMsg = "";
+                                    dropMissingAdapters();
                                     adaptersChanged();
                                 }
                             }).setNegativeButton("Keep", null).show();
@@ -1796,6 +1972,28 @@ public class MainActivity extends Activity {
         if (list.size() == 0) {
             adapterBox.addView(text("None installed. An adapter bends the model toward one style or voice.", DIM, 12), gap(4));
         }
+    }
+
+    /** Takes adapters that are no longer installed out of the song's adapter box. True if any were dropped. */
+    boolean dropMissingAdapters() {
+        String cur = val(adaptersBox);
+        if (cur.length() == 0) return false;
+        ArrayList<File> have = installedAdapters();
+        StringBuilder keep = new StringBuilder();
+        boolean dropped = false;
+        String[] items = cur.split(",");
+        for (int i = 0; i < items.length; i++) {
+            String it = items[i].trim();
+            if (it.length() == 0) continue;
+            int k = it.lastIndexOf(':');
+            String name = k > 0 ? it.substring(0, k).trim() : it;
+            boolean found = false;
+            for (int j = 0; j < have.size(); j++) if (have.get(j).getName().equals(name)) found = true;
+            if (found) keep.append(keep.length() > 0 ? ", " : "").append(it);
+            else dropped = true;
+        }
+        if (dropped) adaptersBox.setText(keep.toString());
+        return dropped;
     }
 
     /** The engine reads the adapters folder when it starts, so a change means a restart. */
@@ -2015,7 +2213,7 @@ public class MainActivity extends Activity {
             progText.setText(jobError.length() > 0 && !"Cancelled".equals(jobError) ? "Last attempt failed: " + jobError : "");
         }
 
-        if (panels[2].getVisibility() == View.VISIBLE) {
+        if (panels[TAB_ENGINE].getVisibility() == View.VISIBLE) {
             String heat = gpuHeat();
             engineStatus.setText(es + (heat.length() > 0 ? "\n" + heat : "")
                     + (EngineService.lastError.length() > 0 && !EngineService.running
