@@ -97,14 +97,14 @@ public class PlayerView extends View {
         spin = (spin + dt * 200f * energy) % 360f; // a 33 rpm record turns 200 degrees a second
 
         // deck: near-black with a gold hairline along the top
-        c.drawColor(0xFF080909);
-        p.setShader(new LinearGradient(0, 0, w, 0, new int[] {0x00E7BD61, 0xFFE7BD61, 0x00E7BD61}, null, Shader.TileMode.CLAMP));
+        c.drawColor(Skin.DECK);
+        p.setShader(new LinearGradient(0, 0, w, 0, new int[] {Skin.accent(0), Skin.ACCENT, Skin.accent(0)}, null, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, Math.max(1f, dp), p);
         p.setShader(null);
 
         // the record
         float rr = 20 * dp, rx = 20 * dp + rr, ry = 10 * dp + rr;
-        p.setShader(new RadialGradient(rx, ry, rr * 1.5f, ((int) (0x55 * energy)) << 24 | 0xFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
+        p.setShader(new RadialGradient(rx, ry, rr * 1.5f, ((int) (0x55 * energy)) << 24 | Skin.GLOW, Skin.glow(0x00), Shader.TileMode.CLAMP));
         c.drawCircle(rx, ry, rr * 1.5f, p);
         p.setShader(null);
         Bitmap disc = Skin.dial();
@@ -124,7 +124,7 @@ public class PlayerView extends View {
             v *= 0.55 + 0.45 * Math.sin(t * 1.9 + i * 0.6);
             float h = 2.5f * dp + (float) Math.abs(v) * barsH * energy;
             float x = barsL + i * bw;
-            p.setShader(new LinearGradient(0, barsB - h, 0, barsB, 0xFFFFE2A6, 0xFF8F6A22, Shader.TileMode.CLAMP));
+            p.setShader(new LinearGradient(0, barsB - h, 0, barsB, Skin.HI, Skin.LO, Shader.TileMode.CLAMP));
             c.drawRoundRect(new RectF(x + bw * 0.18f, barsB - h, x + bw * 0.82f, barsB), bw * 0.3f, bw * 0.3f, p);
         }
         p.setShader(null);
@@ -133,7 +133,7 @@ public class PlayerView extends View {
         float tx = rx + rr + 12 * dp, tMax = barsL - tx - 10 * dp;
         txt.setTypeface(Skin.text());
         txt.setTextSize(14 * dp);
-        txt.setColor(a.playTitle.length() > 0 ? Skin.CREAM : 0xFF9D988C);
+        txt.setColor(a.playTitle.length() > 0 ? Skin.TEXT : Skin.DIM);
         String title = a.playTitle.length() > 0 ? a.playTitle : "Nothing playing";
         c.drawText(TextUtils.ellipsize(title, new android.text.TextPaint(txt), tMax, TextUtils.TruncateAt.END).toString(),
                 tx, ry - 2 * dp, txt);
@@ -141,31 +141,31 @@ public class PlayerView extends View {
         int pos = scrubbing ? (int) (scrubTo * dur) : position();
         txt.setTypeface(Typeface.MONOSPACE);
         txt.setTextSize(11 * dp);
-        txt.setColor(Skin.GOLD);
+        txt.setColor(Skin.ACCENT);
         c.drawText(MainActivity.clock(pos / 1000) + "  /  " + MainActivity.clock(dur / 1000), tx, ry + 14 * dp, txt);
 
         // scrubber
         float tl = trackLeft(), tr = trackRight(), ty = trackY();
         float frac = dur > 0 ? Math.max(0f, Math.min(1f, pos / (float) dur)) : 0f;
         float hx = tl + (tr - tl) * frac;
-        p.setColor(0xFF1C1912);
+        p.setColor(Skin.OFF);
         c.drawRoundRect(new RectF(tl, ty - 2.5f * dp, tr, ty + 2.5f * dp), 3 * dp, 3 * dp, p);
-        p.setColor(0xFF54482D);
+        p.setColor(Skin.EDGE);
         for (int i = 0; i <= 10; i++) {
             float nx = tl + (tr - tl) * i / 10f;
             c.drawRect(nx - 0.5f * dp, ty + 4 * dp, nx + 0.5f * dp, ty + (i % 5 == 0 ? 8 : 6.5f) * dp, p);
         }
         if (hx > tl) {
-            p.setShader(new LinearGradient(tl, 0, hx, 0, 0xFF8F5A12, 0xFFFFD98A, Shader.TileMode.CLAMP));
+            p.setShader(new LinearGradient(tl, 0, hx, 0, Skin.LO, Skin.HI, Shader.TileMode.CLAMP));
             c.drawRoundRect(new RectF(tl, ty - 2.5f * dp, hx, ty + 2.5f * dp), 3 * dp, 3 * dp, p);
             // a glint that runs along the played part while the song plays
             float gx = tl + (hx - tl) * (float) ((now % 2400) / 2400.0);
-            p.setShader(new RadialGradient(gx, ty, 16 * dp, ((int) (0x99 * energy)) << 24 | 0xFFF3D0, 0x00FFF3D0, Shader.TileMode.CLAMP));
+            p.setShader(new RadialGradient(gx, ty, 16 * dp, ((int) (0x99 * energy)) << 24 | (Skin.HI & 0xFFFFFF), Skin.hi(0x00), Shader.TileMode.CLAMP));
             c.drawRect(Math.max(tl, gx - 16 * dp), ty - 2.5f * dp, Math.min(hx, gx + 16 * dp), ty + 2.5f * dp, p);
         }
-        p.setShader(new RadialGradient(hx, ty, 12 * dp, 0xAAFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
+        p.setShader(new RadialGradient(hx, ty, 12 * dp, Skin.glow(0xAA), Skin.glow(0x00), Shader.TileMode.CLAMP));
         c.drawCircle(hx, ty, 12 * dp, p);
-        p.setShader(new RadialGradient(hx - 1.5f * dp, ty - 1.5f * dp, 7 * dp, 0xFFFFF3D0, 0xFFD9861A, Shader.TileMode.CLAMP));
+        p.setShader(new RadialGradient(hx - 1.5f * dp, ty - 1.5f * dp, 7 * dp, Skin.HI, Skin.glow(0xFF), Shader.TileMode.CLAMP));
         c.drawCircle(hx, ty, (scrubbing ? 7.5f : 5.5f) * dp, p);
         p.setShader(null);
 
@@ -184,7 +184,7 @@ public class PlayerView extends View {
             if (i == PLAY || down) {
                 float gl = br[i] * 1.4f;
                 int al = down ? 0xAA : (int) (0x30 + 0x45 * energy * (0.6 + 0.4 * Math.sin(now / 320.0)));
-                p.setShader(new RadialGradient(bx[i], by, gl, (al << 24) | 0xFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
+                p.setShader(new RadialGradient(bx[i], by, gl, (al << 24) | Skin.GLOW, Skin.glow(0x00), Shader.TileMode.CLAMP));
                 c.drawCircle(bx[i], by, gl, p);
                 p.setShader(null);
             }
@@ -233,7 +233,7 @@ public class PlayerView extends View {
         c.translate(0, dp);
         c.drawPath(path, p);
         c.restore();
-        p.setShader(new LinearGradient(0, y - s, 0, y + s, new int[] {0xFFFFF0C8, 0xFFE7BD61, 0xFFA87724}, null, Shader.TileMode.CLAMP));
+        p.setShader(new LinearGradient(0, y - s, 0, y + s, new int[] {Skin.HI, Skin.ACCENT, Skin.LO}, null, Shader.TileMode.CLAMP));
         c.drawPath(path, p);
         p.setShader(null);
     }

@@ -18,11 +18,6 @@ import android.view.View;
  * sparks, notes ahead of it are ghosts.
  */
 public class StaffProgress extends View {
-    // measurements of staff.png (1027 x 155): caps, channel and the five inlaid lines
-    private static final float SRC_W = 1027, SRC_H = 155, CAP_L = 172, CAP_R = 80;
-    private static final float CH_L = 34, CH_R = 993, CH_T = 21, CH_B = 133;
-    private static final float[] LINES = {37.4f, 53f, 68.5f, 84f, 100f};
-    private static final float NOTES_FROM = 176, NOTES_TO = 978;
     // a little rising and falling phrase, in staff steps above the bottom line
     private static final int[] MELODY = {2, 4, 6, 5, 7, 5, 3, 4, 1, 3, 5};
     private static final long LAP_MS = 11000;
@@ -60,6 +55,11 @@ public class StaffProgress extends View {
     protected void onDraw(Canvas c) {
         Bitmap staff = Skin.staff();
         if (staff == null || getWidth() == 0) return;
+        // the staff image's own measurements, which differ from skin to skin
+        final float[] g = Skin.STAFF;
+        final float SRC_W = g[0], SRC_H = g[1], CAP_L = g[2], CAP_R = g[3];
+        final float CH_L = g[4], CH_R = g[5], CH_T = g[6], CH_B = g[7], NOTES_FROM = g[8], NOTES_TO = g[9];
+        final float[] LINES = {g[10], g[11], g[12], g[13], g[14]};
         float k = getHeight() / SRC_H;
         float w = getWidth();
         long now = SystemClock.uptimeMillis();
@@ -93,13 +93,13 @@ public class StaffProgress extends View {
         // amber light pooled behind the playhead
         {
             int pool = ((int) (0x66 * fade)) << 24;
-            p.setShader(new LinearGradient(chL, 0, head, 0, 0x00FFB347, pool | 0xFFB347, Shader.TileMode.CLAMP));
+            p.setShader(new LinearGradient(chL, 0, head, 0, Skin.glow(0x00), pool | Skin.GLOW, Shader.TileMode.CLAMP));
             c.drawRect(chL, chT, head, chB, p);
         }
         float glowR = 46 * k;
-        p.setShader(new RadialGradient(head, (chT + chB) / 2, glowR, 0x88FFC966, 0x00FFC966, Shader.TileMode.CLAMP));
+        p.setShader(new RadialGradient(head, (chT + chB) / 2, glowR, Skin.glow(0x88), Skin.glow(0x00), Shader.TileMode.CLAMP));
         c.drawCircle(head, (chT + chB) / 2, glowR, p);
-        p.setShader(new LinearGradient(0, chT, 0, chB, new int[] {0x00FFE2A6, 0xFFFFE2A6, 0x00FFE2A6},
+        p.setShader(new LinearGradient(0, chT, 0, chB, new int[] {Skin.hi(0x00), Skin.HI, Skin.hi(0x00)},
                 null, Shader.TileMode.CLAMP));
         p.setStrokeWidth(Math.max(1.5f, 2f * k));
         c.drawLine(head, chT + 4 * k, head, chB - 4 * k, p);
@@ -123,7 +123,7 @@ public class StaffProgress extends View {
 
             if (lit && fade > 0.3f) {
                 float gr = 20 * k;
-                p.setShader(new RadialGradient(x, y, gr, (((int) (150 * edge)) << 24) | 0xFFB347, 0x00FFB347,
+                p.setShader(new RadialGradient(x, y, gr, (((int) (150 * edge)) << 24) | Skin.GLOW, Skin.glow(0x00),
                         Shader.TileMode.CLAMP));
                 c.drawCircle(x, y, gr, p);
                 p.setShader(null);
@@ -134,7 +134,7 @@ public class StaffProgress extends View {
                     float sy = y + (float) Math.cos(now / 370.0 + s * 2.1 + i) * 7 * k;
                     int a = (int) (edge * (110 + 100 * tw) / s);
                     if (a <= 0) continue;
-                    p.setColor((Math.min(255, a) << 24) | 0xFFE9B8);
+                    p.setColor((Math.min(255, a) << 24) | (Skin.HI & 0xFFFFFF));
                     c.drawCircle(sx, sy, (1.9f - s * 0.3f) * k + 0.6f, p);
                 }
             }

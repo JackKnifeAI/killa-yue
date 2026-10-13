@@ -32,7 +32,7 @@ public class KaraokeView extends View {
         super(a);
         this.a = a;
         dp = getResources().getDisplayMetrics().density;
-        setBackground(Skin.leather(a));
+        setBackground(Skin.background(a));
         setContentDescription("Lyrics");
     }
 
@@ -76,7 +76,7 @@ public class KaraokeView extends View {
 
         // the record, large
         float rr = Math.min(w * 0.2f, h * 0.13f), rx = w / 2f, ry = 22 * dp + rr;
-        p.setShader(new RadialGradient(rx, ry, rr * 1.7f, ((int) (0x66 * energy)) << 24 | 0xFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
+        p.setShader(new RadialGradient(rx, ry, rr * 1.7f, ((int) (0x66 * energy)) << 24 | Skin.GLOW, Skin.glow(0x00), Shader.TileMode.CLAMP));
         c.drawCircle(rx, ry, rr * 1.7f, p);
         p.setShader(null);
         Bitmap disc = Skin.dial();
@@ -88,9 +88,9 @@ public class KaraokeView extends View {
         }
         txt.setTextAlign(Paint.Align.CENTER);
         txt.setTypeface(Skin.script());
-        txt.setColor(Skin.GOLD);
+        txt.setColor(Skin.ACCENT);
         txt.setShader(null);
-        fit(a.playTitle.length() > 0 ? a.playTitle : "Nothing playing", 26 * dp, w - 48 * dp);
+        fit(a.playTitle.length() > 0 ? a.playTitle : "Nothing playing", (Skin.SCRIPT_TITLES ? 26 : 20) * dp, w - 48 * dp);
         float titleY = ry + rr + 40 * dp;
         c.drawText(a.playTitle.length() > 0 ? a.playTitle : "Nothing playing", rx, titleY, txt);
 
@@ -101,7 +101,7 @@ public class KaraokeView extends View {
         txt.setTypeface(Skin.text());
 
         if (lines == null || lines.size() == 0) {
-            txt.setColor(0xFF9D988C);
+            txt.setColor(Skin.DIM);
             txt.setTextSize(15 * dp);
             c.drawText(a.player == null ? "Play a song to see its lyrics here" : "This song has no lyrics", rx, mid, txt);
         } else {
@@ -134,19 +134,19 @@ public class KaraokeView extends View {
                 int alpha = (int) (255 * fade);
                 txt.setShader(null);
                 if (!active) {
-                    txt.setColor((alpha << 24) | (i < cur ? 0x8C7A4E : 0xE9E3D5));
+                    txt.setColor((alpha << 24) | ((i < cur ? Skin.LO : Skin.TEXT) & 0xFFFFFF));
                     c.drawText(l.text, rx, y, txt);
                     continue;
                 }
                 float f = Math.max(0f, Math.min(1f, (pos - l.start) / (float) Math.max(1, l.end - l.start)));
                 if (a.timing) f = 1f;
                 float left = rx - tw / 2f;
-                txt.setColor(0xFF6E6552); // not yet sung
+                txt.setColor(Skin.FAINT); // not yet sung
                 c.drawText(l.text, rx, y, txt);
                 c.save();
                 c.clipRect(left, y - size * 1.2f, left + tw * f, y + size * 0.5f);
-                txt.setShadowLayer(10 * dp, 0, 0, 0xCCFFB347);
-                txt.setShader(new LinearGradient(0, y - size, 0, y + size * 0.2f, 0xFFFFF0C8, 0xFFE7BD61, Shader.TileMode.CLAMP));
+                txt.setShadowLayer(10 * dp, 0, 0, Skin.glow(0xCC));
+                txt.setShader(new LinearGradient(0, y - size, 0, y + size * 0.2f, Skin.HI, Skin.ACCENT, Shader.TileMode.CLAMP));
                 c.drawText(l.text, rx, y, txt);
                 txt.clearShadowLayer();
                 txt.setShader(null);
@@ -154,7 +154,7 @@ public class KaraokeView extends View {
                 // the spark at the point being sung
                 if (f > 0 && f < 1) {
                     float sx = left + tw * f;
-                    p.setShader(new RadialGradient(sx, y - size * 0.3f, 12 * dp, 0xCCFFE2A6, 0x00FFE2A6, Shader.TileMode.CLAMP));
+                    p.setShader(new RadialGradient(sx, y - size * 0.3f, 12 * dp, Skin.hi(0xCC), Skin.hi(0x00), Shader.TileMode.CLAMP));
                     c.drawCircle(sx, y - size * 0.3f, 12 * dp, p);
                     p.setShader(null);
                 }
@@ -167,7 +167,7 @@ public class KaraokeView extends View {
             if (!a.timing && nextStart > 0 && resting && nextStart - pos > 2500) {
                 for (int i = 0; i < 3; i++) {
                     double pulse = 0.5 + 0.5 * Math.sin(now / 300.0 - i * 0.9);
-                    p.setColor(((int) (70 + 150 * pulse * energy) << 24) | 0xE7BD61);
+                    p.setColor(((int) (70 + 150 * pulse * energy) << 24) | (Skin.ACCENT & 0xFFFFFF));
                     c.drawCircle(rx + (i - 1) * 16 * dp, top + 12 * dp, (3.2f + (float) pulse) * dp, p);
                 }
             }
@@ -175,11 +175,11 @@ public class KaraokeView extends View {
 
         txt.setTypeface(Skin.text());
         txt.setShader(null);
-        txt.setColor(0xFF6E6552);
+        txt.setColor(Skin.FAINT);
         txt.setTextSize(11 * dp);
         String note = a.timing ? "Tap anywhere here the moment the next line begins"
                 : a.timedByHand ? "Timed by hand" : "Timing is estimated from the score";
-        if (a.timing) txt.setColor(Skin.GOLD);
+        if (a.timing) txt.setColor(Skin.ACCENT);
         c.drawText(note, rx, h - 12 * dp, txt);
 
         if (getVisibility() == VISIBLE && (on || energy > 0.01f)) postInvalidateOnAnimation();

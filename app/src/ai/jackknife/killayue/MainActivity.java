@@ -46,8 +46,8 @@ import java.util.Date;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    static final int BG = 0xFF080909, CARD = 0xF20B0C0C, TEXT = 0xFFE9E3D5, DIM = 0xFF9D988C, ACCENT = 0xFFE7BD61;
-    static final int EDGE = 0xFF54482D;
+    // filled from the skin when the activity starts
+    static int BG, CARD, TEXT, DIM, ACCENT, EDGE;
     static final int PICK_AUDIO = 7, PICK_ADAPTER = 8;
     static volatile String adapterMsg = "";
 
@@ -182,7 +182,7 @@ public class MainActivity extends Activity {
     EditText edit(String hint, int minLines) {
         EditText e = new EditText(this);
         e.setHint(hint);
-        e.setHintTextColor(0xFF6E6A60);
+        e.setHintTextColor(Skin.FAINT);
         e.setTextColor(TEXT);
         e.setTextSize(15);
         e.setBackground(glass(EDGE));
@@ -212,9 +212,13 @@ public class MainActivity extends Activity {
         b.setShadowLayer(5, 0, 2, 0xCC000000);
         b.setStateListAnimator(null);
         if (primary) {
-            b.setTypeface(Skin.script());
-            b.setTextSize(24);
-            b.setTextColor(Skin.GOLD);
+            b.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
+            b.setTextSize(Skin.SCRIPT_TITLES ? 24 : 18);
+            if (!Skin.SCRIPT_TITLES) {
+                b.setAllCaps(true);
+                b.setLetterSpacing(0.1f);
+            }
+            b.setTextColor(Skin.ACCENT);
             b.setBackground(new Skin.Plate(true));
             b.setPadding(dp(30), 0, dp(30), dp(2));
             b.setMinHeight(dp(64));
@@ -222,7 +226,7 @@ public class MainActivity extends Activity {
         } else {
             b.setTypeface(Skin.text(), Typeface.BOLD);
             b.setTextSize(15);
-            b.setTextColor(Skin.CREAM);
+            b.setTextColor(Skin.TEXT);
             b.setBackground(new Skin.Plate(false));
             b.setPadding(dp(18), 0, dp(18), dp(1));
             b.setMinHeight(dp(50));
@@ -235,11 +239,11 @@ public class MainActivity extends Activity {
         Button b = new Button(this);
         b.setText(s);
         b.setAllCaps(false);
-        b.setTextColor(Skin.GOLD);
+        b.setTextColor(Skin.ACCENT);
         b.setTextSize(13);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setStateListAnimator(null);
-        GradientDrawable pill = box(0xFF0B0C0C, 18);
+        GradientDrawable pill = box(Skin.PILL, 18);
         pill.setStroke(dp(1), EDGE);
         b.setBackground(pill);
         b.setMinHeight(dp(36));
@@ -327,23 +331,31 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle b) {
+        setTheme(Skin.themeFor(Skin.id(this)));
         super.onCreate(b);
         inst = this;
         cfg = getSharedPreferences("cfg", 0);
         Skin.load(this);
+        BG = Skin.DECK;
+        CARD = Skin.CARD;
+        TEXT = Skin.TEXT;
+        DIM = Skin.DIM;
+        ACCENT = Skin.ACCENT;
+        EDGE = Skin.EDGE;
         if (checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") != 0) {
             requestPermissions(new String[] {"android.permission.WRITE_EXTERNAL_STORAGE"}, 1);
         }
 
         LinearLayout root = column();
-        root.setBackground(Skin.leather(this));
+        root.setBackground(Skin.background(this));
         root.setFitsSystemWindows(true);
 
         LinearLayout top = row();
         top.setPadding(dp(18), dp(8), dp(18), dp(8));
-        top.setBackgroundColor(0xFF080909);
-        TextView title = text("Killa YuE", Skin.GOLD, 30);
-        title.setTypeface(Skin.script());
+        top.setBackgroundColor(Skin.DECK);
+        TextView title = text(Skin.SCRIPT_TITLES ? "Killa YuE" : "KILLA YuE", Skin.ACCENT, Skin.SCRIPT_TITLES ? 30 : 22);
+        title.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
+        if (!Skin.SCRIPT_TITLES) title.setLetterSpacing(0.12f);
         top.addView(title, weight());
         header = text("", DIM, 12);
         top.addView(header);
@@ -385,7 +397,9 @@ public class MainActivity extends Activity {
         if (score.getText().length() > 0) showScore(true);
         refreshLibrary();
         ready = true;
-        showTab(Store.coreReady(this) ? TAB_CREATE : TAB_ENGINE);
+        int startTab = cfg.getInt("tab", -1); // set when the skin was just changed, to come back to the same place
+        cfg.edit().remove("tab").apply();
+        showTab(startTab >= 0 ? startTab : Store.coreReady(this) ? TAB_CREATE : TAB_ENGINE);
         tick.run();
         healthLoop();
     }
@@ -403,7 +417,7 @@ public class MainActivity extends Activity {
             panels[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
             boolean on = i == idx;
             tabs[i].setBackground(new Skin.Plate(true));
-            tabs[i].setTextColor(on ? 0xFFFFE2A6 : 0xFF8C7A4E);
+            tabs[i].setTextColor(on ? Skin.HI : Skin.LO);
             tabs[i].setPadding(dp(12), 0, dp(12), dp(2));
         }
         if (idx == TAB_LIBRARY) refreshLibrary();
@@ -456,6 +470,7 @@ public class MainActivity extends Activity {
         public void run() {
             refreshStatus();
             watchTyping();
+            runQueue();
             ui.postDelayed(this, 600);
         }
     };
@@ -466,7 +481,7 @@ public class MainActivity extends Activity {
         LinearLayout c = column();
 
         banner = text("", TEXT, 13);
-        banner.setBackground(glass(Skin.GOLD));
+        banner.setBackground(glass(Skin.ACCENT));
         banner.setPadding(dp(12), dp(10), dp(12), dp(10));
         banner.setVisibility(View.GONE);
         banner.setOnClickListener(new View.OnClickListener() {
@@ -637,6 +652,25 @@ public class MainActivity extends Activity {
 
         genBtn = button("Generate song", true);
         c.addView(genBtn, gap(18));
+        LinearLayout qRow = row();
+        Button addQ = button("Add to queue", false);
+        queueBtn = button("Queue", false);
+        LinearLayout.LayoutParams ql = weight();
+        ql.rightMargin = dp(8);
+        qRow.addView(addQ, ql);
+        qRow.addView(queueBtn, weight());
+        c.addView(qRow, gap(10));
+        addQ.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                addToQueue();
+            }
+        });
+        queueBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                showQueue();
+            }
+        });
+        loadQueue();
         genBtn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (jobBusy) cancelJob();
@@ -957,21 +991,29 @@ public class MainActivity extends Activity {
         return o;
     }
 
-    void generate() {
+    /** The form as a request, or null (with a message shown) when it cannot be sent. */
+    JSONObject formRequest() {
         if (val(style).length() == 0 && val(lyrics).length() == 0 && semTokens.length() == 0) {
             toast("Write a style or some lyrics first");
-            return;
+            return null;
         }
         if (dropMissingAdapters()) toast("An adapter that is no longer installed was left out");
-        final JSONObject req;
         try {
-            req = buildRequest();
+            return buildRequest();
         } catch (Exception e) {
             alert("Check the settings", "One of the numbers in Advanced settings is not valid.");
-            return;
+            return null;
         }
+    }
+
+    void generate() {
+        JSONObject req = formRequest();
+        if (req != null) startSong(req, val(songTitle), false);
+    }
+
+    void startSong(final JSONObject req, String title, final boolean fromQueue) {
         final Context app = getApplicationContext();
-        pendingTitle = val(songTitle);
+        pendingTitle = title;
         startJob("Starting", new Task() {
             public void run() throws Exception {
                 ensureEngine(app);
@@ -984,10 +1026,147 @@ public class MainActivity extends Activity {
             }
 
             public void done() {
-                showTab(1);
-                toast("Song ready");
+                if (fromQueue) {
+                    refreshLibrary();
+                    toast(queue.size() > 0 ? "Song ready. " + queue.size() + " more in the queue." : "Song ready. The queue is finished.");
+                } else {
+                    showTab(TAB_LIBRARY);
+                    toast("Song ready");
+                }
             }
         });
+    }
+
+    // ---------- queue: songs lined up to be made one after another ----------
+
+    static final ArrayList<JSONObject> queue = new ArrayList<JSONObject>();
+    static volatile boolean queueRunning;
+    static final int QUEUE_BATTERY = 50; // do not start a song below this charge
+    Button queueBtn;
+    String queueNote = "";
+
+    File queueFile() {
+        return new File(Store.dir(this, "saved"), "queue.json");
+    }
+
+    void loadQueue() {
+        if (queue.size() > 0) return;
+        try {
+            JSONArray a = new JSONArray(new String(Store.read(queueFile()), "UTF-8"));
+            for (int i = 0; i < a.length(); i++) queue.add(a.getJSONObject(i));
+        } catch (Exception e) {
+            // no queue saved yet
+        }
+    }
+
+    void saveQueue() {
+        try {
+            Store.write(queueFile(), new JSONArray(queue).toString().getBytes("UTF-8"));
+        } catch (Exception e) {
+            toast("Could not save the queue");
+        }
+    }
+
+    void addToQueue() {
+        JSONObject req = formRequest();
+        if (req == null) return;
+        try {
+            JSONObject item = new JSONObject();
+            String t = val(songTitle);
+            item.put("title", t.length() > 0 ? t : titleFor(req));
+            item.put("given", t);
+            item.put("req", req);
+            queue.add(item);
+            saveQueue();
+            toast("Added to the queue. Open the queue to start it.");
+        } catch (Exception e) {
+            toast("Could not add this song to the queue");
+        }
+    }
+
+    /** Charge in percent, or -1 when unknown; charging[0] is set when plugged in. */
+    int battery(boolean[] charging) {
+        Intent b = registerReceiver(null, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (b == null) return -1;
+        if (charging != null) charging[0] = b.getIntExtra("plugged", 0) != 0;
+        int level = b.getIntExtra("level", -1), scale = b.getIntExtra("scale", 100);
+        return level < 0 ? -1 : level * 100 / Math.max(1, scale);
+    }
+
+    void showQueue() {
+        if (queue.size() == 0) {
+            alert("Queue", "Nothing is queued. Fill in a song and press \"Add to queue\"; do that for as many songs as you like, "
+                    + "then start the queue and leave the phone on its charger.");
+            return;
+        }
+        final String[] names = new String[queue.size()];
+        for (int i = 0; i < names.length; i++) names[i] = (i + 1) + ".  " + queue.get(i).optString("title");
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
+                .setTitle(queueRunning ? "Queue (running)" : "Queue (paused)")
+                .setItems(names, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, final int which) {
+                        new AlertDialog.Builder(MainActivity.this).setTitle(queue.get(which).optString("title"))
+                                .setMessage("Take this song out of the queue?")
+                                .setPositiveButton("Take it out", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dd, int w) {
+                                        if (which < queue.size()) queue.remove(which);
+                                        saveQueue();
+                                    }
+                                }).setNegativeButton("Keep", null).show();
+                    }
+                })
+                .setNegativeButton("Close", null);
+        if (queueRunning) {
+            b.setPositiveButton("Pause", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    queueRunning = false;
+                    toast("Queue paused. The song being made now will still finish.");
+                }
+            });
+        } else {
+            b.setPositiveButton("Start", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    jobError = "";
+                    queueRunning = true;
+                    toast("Queue started. Keep the phone on its charger.");
+                }
+            });
+        }
+        b.show();
+    }
+
+    /** Runs on the tick: starts the next queued song when the engine is free and the phone is fit for it. */
+    void runQueue() {
+        queueBtn.setText(queue.size() > 0 ? "Queue (" + queue.size() + ")" : "Queue");
+        queueNote = "";
+        if (!queueRunning) return;
+        if (queue.size() == 0) {
+            queueRunning = false;
+            return;
+        }
+        if (jobBusy) return;
+        if (jobError.length() > 0 && !"Cancelled".equals(jobError)) {
+            // a failure stops the queue so the same fault is not repeated all night
+            queueRunning = false;
+            queueNote = "The queue stopped because a song failed.";
+            return;
+        }
+        boolean[] charging = new boolean[1];
+        int level = battery(charging);
+        if (level >= 0 && level < QUEUE_BATTERY) {
+            queueNote = "Queue is waiting for the battery to reach " + QUEUE_BATTERY + "% (now " + level + "%"
+                    + (charging[0] ? ", charging)" : ", not charging)");
+            return;
+        }
+        String heat = gpuHeat();
+        if (heat.length() > 0) {
+            queueNote = "Queue is waiting for the phone to cool down.";
+            return;
+        }
+        JSONObject item = queue.remove(0);
+        saveQueue();
+        JSONObject req = item.optJSONObject("req");
+        if (req != null) startSong(req, item.optString("given"), true);
     }
 
     // ---------- jobs ----------
@@ -1443,7 +1622,7 @@ public class MainActivity extends Activity {
         karaokeView = new KaraokeView(this);
         c.addView(karaokeView, new LinearLayout.LayoutParams(-1, 0, 1f));
         lyricsChips = new FrameLayout(this);
-        lyricsChips.setBackgroundColor(0xFF080909);
+        lyricsChips.setBackgroundColor(Skin.DECK);
         lyricsChips.setPadding(dp(12), 0, dp(12), dp(8));
         c.addView(lyricsChips);
         lyricsButtons();
@@ -1684,7 +1863,7 @@ public class MainActivity extends Activity {
 
     View buildEngine() {
         LinearLayout c = column();
-        engineStatus = text("", Skin.GOLD, 17);
+        engineStatus = text("", Skin.ACCENT, 17);
         engineStatus.setTypeface(Skin.text(), Typeface.BOLD);
         engineStatus.setShadowLayer(4, 0, 1, 0x99000000);
         engineStatus.setPadding(0, dp(12), 0, dp(8));
@@ -1704,6 +1883,21 @@ public class MainActivity extends Activity {
                 } else {
                     EngineService.start(MainActivity.this);
                 }
+            }
+        });
+
+        c.addView(label("Skin"));
+        final Spinner skinSpin = spinner(Skin.NAMES);
+        skinSpin.setSelection(Math.max(0, Arrays.asList(Skin.IDS).indexOf(Skin.id(this))));
+        c.addView(skinSpin);
+        skinSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (!ready || Skin.IDS[pos].equals(Skin.id(MainActivity.this))) return;
+                cfg.edit().putString("skin", Skin.IDS[pos]).putInt("tab", TAB_ENGINE).apply();
+                recreate(); // everything is rebuilt with the new artwork and colours
+            }
+
+            public void onNothingSelected(AdapterView<?> p) {
             }
         });
 
@@ -2210,7 +2404,8 @@ public class MainActivity extends Activity {
             progText.setText(st + "   ·   " + clock(el) + " elapsed" + (heat.length() > 0 ? "\n" + heat : ""));
         } else {
             prog.setVisibility(View.GONE);
-            progText.setText(jobError.length() > 0 && !"Cancelled".equals(jobError) ? "Last attempt failed: " + jobError : "");
+            String idle = jobError.length() > 0 && !"Cancelled".equals(jobError) ? "Last attempt failed: " + jobError : "";
+            progText.setText(queueNote.length() > 0 ? queueNote + (idle.length() > 0 ? "\n" + idle : "") : idle);
         }
 
         if (panels[TAB_ENGINE].getVisibility() == View.VISIBLE) {

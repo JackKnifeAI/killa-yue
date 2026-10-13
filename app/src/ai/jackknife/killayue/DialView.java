@@ -66,7 +66,7 @@ public class DialView extends View {
             boolean lit = f <= frac + 0.0001f;
             boolean major = i % 9 == 0;
             p.setStrokeWidth(r * (major ? 0.028f : 0.016f));
-            p.setColor(lit ? (major ? 0xFFFFE2A6 : 0xFFE7BD61) : 0xFF4A4233);
+            p.setColor(lit ? (major ? Skin.HI : Skin.ACCENT) : Skin.OFF);
             float in = major ? t0 - r * 0.02f : t0;
             c.drawLine(cx + (float) Math.cos(a) * in, cy + (float) Math.sin(a) * in,
                     cx + (float) Math.cos(a) * t1, cy + (float) Math.sin(a) * t1, p);
@@ -80,9 +80,9 @@ public class DialView extends View {
         double a = Math.toRadians(START + SWEEP * frac);
         float jx = cx + (float) Math.cos(a) * (t0 + t1) / 2f, jy = cy + (float) Math.sin(a) * (t0 + t1) / 2f;
         float glow = r * 0.16f;
-        p.setShader(new RadialGradient(jx, jy, glow, 0xCCFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
+        p.setShader(new RadialGradient(jx, jy, glow, Skin.glow(0xCC), Skin.glow(0x00), Shader.TileMode.CLAMP));
         c.drawCircle(jx, jy, glow, p);
-        p.setShader(new RadialGradient(jx - r * 0.012f, jy - r * 0.012f, r * 0.06f, 0xFFFFF3D0, 0xFFE08A1E,
+        p.setShader(new RadialGradient(jx - r * 0.012f, jy - r * 0.012f, r * 0.06f, Skin.HI, Skin.glow(0xFF),
                 Shader.TileMode.CLAMP));
         c.drawCircle(jx, jy, r * 0.05f, p);
         p.setShader(null);
