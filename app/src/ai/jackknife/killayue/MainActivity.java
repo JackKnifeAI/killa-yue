@@ -108,6 +108,10 @@ public class MainActivity extends Activity {
     EditText style, lyrics, score, steps, variations, lmSeed, seed, cfgScale, bitrate, tempScore, tempSong, adaptersBox;
     SeekBar lengthBar;
     PlayerView playerView;
+    KaraokeView karaokeView;
+    ArrayList<Karaoke.Line> karaoke = new ArrayList<Karaoke.Line>();
+    EditText songTitle;
+    static volatile String pendingTitle = "";
     String playTitle = "";
     final ArrayList<JSONObject> playlist = new ArrayList<JSONObject>();
     DialView lengthDial;
@@ -362,10 +366,14 @@ public class MainActivity extends Activity {
         panels[1] = scroll(buildLibrary());
         panels[2] = scroll(buildEngine());
         for (int i = 0; i < 3; i++) content.addView(panels[i]);
+        karaokeView = new KaraokeView(this);
+        karaokeView.setVisibility(View.GONE);
+        content.addView(karaokeView);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
         root.addView(buildPlayer());
         setContentView(root);
 
+        songTitle.setText(cfg.getString("draft_title", ""));
         style.setText(cfg.getString("draft_style", ""));
         lyrics.setText(cfg.getString("draft_lyrics", ""));
         score.setText(cfg.getString("draft_score", ""));
@@ -384,7 +392,13 @@ public class MainActivity extends Activity {
         return s;
     }
 
+    void showKaraoke(boolean show) {
+        karaokeView.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) karaokeView.invalidate();
+    }
+
     void showTab(int idx) {
+        if (karaokeView != null) showKaraoke(false);
         for (int i = 0; i < 3; i++) {
             panels[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
             boolean on = i == idx;
@@ -405,7 +419,8 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         // keep what was typed, so closing the app never loses a lyric
-        cfg.edit().putString("draft_style", style.getText().toString())
+        cfg.edit().putString("draft_title", songTitle.getText().toString())
+                .putString("draft_style", style.getText().toString())
                 .putString("draft_lyrics", lyrics.getText().toString())
                 .putString("draft_score", score.getText().toString()).apply();
     }
@@ -475,6 +490,7 @@ public class MainActivity extends Activity {
                 public void run() {
                     if (val(style).length() == 0 && val(lyrics).length() == 0) return;
                     checkpoint();
+                    songTitle.setText("");
                     style.setText("");
                     lyrics.setText("");
                     settle();
@@ -482,6 +498,10 @@ public class MainActivity extends Activity {
                 }
             },
         }));
+
+        c.addView(label("Song title"));
+        songTitle = edit("Optional. Left empty, the first sung line is used.", 1);
+        c.addView(songTitle);
 
         c.addView(label("Style"));
         style = edit("Genre, mood, instruments, voice, tempo", 2);
@@ -665,11 +685,12 @@ public class MainActivity extends Activity {
     String[] settled, lastSeen;
 
     String[] snapshot() {
-        return new String[] {style.getText().toString(), lyrics.getText().toString(), score.getText().toString()};
+        return new String[] {style.getText().toString(), lyrics.getText().toString(), score.getText().toString(),
+            songTitle.getText().toString()};
     }
 
     static boolean same(String[] a, String[] b) {
-        return a != null && b != null && a[0].equals(b[0]) && a[1].equals(b[1]) && a[2].equals(b[2]);
+        return a != null && b != null && a[0].equals(b[0]) && a[1].equals(b[1]) && a[2].equals(b[2]) && a[3].equals(b[3]);
     }
 
     void pushUndo(String[] snap) {
@@ -711,6 +732,7 @@ public class MainActivity extends Activity {
         style.setText(snap[0]);
         lyrics.setText(snap[1]);
         score.setText(snap[2]);
+        songTitle.setText(snap[3]);
         settle();
     }
 
@@ -947,6 +969,7 @@ public class MainActivity extends Activity {
             return;
         }
         final Context app = getApplicationContext();
+        pendingTitle = val(songTitle);
         startJob("Starting", new Task() {
             public void run() throws Exception {
                 ensureEngine(app);
@@ -1090,7 +1113,8 @@ public class MainActivity extends Activity {
                 Store.write(new File(lib, base + ext), p.body);
                 String tok = meta.optString("semantic_tokens");
                 int frames = tok.length() == 0 ? 0 : tok.split(",").length;
-                meta.put("_title", titleFor(meta) + (n > 0 ? " (take " + (n + 1) + ")" : ""));
+                String title = pendingTitle.length() > 0 ? pendingTitle : titleFor(meta);
+                meta.put("_title", title + (n > 0 ? " (take " + (n + 1) + ")" : ""));
                 meta.put("_audio", base + ext);
                 meta.put("_created", System.currentTimeMillis());
                 meta.put("_seconds", frames / 25);
@@ -1264,6 +1288,12 @@ public class MainActivity extends Activity {
             r.addView(info, weight());
             Button more = chip("⋯");
             r.addView(more);
+            r.setOnLongClickListener(new View.OnLongClickListener() {
+                public boolean onLongClick(View v) {
+                    retitle(mf, m);
+                    return true;
+                }
+            });
             r.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
                     play(m);
@@ -1293,14 +1323,17 @@ public class MainActivity extends Activity {
         final String title = m.optString("_title", "Untitled");
         final String tokens = m.optString("semantic_tokens");
         String[] items = {
-            "Play", "New sound, same song", "Edit the score and render again", "Continue from this song",
-            "Use the same style and lyrics", "Share", "Rename", "Details", "Delete",
+            "Play", "Lyrics, karaoke style", "New sound, same song", "Edit the score and render again", "Continue from this song",
+            "Use the same style and lyrics", "Share", "Change the title", "Details", "Delete",
         };
         new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (w == 0) {
                     play(m);
                 } else if (w == 1) {
+                    if (!m.optString("_audio").equals(playingFile)) play(m);
+                    showKaraoke(true);
+                } else if (w == 2) {
                     if (tokens.length() == 0) {
                         toast("This song has no saved melody data");
                         return;
@@ -1312,14 +1345,14 @@ public class MainActivity extends Activity {
                     seed.setText("");
                     showBanner();
                     showTab(0);
-                } else if (w == 2) {
+                } else if (w == 3) {
                     clearCarry();
                     loadPrompt(m, true);
                     showScore(true);
                     lmSeed.setText("");
                     showTab(0);
                     toast("Change the score, then Generate. The song is written again from it.");
-                } else if (w == 3) {
+                } else if (w == 4) {
                     if (tokens.length() == 0) {
                         toast("This song has no saved melody data");
                         return;
@@ -1329,36 +1362,20 @@ public class MainActivity extends Activity {
                     srcTokens = tokens;
                     carryName = title;
                     askSection(tokens.split(",").length / 25);
-                } else if (w == 4) {
+                } else if (w == 5) {
                     clearCarry();
                     loadPrompt(m, false);
                     showTab(0);
-                } else if (w == 5) {
+                } else if (w == 6) {
                     Intent s = new Intent(Intent.ACTION_SEND);
                     String a = m.optString("_audio");
                     s.setType(a.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
                     s.putExtra(Intent.EXTRA_STREAM, TrackProvider.uri(a));
                     s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     startActivity(Intent.createChooser(s, "Share song"));
-                } else if (w == 6) {
-                    final EditText e = edit("Title", 1);
-                    e.setText(title);
-                    FrameLayout f = new FrameLayout(MainActivity.this);
-                    f.setPadding(dp(20), dp(8), dp(20), 0);
-                    f.addView(e);
-                    new AlertDialog.Builder(MainActivity.this).setTitle("Rename").setView(f)
-                            .setPositiveButton("Save", new DialogInterface.OnClickListener() {
-                                public void onClick(DialogInterface dd, int ww) {
-                                    try {
-                                        m.put("_title", val(e).length() == 0 ? "Untitled" : val(e));
-                                        Store.write(mf, m.toString().getBytes("UTF-8"));
-                                    } catch (Exception ex) {
-                                        toast("Could not save the new title");
-                                    }
-                                    refreshLibrary();
-                                }
-                            }).setNegativeButton("Cancel", null).show();
                 } else if (w == 7) {
+                    retitle(mf, m);
+                } else if (w == 8) {
                     String abc = m.optString("abc");
                     alert(title, "File: " + new File(Store.library(MainActivity.this), m.optString("_audio")).getAbsolutePath()
                             + "\n\nStyle: " + m.optString("style")
@@ -1382,6 +1399,31 @@ public class MainActivity extends Activity {
         }).show();
     }
 
+    void retitle(final File mf, final JSONObject m) {
+        final EditText e = edit("Title", 1);
+        e.setText(m.optString("_title", ""));
+        e.selectAll();
+        FrameLayout f = new FrameLayout(this);
+        f.setPadding(dp(20), dp(8), dp(20), 0);
+        f.addView(e);
+        new AlertDialog.Builder(this).setTitle("Song title").setView(f)
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        try {
+                            String t = val(e).length() == 0 ? "Untitled" : val(e);
+                            long stamp = mf.lastModified();
+                            m.put("_title", t);
+                            Store.write(mf, m.toString().getBytes("UTF-8"));
+                            mf.setLastModified(stamp); // keep the song's place in the list
+                            if (m.optString("_audio").equals(playingFile)) playTitle = t;
+                        } catch (Exception ex) {
+                            toast("Could not save the new title");
+                        }
+                        refreshLibrary();
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
     // ---------- player ----------
 
     View buildPlayer() {
@@ -1396,6 +1438,7 @@ public class MainActivity extends Activity {
         }
         playingFile = "";
         playTitle = "";
+        karaoke = new ArrayList<Karaoke.Line>();
         if (playerView != null) playerView.invalidate();
     }
 
@@ -1410,6 +1453,7 @@ public class MainActivity extends Activity {
             player.start();
             playingFile = f.getName();
             playTitle = m.optString("_title", "Untitled");
+            karaoke = Karaoke.build(m.optString("lyrics"), m.optString("abc"), player.getDuration());
         } catch (Exception e) {
             stopPlayer();
             toast("Could not play this file");

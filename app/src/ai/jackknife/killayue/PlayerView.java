@@ -267,6 +267,11 @@ public class PlayerView extends View {
             return true;
         }
         if (action == MotionEvent.ACTION_UP) {
+            // the record and title open the large player with the lyrics
+            if (pressed < 0 && y < trackY() - 16 * dp) {
+                a.showKaraoke(a.karaokeView.getVisibility() != VISIBLE);
+                performClick();
+            }
             int hit = buttonAt(x, y);
             if (hit >= 0 && hit == pressed) {
                 if (hit == PLAY) a.togglePlay();
