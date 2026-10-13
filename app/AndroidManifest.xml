@@ -19,6 +19,7 @@
             </intent-filter>
         </activity>
         <service android:name=".EngineService" android:exported="false"/>
+        <service android:name=".NowPlaying" android:exported="false"/>
         <provider android:name=".TrackProvider" android:authorities="ai.jackknife.killayue.tracks"
             android:exported="false" android:grantUriPermissions="true"/>
     </application>

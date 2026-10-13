@@ -298,7 +298,10 @@ public class PlayerView extends View {
     static MediaPlayer.OnCompletionListener onEnd(final MainActivity a) {
         return new MediaPlayer.OnCompletionListener() {
             public void onCompletion(MediaPlayer mp) {
-                if (!a.playStep(1)) a.playerView.invalidate();
+                if (!a.playStep(1)) {
+                    a.playerView.invalidate();
+                    NowPlaying.update(a);
+                }
             }
         };
     }

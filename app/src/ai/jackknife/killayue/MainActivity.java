@@ -431,6 +431,11 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onBackPressed() {
+        moveTaskToBack(true);
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         // keep what was typed, so closing the app never loses a lyric
@@ -471,6 +476,7 @@ public class MainActivity extends Activity {
             refreshStatus();
             watchTyping();
             runQueue();
+            NowPlaying.turn(MainActivity.this);
             ui.postDelayed(this, 600);
         }
     };
@@ -1723,6 +1729,7 @@ public class MainActivity extends Activity {
                         sleepStop = null;
                         if (player != null && player.isPlaying()) player.pause();
                         playerView.invalidate();
+                        NowPlaying.update(MainActivity.this);
                     }
                 };
                 ui.postDelayed(sleepStop, minutes[w] * 60000L);
@@ -1936,6 +1943,7 @@ public class MainActivity extends Activity {
         timedByHand = false;
         karaoke = new ArrayList<Karaoke.Line>();
         if (playerView != null) playerView.invalidate();
+        NowPlaying.clear(this);
     }
 
     void play(JSONObject m) {
@@ -1957,6 +1965,7 @@ public class MainActivity extends Activity {
             toast("Could not play this file");
         }
         playerView.invalidate();
+        if (player != null) NowPlaying.update(this);
     }
 
     int playingIndex() {
@@ -1973,6 +1982,7 @@ public class MainActivity extends Activity {
         if (player.isPlaying()) player.pause();
         else player.start();
         playerView.invalidate();
+        NowPlaying.update(this);
     }
 
     /** Moves to the next (1) or previous (-1) song in library order. False when there is none. */
@@ -1996,12 +2006,14 @@ public class MainActivity extends Activity {
         int to = Math.max(0, Math.min(player.getDuration() - 500, player.getCurrentPosition() + ms));
         player.seekTo(to);
         playerView.invalidate();
+        NowPlaying.update(this);
     }
 
     void seekTo(float fraction) {
         if (player == null) return;
         player.seekTo((int) (fraction * player.getDuration()));
         playerView.invalidate();
+        NowPlaying.update(this);
     }
 
     // ---------- Engine ----------
