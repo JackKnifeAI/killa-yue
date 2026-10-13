@@ -1063,10 +1063,11 @@ public class MainActivity extends Activity {
     }
 
     static String titleFor(JSONObject req) {
-        String[] lines = req.optString("lyrics").split("\n");
+        // the first sung line: not a [Section] tag, not a (stage direction); pasted text can carry invisible characters
+        String[] lines = req.optString("lyrics").replace("\u200b", "").replace("\ufeff", "").split("\n");
         for (int i = 0; i < lines.length; i++) {
             String l = lines[i].trim();
-            if (l.length() > 0 && !l.startsWith("[")) return l.length() > 48 ? l.substring(0, 48) : l;
+            if (l.length() > 0 && !l.startsWith("[") && !l.startsWith("(")) return l.length() > 48 ? l.substring(0, 48) : l;
         }
         String s = req.optString("style").trim();
         if (s.length() > 0) return s.length() > 48 ? s.substring(0, 48) : s;

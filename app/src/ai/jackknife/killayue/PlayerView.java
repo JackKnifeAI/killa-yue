@@ -46,7 +46,7 @@ public class PlayerView extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        setMeasuredDimension(MeasureSpec.getSize(w), (int) (172 * dp));
+        setMeasuredDimension(MeasureSpec.getSize(w), (int) (132 * dp));
     }
 
     private boolean playing() {
@@ -71,6 +71,11 @@ public class PlayerView extends View {
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    /** Vertical centre of the scrubber. */
+    private float trackY() {
+        return 63 * dp;
     }
 
     private float trackLeft() {
@@ -98,7 +103,7 @@ public class PlayerView extends View {
         p.setShader(null);
 
         // the record
-        float rr = 27 * dp, rx = 20 * dp + rr, ry = 14 * dp + rr;
+        float rr = 20 * dp, rx = 20 * dp + rr, ry = 10 * dp + rr;
         p.setShader(new RadialGradient(rx, ry, rr * 1.5f, ((int) (0x55 * energy)) << 24 | 0xFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
         c.drawCircle(rx, ry, rr * 1.5f, p);
         p.setShader(null);
@@ -111,13 +116,13 @@ public class PlayerView extends View {
         }
 
         // level bars on the right; they follow a made-up pulse, not the audio itself
-        float barsW = 74 * dp, barsL = w - 20 * dp - barsW, barsB = ry + 20 * dp, barsH = 40 * dp;
+        float barsW = 62 * dp, barsL = w - 20 * dp - barsW, barsB = ry + 15 * dp, barsH = 30 * dp;
         float bw = barsW / BARS;
         for (int i = 0; i < BARS; i++) {
             double t = now / 1000.0;
             double v = 0.5 + 0.5 * Math.sin(t * (5.1 + i * 0.83) + i * 1.7);
             v *= 0.55 + 0.45 * Math.sin(t * 1.9 + i * 0.6);
-            float h = 3 * dp + (float) Math.abs(v) * barsH * energy;
+            float h = 2.5f * dp + (float) Math.abs(v) * barsH * energy;
             float x = barsL + i * bw;
             p.setShader(new LinearGradient(0, barsB - h, 0, barsB, 0xFFFFE2A6, 0xFF8F6A22, Shader.TileMode.CLAMP));
             c.drawRoundRect(new RectF(x + bw * 0.18f, barsB - h, x + bw * 0.82f, barsB), bw * 0.3f, bw * 0.3f, p);
@@ -125,22 +130,22 @@ public class PlayerView extends View {
         p.setShader(null);
 
         // title and time
-        float tx = rx + rr + 14 * dp, tMax = barsL - tx - 10 * dp;
+        float tx = rx + rr + 12 * dp, tMax = barsL - tx - 10 * dp;
         txt.setTypeface(Skin.text());
-        txt.setTextSize(16 * dp);
+        txt.setTextSize(14 * dp);
         txt.setColor(a.playTitle.length() > 0 ? Skin.CREAM : 0xFF9D988C);
         String title = a.playTitle.length() > 0 ? a.playTitle : "Nothing playing";
         c.drawText(TextUtils.ellipsize(title, new android.text.TextPaint(txt), tMax, TextUtils.TruncateAt.END).toString(),
-                tx, ry - 3 * dp, txt);
+                tx, ry - 2 * dp, txt);
         int dur = duration();
         int pos = scrubbing ? (int) (scrubTo * dur) : position();
         txt.setTypeface(Typeface.MONOSPACE);
-        txt.setTextSize(12 * dp);
+        txt.setTextSize(11 * dp);
         txt.setColor(Skin.GOLD);
-        c.drawText(MainActivity.clock(pos / 1000) + "  /  " + MainActivity.clock(dur / 1000), tx, ry + 17 * dp, txt);
+        c.drawText(MainActivity.clock(pos / 1000) + "  /  " + MainActivity.clock(dur / 1000), tx, ry + 14 * dp, txt);
 
         // scrubber
-        float tl = trackLeft(), tr = trackRight(), ty = 84 * dp;
+        float tl = trackLeft(), tr = trackRight(), ty = trackY();
         float frac = dur > 0 ? Math.max(0f, Math.min(1f, pos / (float) dur)) : 0f;
         float hx = tl + (tr - tl) * frac;
         p.setColor(0xFF1C1912);
@@ -148,7 +153,7 @@ public class PlayerView extends View {
         p.setColor(0xFF54482D);
         for (int i = 0; i <= 10; i++) {
             float nx = tl + (tr - tl) * i / 10f;
-            c.drawRect(nx - 0.5f * dp, ty + 5 * dp, nx + 0.5f * dp, ty + (i % 5 == 0 ? 10 : 8) * dp, p);
+            c.drawRect(nx - 0.5f * dp, ty + 4 * dp, nx + 0.5f * dp, ty + (i % 5 == 0 ? 8 : 6.5f) * dp, p);
         }
         if (hx > tl) {
             p.setShader(new LinearGradient(tl, 0, hx, 0, 0xFF8F5A12, 0xFFFFD98A, Shader.TileMode.CLAMP));
@@ -158,26 +163,26 @@ public class PlayerView extends View {
             p.setShader(new RadialGradient(gx, ty, 16 * dp, ((int) (0x99 * energy)) << 24 | 0xFFF3D0, 0x00FFF3D0, Shader.TileMode.CLAMP));
             c.drawRect(Math.max(tl, gx - 16 * dp), ty - 2.5f * dp, Math.min(hx, gx + 16 * dp), ty + 2.5f * dp, p);
         }
-        p.setShader(new RadialGradient(hx, ty, 15 * dp, 0xAAFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
-        c.drawCircle(hx, ty, 15 * dp, p);
-        p.setShader(new RadialGradient(hx - 2 * dp, ty - 2 * dp, 8 * dp, 0xFFFFF3D0, 0xFFD9861A, Shader.TileMode.CLAMP));
-        c.drawCircle(hx, ty, (scrubbing ? 8.5f : 6.5f) * dp, p);
+        p.setShader(new RadialGradient(hx, ty, 12 * dp, 0xAAFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
+        c.drawCircle(hx, ty, 12 * dp, p);
+        p.setShader(new RadialGradient(hx - 1.5f * dp, ty - 1.5f * dp, 7 * dp, 0xFFFFF3D0, 0xFFD9861A, Shader.TileMode.CLAMP));
+        c.drawCircle(hx, ty, (scrubbing ? 7.5f : 5.5f) * dp, p);
         p.setShader(null);
 
         // transport buttons
-        by = 133 * dp;
-        float gap = Math.min(66 * dp, (w - 40 * dp) / 5.2f);
+        by = 101 * dp;
+        float gap = Math.min(58 * dp, (w - 40 * dp) / 5.2f);
         for (int i = 0; i < 5; i++) {
             bx[i] = w / 2f + (i - 2) * gap;
-            br[i] = (i == PLAY ? 30 : 22) * dp;
-            if (i == PLAY - 1) bx[i] -= 6 * dp;
-            if (i == PLAY + 1) bx[i] += 6 * dp;
-            if (i == PREV) bx[i] -= 6 * dp;
-            if (i == NEXT) bx[i] += 6 * dp;
+            br[i] = (i == PLAY ? 23 : 17) * dp;
+            if (i == PLAY - 1) bx[i] -= 5 * dp;
+            if (i == PLAY + 1) bx[i] += 5 * dp;
+            if (i == PREV) bx[i] -= 5 * dp;
+            if (i == NEXT) bx[i] += 5 * dp;
             Bitmap round = Skin.round();
             boolean down = pressed == i;
             if (i == PLAY || down) {
-                float gl = br[i] * 1.5f;
+                float gl = br[i] * 1.4f;
                 int al = down ? 0xAA : (int) (0x30 + 0x45 * energy * (0.6 + 0.4 * Math.sin(now / 320.0)));
                 p.setShader(new RadialGradient(bx[i], by, gl, (al << 24) | 0xFFB347, 0x00FFB347, Shader.TileMode.CLAMP));
                 c.drawCircle(bx[i], by, gl, p);
@@ -236,7 +241,7 @@ public class PlayerView extends View {
     private int buttonAt(float x, float y) {
         for (int i = 0; i < 5; i++) {
             float dx = x - bx[i], dy = y - by;
-            float r = br[i] + 6 * dp;
+            float r = br[i] + 7 * dp; // a little larger than drawn, for fingers
             if (dx * dx + dy * dy <= r * r) return i;
         }
         return -1;
@@ -249,7 +254,7 @@ public class PlayerView extends View {
         if (action == MotionEvent.ACTION_DOWN) {
             if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
             pressed = buttonAt(x, y);
-            scrubbing = pressed < 0 && Math.abs(y - 84 * dp) < 22 * dp && duration() > 0;
+            scrubbing = pressed < 0 && Math.abs(y - trackY()) < 16 * dp && duration() > 0;
         }
         if (scrubbing) {
             scrubTo = Math.max(0f, Math.min(1f, (x - trackLeft()) / (trackRight() - trackLeft())));
