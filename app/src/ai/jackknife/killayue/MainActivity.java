@@ -102,17 +102,20 @@ public class MainActivity extends Activity {
     SharedPreferences cfg;
     boolean ready;
 
-    TextView header, banner, lengthLabel, progText, engineStatus, logView, storageNote, nowPlaying;
+    TextView header, banner, lengthLabel, progText, engineStatus, logView, storageNote;
     View[] panels = new View[3];
     Button[] tabs = new Button[3];
     EditText style, lyrics, score, steps, variations, lmSeed, seed, cfgScale, bitrate, tempScore, tempSong, adaptersBox;
-    SeekBar lengthBar, playBar;
+    SeekBar lengthBar;
+    PlayerView playerView;
+    String playTitle = "";
+    final ArrayList<JSONObject> playlist = new ArrayList<JSONObject>();
     DialView lengthDial;
     Spinner cotSpin, formatSpin, deviceSpin, quantSpin, seqSpin;
     LinearLayout advBox, libraryBox, modelBox, adapterBox;
     TextView adapterStatus;
     String adapterSeen = "", packsSeen = null;
-    Button genBtn, engineBtn, playBtn, scoreToggle;
+    Button genBtn, engineBtn, scoreToggle;
     StaffProgress prog;
     CheckBox keepBox;
     String[] modelNames;
@@ -367,6 +370,7 @@ public class MainActivity extends Activity {
         lyrics.setText(cfg.getString("draft_lyrics", ""));
         score.setText(cfg.getString("draft_score", ""));
         if (score.getText().length() > 0) showScore(true);
+        refreshLibrary();
         ready = true;
         showTab(Store.coreReady(this) ? 0 : 2);
         tick.run();
@@ -1234,6 +1238,7 @@ public class MainActivity extends Activity {
             libraryBox.addView(t);
             return;
         }
+        playlist.clear();
         SimpleDateFormat df = new SimpleDateFormat("d MMM, HH:mm", Locale.US);
         for (int i = 0; i < metas.size(); i++) {
             final File mf = metas.get(i);
@@ -1243,6 +1248,7 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 continue;
             }
+            playlist.add(m);
             LinearLayout r = row();
             r.setBackground(glass(EDGE));
             r.setPadding(dp(14), dp(12), dp(8), dp(12));
@@ -1378,38 +1384,8 @@ public class MainActivity extends Activity {
     // ---------- player ----------
 
     View buildPlayer() {
-        LinearLayout p = column();
-        p.setBackgroundColor(0xFF080909);
-        p.setPadding(dp(16), dp(8), dp(16), dp(10));
-        LinearLayout r = row();
-        nowPlaying = text("Nothing playing", Skin.GOLD, 14);
-        nowPlaying.setTypeface(Skin.text());
-        nowPlaying.setSingleLine(true);
-        r.addView(nowPlaying, weight());
-        playBtn = chip("Play");
-        r.addView(playBtn);
-        p.addView(r);
-        playBar = new SeekBar(this);
-        p.addView(playBar);
-        playBtn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                if (player == null) return;
-                if (player.isPlaying()) player.pause();
-                else player.start();
-            }
-        });
-        playBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int v, boolean user) {
-                if (user && player != null) player.seekTo(v);
-            }
-
-            public void onStartTrackingTouch(SeekBar s) {
-            }
-
-            public void onStopTrackingTouch(SeekBar s) {
-            }
-        });
-        return p;
+        playerView = new PlayerView(this);
+        return playerView;
     }
 
     void stopPlayer() {
@@ -1418,7 +1394,8 @@ public class MainActivity extends Activity {
             player = null;
         }
         playingFile = "";
-        nowPlaying.setText("Nothing playing");
+        playTitle = "";
+        if (playerView != null) playerView.invalidate();
     }
 
     void play(JSONObject m) {
@@ -1428,15 +1405,60 @@ public class MainActivity extends Activity {
             player = new MediaPlayer();
             player.setDataSource(f.getAbsolutePath());
             player.prepare();
+            player.setOnCompletionListener(PlayerView.onEnd(this));
             player.start();
             playingFile = f.getName();
-            playBar.setMax(player.getDuration());
-            nowPlaying.setText(m.optString("_title", "Untitled"));
-            nowPlaying.setTextColor(Skin.CREAM);
+            playTitle = m.optString("_title", "Untitled");
         } catch (Exception e) {
             stopPlayer();
             toast("Could not play this file");
         }
+        playerView.invalidate();
+    }
+
+    int playingIndex() {
+        for (int i = 0; i < playlist.size(); i++) if (playlist.get(i).optString("_audio").equals(playingFile)) return i;
+        return -1;
+    }
+
+    void togglePlay() {
+        if (player == null) {
+            if (playlist.size() == 0) toast("No songs yet. Make one on the Create tab.");
+            else play(playlist.get(0));
+            return;
+        }
+        if (player.isPlaying()) player.pause();
+        else player.start();
+        playerView.invalidate();
+    }
+
+    /** Moves to the next (1) or previous (-1) song in library order. False when there is none. */
+    boolean playStep(int dir) {
+        if (playlist.size() == 0) return false;
+        int at = playingIndex();
+        // previous restarts the current song first, as players do, once it is a few seconds in
+        if (dir < 0 && player != null && player.getCurrentPosition() > 3000) {
+            player.seekTo(0);
+            playerView.invalidate();
+            return true;
+        }
+        int to = at < 0 ? 0 : at + dir;
+        if (to < 0 || to >= playlist.size()) return false;
+        play(playlist.get(to));
+        return true;
+    }
+
+    void seekBy(int ms) {
+        if (player == null) return;
+        int to = Math.max(0, Math.min(player.getDuration() - 500, player.getCurrentPosition() + ms));
+        player.seekTo(to);
+        playerView.invalidate();
+    }
+
+    void seekTo(float fraction) {
+        if (player == null) return;
+        player.seekTo((int) (fraction * player.getDuration()));
+        playerView.invalidate();
     }
 
     // ---------- Engine ----------
@@ -1536,7 +1558,7 @@ public class MainActivity extends Activity {
         c.addView(about, gap(18));
         about.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                alert("Killa YuE 1.0", ABOUT);
+                alert("Killa YuE 1.1", ABOUT);
             }
         });
 
@@ -1987,16 +2009,6 @@ public class MainActivity extends Activity {
             if (lt.length() != logView.getText().length()) logView.setText(lt);
         }
 
-        if (player != null) {
-            try {
-                playBar.setProgress(player.getCurrentPosition());
-                playBtn.setText(player.isPlaying() ? "Pause" : "Play");
-            } catch (Exception e) {
-                // the player was released between the check and the read; the next tick settles it
-            }
-        } else {
-            playBtn.setText("Play");
-            playBar.setProgress(0);
-        }
+        playerView.invalidate();
     }
 }

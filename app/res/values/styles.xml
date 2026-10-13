@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="App" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:colorAccent">#FF3D71</item>
+        <item name="android:colorAccent">#E7BD61</item>
         <item name="android:colorPrimary">#0E0E13</item>
         <item name="android:colorPrimaryDark">#0E0E13</item>
         <item name="android:windowBackground">@android:color/black</item>

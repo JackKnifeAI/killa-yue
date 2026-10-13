@@ -19,7 +19,7 @@ import java.io.InputStream;
 public class Skin {
     static final int GOLD = 0xFFE7BD61, CREAM = 0xFFFFF6DE;
 
-    private static Bitmap action, nav, leather, staff, dial;
+    private static Bitmap action, nav, leather, staff, dial, round;
     private static final Bitmap[] notes = new Bitmap[6];
     private static Typeface script, text;
 
@@ -32,6 +32,7 @@ public class Skin {
             nav = bitmap(c, "btnB");
             staff = bitmap(c, "staff");
             dial = bitmap(c, "dial");
+            round = bitmap(c, "round");
             for (int i = 0; i < notes.length; i++) notes[i] = bitmap(c, "note" + (i + 1));
             InputStream in;
             in = c.getAssets().open("materials/black-leather.png");
@@ -59,6 +60,10 @@ public class Skin {
         } finally {
             in.close();
         }
+    }
+
+    static Bitmap round() {
+        return round;
     }
 
     static Bitmap dial() {
