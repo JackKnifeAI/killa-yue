@@ -569,7 +569,7 @@ public class MainActivity extends Activity {
         lengthCol.setPadding(dp(12), 0, 0, 0);
         lengthCol.addView(lengthLabel);
         lengthCol.addView(lengthBar);
-        TextView hint = text("Turn the dial or drag the slider", DIM, 12);
+        TextView hint = text("A limit, not a target: the song ends when the lyrics do. Turn the dial or drag the slider.", DIM, 12);
         hint.setPadding(dp(14), dp(4), 0, 0);
         lengthCol.addView(hint);
         lengthRow.addView(lengthCol, weight());
@@ -663,7 +663,7 @@ public class MainActivity extends Activity {
     }
 
     void showLength() {
-        lengthLabel.setText("Length: " + clock(lengthSeconds()));
+        lengthLabel.setText("Length: up to " + clock(lengthSeconds()));
     }
 
     int lengthSeconds() {
