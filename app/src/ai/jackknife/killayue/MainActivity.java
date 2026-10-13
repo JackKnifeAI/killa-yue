@@ -128,9 +128,20 @@ public class MainActivity extends Activity {
     LinearLayout advBox, libraryBox, modelBox, adapterBox;
     TextView adapterStatus, coverStatus;
     String adapterSeen = "", packsSeen = null;
+    long adapterSeenAt;
+    int logSeen = -1;
+    long logShownAt;
+
+    // Facts from storage and the GPU for the status line. Shared storage can stall for seconds
+    // while a song is made, so these are gathered on the "probe" thread, never on the screen thread.
+    static volatile boolean snapReady, snapCore, snapCovers;
+    static volatile long snapAt;
+    static volatile String snapHeat = "", snapAdapters = "";
+    static volatile java.util.HashMap<String, Boolean> snapHave = new java.util.HashMap<String, Boolean>(),
+            snapPart = new java.util.HashMap<String, Boolean>();
     Button genBtn, engineBtn, scoreToggle;
     StaffProgress prog;
-    CheckBox keepBox;
+    CheckBox keepBox, gentleBox;
     String[] modelNames;
     TextView[] modelText;
     Button[] modelBtn;
@@ -405,6 +416,7 @@ public class MainActivity extends Activity {
         showTab(startTab >= 0 ? startTab : Store.coreReady(this) ? TAB_CREATE : TAB_ENGINE);
         tick.run();
         healthLoop();
+        probeLoop();
     }
 
     View scroll(View v) {
@@ -457,6 +469,52 @@ public class MainActivity extends Activity {
             player = null;
         }
         super.onDestroy();
+    }
+
+    void probeLoop() {
+        new Thread(new Runnable() {
+            public void run() {
+                while (inst == MainActivity.this) {
+                    try {
+                        probe();
+                    } catch (Exception e) {
+                        // the next round tries again
+                    }
+                    try {
+                        Thread.sleep(1500);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        }, "probe").start();
+    }
+
+    void probe() {
+        long at = System.currentTimeMillis();
+        java.util.HashMap<String, Boolean> have = new java.util.HashMap<String, Boolean>(), part = new java.util.HashMap<String, Boolean>();
+        String[] names = modelNames;
+        if (names == null) names = new String[] {Store.backbone(this), Store.VAE, Store.MERT, Store.SHEET, Store.TOKENIZER};
+        for (int i = 0; i < names.length; i++) {
+            have.put(names[i], Boolean.valueOf(Store.have(this, names[i])));
+            part.put(names[i], Boolean.valueOf(new File(Store.models(this), names[i] + ".part").isFile()));
+        }
+        StringBuilder now = new StringBuilder();
+        ArrayList<File> ads = installedAdapters();
+        for (int i = 0; i < ads.size(); i++) now.append(ads.get(i).getName()).append('|');
+        snapHave = have;
+        snapPart = part;
+        snapCore = Store.coreReady(this);
+        snapCovers = Covers.ready(this);
+        snapAdapters = now.toString();
+        snapHeat = gpuHeat();
+        snapAt = at;
+        snapReady = true;
+    }
+
+    static boolean is(java.util.HashMap<String, Boolean> m, String k) {
+        Boolean b = m.get(k);
+        return b != null && b.booleanValue();
     }
 
     void healthLoop() {
@@ -1049,8 +1107,11 @@ public class MainActivity extends Activity {
 
     /** After a song is saved: paint a cover for it if the cover model is installed. */
     void coverNewest() {
-        refreshLibrary();
-        if (playlist.size() > 0 && !Covers.coverFor(this, playlist.get(0)).isFile()) makeCover(playlist.get(0), false);
+        refreshLibrary(new Runnable() {
+            public void run() {
+                if (playlist.size() > 0 && !Covers.coverFor(MainActivity.this, playlist.get(0)).isFile()) makeCover(playlist.get(0), false);
+            }
+        });
     }
 
     // ---------- queue: songs lined up to be made one after another ----------
@@ -1452,19 +1513,80 @@ public class MainActivity extends Activity {
         return libraryBox;
     }
 
+    /** What the Library tab shows, read from storage off the screen thread. */
+    static class LibData {
+        final ArrayList<File> metas = new ArrayList<File>();
+        final ArrayList<JSONObject> loaded = new ArrayList<JSONObject>();
+        final java.util.HashMap<String, Integer> familySize = new java.util.HashMap<String, Integer>();
+        final ArrayList<android.graphics.Bitmap> thumbs = new ArrayList<android.graphics.Bitmap>();
+    }
+
+    int libraryGen;
+    final ArrayList<Runnable> libraryAfter = new ArrayList<Runnable>();
+
     void refreshLibrary() {
+        refreshLibrary(null);
+    }
+
+    /**
+     * Reads the library on a background thread (shared storage can stall for seconds while a song
+     * is made), then rebuilds the list on screen. after, if given, runs once the list is shown.
+     */
+    void refreshLibrary(final Runnable after) {
         if (libraryBox == null) return;
-        libraryBox.removeAllViews();
-        File[] files = Store.library(this).listFiles();
-        ArrayList<File> metas = new ArrayList<File>();
-        if (files != null) {
-            for (int i = 0; i < files.length; i++) if (files[i].getName().endsWith(".json")) metas.add(files[i]);
-            java.util.Collections.sort(metas, new java.util.Comparator<File>() {
-                public int compare(File a, File b) {
-                    return Long.compare(b.lastModified(), a.lastModified());
-                }
-            });
+        if (after != null) libraryAfter.add(after); // kept until a refresh lands, even if this one is superseded
+        final int gen = ++libraryGen;
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                final LibData d = loadLibrary(app);
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (gen != libraryGen || libraryBox == null) return; // a newer refresh is on its way
+                        showLibrary(d);
+                        ArrayList<Runnable> run = new ArrayList<Runnable>(libraryAfter);
+                        libraryAfter.clear();
+                        for (int i = 0; i < run.size(); i++) run.get(i).run();
+                    }
+                });
+            }
+        }, "library").start();
+    }
+
+    static LibData loadLibrary(Context c) {
+        LibData d = new LibData();
+        File[] files = Store.library(c).listFiles();
+        if (files == null) return d;
+        final java.util.HashMap<File, Long> mod = new java.util.HashMap<File, Long>();
+        for (int i = 0; i < files.length; i++) {
+            if (!files[i].getName().endsWith(".json")) continue;
+            d.metas.add(files[i]);
+            mod.put(files[i], Long.valueOf(files[i].lastModified()));
         }
+        java.util.Collections.sort(d.metas, new java.util.Comparator<File>() {
+            public int compare(File a, File b) {
+                return Long.compare(mod.get(b).longValue(), mod.get(a).longValue());
+            }
+        });
+        for (int i = 0; i < d.metas.size(); i++) {
+            JSONObject j = null;
+            try {
+                j = new JSONObject(new String(Store.read(d.metas.get(i)), "UTF-8"));
+                String fam = family(j);
+                Integer n = d.familySize.get(fam);
+                d.familySize.put(fam, Integer.valueOf(n == null ? 1 : n.intValue() + 1));
+            } catch (Exception e) {
+                j = null;
+            }
+            d.loaded.add(j);
+            d.thumbs.add(j == null ? null : Covers.load(Covers.coverFor(c, j), 8));
+        }
+        return d;
+    }
+
+    void showLibrary(LibData d) {
+        libraryBox.removeAllViews();
+        ArrayList<File> metas = d.metas;
         if (metas.size() == 0) {
             TextView t = text("No songs yet. Make one on the Create tab.", DIM, 16);
             t.setPadding(0, dp(24), 0, 0);
@@ -1488,19 +1610,8 @@ public class MainActivity extends Activity {
         }));
         playlist.clear();
         SimpleDateFormat df = new SimpleDateFormat("d MMM, HH:mm", Locale.US);
-        java.util.HashMap<String, Integer> familySize = new java.util.HashMap<String, Integer>();
-        ArrayList<JSONObject> loaded = new ArrayList<JSONObject>();
-        for (int i = 0; i < metas.size(); i++) {
-            try {
-                JSONObject j = new JSONObject(new String(Store.read(metas.get(i)), "UTF-8"));
-                loaded.add(j);
-                String fam = family(j);
-                Integer n = familySize.get(fam);
-                familySize.put(fam, Integer.valueOf(n == null ? 1 : n.intValue() + 1));
-            } catch (Exception e) {
-                loaded.add(null);
-            }
-        }
+        java.util.HashMap<String, Integer> familySize = d.familySize;
+        ArrayList<JSONObject> loaded = d.loaded;
         for (int i = 0; i < metas.size(); i++) {
             final File mf = metas.get(i);
             final JSONObject m = loaded.get(i);
@@ -1509,7 +1620,7 @@ public class MainActivity extends Activity {
             LinearLayout r = row();
             r.setBackground(glass(EDGE));
             r.setPadding(dp(14), dp(12), dp(8), dp(12));
-            android.graphics.Bitmap thumb = Covers.load(Covers.coverFor(this, m), 8);
+            android.graphics.Bitmap thumb = d.thumbs.get(i);
             if (thumb != null) {
                 android.widget.ImageView iv = new android.widget.ImageView(this);
                 iv.setImageBitmap(thumb);
@@ -2171,6 +2282,12 @@ public class MainActivity extends Activity {
         keepBox.setShadowLayer(4, 0, 1, 0x99000000);
         keepBox.setChecked(cfg.getBoolean("keep", false));
         c.addView(keepBox, gap(8));
+        gentleBox = new CheckBox(this);
+        gentleBox.setText("Gentle mode (songs take longer, the phone stays smooth while one is made)");
+        gentleBox.setTextColor(TEXT);
+        gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
+        gentleBox.setChecked(cfg.getBoolean("gentle", false));
+        c.addView(gentleBox, gap(8));
 
         AdapterView.OnItemSelectedListener changed = new AdapterView.OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
@@ -2184,6 +2301,11 @@ public class MainActivity extends Activity {
         quantSpin.setOnItemSelectedListener(changed);
         seqSpin.setOnItemSelectedListener(changed);
         keepBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                saveEngineSettings();
+            }
+        });
+        gentleBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             public void onCheckedChanged(CompoundButton b, boolean on) {
                 saveEngineSettings();
             }
@@ -2274,10 +2396,13 @@ public class MainActivity extends Activity {
         String q = Store.QUANTS[quantSpin.getSelectedItemPosition()];
         int seq = SEQS[seqSpin.getSelectedItemPosition()];
         boolean keep = keepBox.isChecked();
+        boolean gentle = gentleBox.isChecked();
         boolean same = dev.equals(cfg.getString("device", "Vulkan0")) && q.equals(cfg.getString("quant", "Q6_K"))
-                && seq == cfg.getInt("maxseq", 8192) && keep == cfg.getBoolean("keep", false);
+                && seq == cfg.getInt("maxseq", 8192) && keep == cfg.getBoolean("keep", false)
+                && gentle == cfg.getBoolean("gentle", false);
         if (same) return;
-        cfg.edit().putString("device", dev).putString("quant", q).putInt("maxseq", seq).putBoolean("keep", keep).apply();
+        cfg.edit().putString("device", dev).putString("quant", q).putInt("maxseq", seq).putBoolean("keep", keep)
+                .putBoolean("gentle", gentle).apply();
         refreshModels();
         if (EngineService.running) {
             if (jobBusy) {
@@ -2437,6 +2562,7 @@ public class MainActivity extends Activity {
             adapterBox.addView(r, gap(8));
         }
         adapterSeen = seen.toString();
+        adapterSeenAt = System.currentTimeMillis();
         if (list.size() == 0) {
             adapterBox.addView(text("None installed. An adapter bends the model toward one style or voice.", DIM, 12), gap(4));
         }
@@ -2649,9 +2775,10 @@ public class MainActivity extends Activity {
     // ---------- periodic refresh ----------
 
     void refreshStatus() {
-        boolean core = Store.coreReady(this);
+        boolean core = snapCore;
         String es;
-        if (!core) es = "Model not downloaded";
+        if (!snapReady) es = "Checking files";
+        else if (!core) es = "Model not downloaded";
         else if (!EngineService.running) es = "Engine off";
         else if (!engineHealthy) es = "Engine starting";
         else es = jobBusy ? "Engine busy" : "Engine ready";
@@ -2674,7 +2801,7 @@ public class MainActivity extends Activity {
                 st += "  " + cur + " notes";
             }
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);
-            String heat = gpuHeat();
+            String heat = snapHeat;
             progText.setText(st + "   ·   " + clock(el) + " elapsed" + (heat.length() > 0 ? "\n" + heat : ""));
         } else {
             prog.setVisibility(View.GONE);
@@ -2683,7 +2810,7 @@ public class MainActivity extends Activity {
         }
 
         if (panels[TAB_ENGINE].getVisibility() == View.VISIBLE) {
-            String heat = gpuHeat();
+            String heat = snapHeat;
             engineStatus.setText(es + (heat.length() > 0 ? "\n" + heat : "")
                     + (EngineService.lastError.length() > 0 && !EngineService.running
                     ? "\n" + EngineService.lastError : ""));
@@ -2697,31 +2824,36 @@ public class MainActivity extends Activity {
                 if (Store.busy(n)) {
                     s = d.state.equals("checking") ? "Checking the file" : size(d.done) + " of " + s;
                     btn = "Stop";
-                } else if (Store.have(this, n)) {
+                } else if (is(snapHave, n)) {
                     s += "  ·  ready";
                     btn = "Remove";
                 } else {
                     if (d != null && d.state.equals("failed")) s += "  ·  " + d.error;
-                    File part = new File(Store.models(this), n + ".part");
-                    btn = part.isFile() ? "Resume" : "Get";
+                    btn = is(snapPart, n) ? "Resume" : "Get";
                 }
                 modelText[i].setText(s);
                 modelBtn[i].setText(btn);
             }
             // a pack that has just arrived only takes effect when the engine starts again
-            String packs = "" + Store.have(this, Store.MERT) + Store.have(this, Store.SHEET) + Store.have(this, Store.TOKENIZER);
-            if (packsSeen != null && !packs.equals(packsSeen) && EngineService.running && !jobBusy) EngineService.stop(this);
-            packsSeen = packs;
+            String packs = "" + is(snapHave, Store.MERT) + is(snapHave, Store.SHEET) + is(snapHave, Store.TOKENIZER);
+            if (snapReady) {
+                if (packsSeen != null && !packs.equals(packsSeen) && EngineService.running && !jobBusy) EngineService.stop(this);
+                packsSeen = packs;
+            }
             adapterStatus.setText(adapterMsg);
             coverStatus.setText(Covers.state.length() > 0 ? Covers.state
-                    : Covers.ready(this) ? "Installed. New songs get a cover by themselves; \"Make a cover\" in a song's menu paints another."
+                    : snapCovers ? "Installed. New songs get a cover by themselves; \"Make a cover\" in a song's menu paints another."
                     : "Not installed.");
-            StringBuilder now = new StringBuilder();
-            ArrayList<File> have = installedAdapters();
-            for (int i = 0; i < have.size(); i++) now.append(have.get(i).getName()).append('|');
-            if (!now.toString().equals(adapterSeen)) adaptersChanged();
-            String lt = EngineService.logText();
-            if (lt.length() != logView.getText().length()) logView.setText(lt);
+            // only a list read after the last refresh counts, so a removal is not seen twice
+            if (snapReady && snapAt > adapterSeenAt && !snapAdapters.equals(adapterSeen)) adaptersChanged();
+            // the log is rebuilt only when it changed, and at most every 1.5 s while lines pour in
+            int lv = EngineService.logVersion;
+            long t = System.currentTimeMillis();
+            if (lv != logSeen && t - logShownAt > 1500) {
+                logSeen = lv;
+                logShownAt = t;
+                logView.setText(EngineService.logText());
+            }
         }
 
         playerView.invalidate();

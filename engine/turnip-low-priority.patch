@@ -1,0 +1,28 @@
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc	2026-10-13 16:42:33.596640255 -0700
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc	2026-10-13 16:42:33.600167107 -0700
+@@ -8,6 +8,7 @@
+ #include <linux/dma-heap.h>
+ #include <poll.h>
+ #include <stdint.h>
++#include <stdlib.h>
+ #include <sys/ioctl.h>
+ #include <sys/mman.h>
+ 
+@@ -60,6 +61,17 @@
+               KGSL_CONTEXT_NO_FAULT_TOLERANCE,
+    };
+ 
++   /* TU_KGSL_PRIORITY (1-15, 15 lowest): Killa YuE's gentle mode asks for a
++    * low-priority context, so the kernel can preempt our long compute jobs
++    * for the work that draws the screen. Unset keeps the kernel's default. */
++   const char *prio_env = getenv("TU_KGSL_PRIORITY");
++   if (prio_env) {
++      int prio = atoi(prio_env);
++      if (prio >= 1 && prio <= 15)
++         req.flags |= ((uint32_t) prio << KGSL_CONTEXT_PRIORITY_SHIFT) &
++                      KGSL_CONTEXT_PRIORITY_MASK;
++   }
++
+    int ret = safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_DRAWCTXT_CREATE, &req);
+    if (ret)
+       return ret;

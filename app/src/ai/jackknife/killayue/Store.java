@@ -34,15 +34,25 @@ public class Store {
 
     static final String[] QUANTS = {"Q5_K_M", "Q6_K", "Q8_0"};
 
+    // Shared storage goes through a slow userspace filesystem; under a heavy song it can stall
+    // for seconds, so the folder checks are done once and remembered, not on every call.
+    private static volatile File sharedRoot;
+    private static final java.util.Set<String> made = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
+
     static File root(Context c) {
+        File r = sharedRoot;
+        if (r != null) return r;
         File f = new File(Environment.getExternalStorageDirectory(), "KillaYuE");
-        if ((f.isDirectory() || f.mkdirs()) && f.canWrite()) return f;
+        if ((f.isDirectory() || f.mkdirs()) && f.canWrite()) {
+            sharedRoot = f; // only the shared folder is remembered: before storage permission it falls back
+            return f;
+        }
         return c.getExternalFilesDir(null);
     }
 
     static File dir(Context c, String name) {
         File f = new File(root(c), name);
-        f.mkdirs();
+        if (made.add(f.getPath())) f.mkdirs();
         return f;
     }
 

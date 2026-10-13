@@ -120,7 +120,8 @@ public class NowPlaying extends Service {
     static void turn(MainActivity a) {
         if (session == null || !shownPlaying || a.player == null) return;
         long now = System.currentTimeMillis();
-        if (now - lastTurn < 1100) return;
+        // while a song is being made the system UI is short of time, so the artwork turns less often
+        if (now - lastTurn < (MainActivity.jobBusy ? 5000 : 1100)) return;
         lastTurn = now;
         angle = (angle + 36f) % 360f;
         update(a);

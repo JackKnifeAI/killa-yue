@@ -1,0 +1,100 @@
+diff --git a/src/backend.h b/src/backend.h
+index a9c4404..dd385da 100644
+--- a/src/backend.h
++++ b/src/backend.h
+@@ -5,6 +5,7 @@
+ // keep CPU as fallback. This avoids duplicating init logic across
+ // qwen3-lm.h, nar.h and vae.h.
+ 
++#include "gentle.h"
+ #include "ggml-backend.h"
+ 
+ #include <cstdio>
+@@ -26,6 +27,9 @@ static int         g_backend_refs  = 0;
+ // Used for GGML CPU thread count: GEMM shares SIMD units across hyperthreads,
+ // so one thread per physical core is optimal.
+ static int backend_cpu_n_threads(void) {
++    if (gentle_env_int("YUE_THREADS") > 0) {
++        return gentle_env_int("YUE_THREADS");
++    }
+     int n = (int) std::thread::hardware_concurrency() / 2;
+     return n > 0 ? n : 1;
+ }
+diff --git a/src/generate.h b/src/generate.h
+index 120b9e1..b4d6154 100644
+--- a/src/generate.h
++++ b/src/generate.h
+@@ -12,6 +12,7 @@
+ // holds for the whole loop.
+ #pragma once
+ 
++#include "gentle.h"
+ #include "qwen3-lm.h"
+ #include "sampling.h"
+ #include "timer.h"
+@@ -172,6 +173,7 @@ static bool yue2_generate(Qwen3LM *                             lm,
+             fprintf(stderr, "[AR] %s %d/%d\n", label, step, s.max_tokens);
+         }
+         qw3lm_forward_batch(lm, kv, tokens.data(), kv_sets.data(), N, batched.data(), row0, rows);
++        gentle_ar_pause();
+         for (int i = 0; i < B; i++) {
+             if (owed[i] > 0) {
+                 owed[i]--;
+diff --git a/src/gentle.h b/src/gentle.h
+new file mode 100644
+index 0000000..f664d6e
+--- /dev/null
++++ b/src/gentle.h
+@@ -0,0 +1,32 @@
++#pragma once
++// Gentle mode for phones (Killa YuE): optional pauses between GPU jobs, so the screen and the
++// rest of the system get the GPU and CPU while a song is made. Off unless the variables are set.
++//   YUE_AR_PAUSE_MS   pause after each written token (score and melody)
++//   YUE_NAR_PAUSE_MS  pause after each render step
++//   YUE_THREADS       CPU threads for the CPU backend (default: half the cores)
++
++#include <chrono>
++#include <cstdlib>
++#include <thread>
++
++static inline int gentle_env_int(const char * name) {
++    const char * v = getenv(name);
++    int          n = v ? atoi(v) : 0;
++    return n > 0 ? n : 0;
++}
++
++static inline void gentle_sleep_ms(int ms) {
++    if (ms > 0) {
++        std::this_thread::sleep_for(std::chrono::milliseconds(ms));
++    }
++}
++
++static inline void gentle_ar_pause(void) {
++    static const int ms = gentle_env_int("YUE_AR_PAUSE_MS");
++    gentle_sleep_ms(ms);
++}
++
++static inline void gentle_nar_pause(void) {
++    static const int ms = gentle_env_int("YUE_NAR_PAUSE_MS");
++    gentle_sleep_ms(ms);
++}
+diff --git a/src/nar.h b/src/nar.h
+index 2064af4..65067ae 100644
+--- a/src/nar.h
++++ b/src/nar.h
+@@ -22,6 +22,7 @@
+ #pragma once
+ 
+ #include "debug.h"
++#include "gentle.h"
+ #include "qwen3-lm.h"
+ #include "timer.h"
+ 
+@@ -564,6 +565,7 @@ static bool nar_solve(Yue2NAR *            n,
+         snprintf(name, sizeof(name), "nar_step%d_xt", step);
+         debug_dump_2d(dbg, name, state, T_lat, n->latent_dim);
+         fprintf(stderr, "[NAR] Step %d/%d, %.0f ms\n", step + 1, steps, step_timer.ms());
++        gentle_nar_pause();
+     }
+     debug_dump_2d(dbg, "nar_x0", state, T_lat, n->latent_dim);
+ 

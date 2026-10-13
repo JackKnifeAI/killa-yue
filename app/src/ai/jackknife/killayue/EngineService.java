@@ -26,6 +26,12 @@ public class EngineService extends Service {
 
     static volatile Process proc;
     static volatile boolean running;
+    private volatile boolean launching, destroyed;
+
+    /** Gentle mode: slower songs that leave the phone responsive. */
+    static boolean gentle(Context c) {
+        return c.getSharedPreferences("cfg", 0).getBoolean("gentle", false);
+    }
     static volatile String stage = "";
     static volatile int progCur, progMax;
     static volatile long stageSince;
@@ -55,29 +61,63 @@ public class EngineService extends Service {
         c.stopService(new Intent(c, EngineService.class));
     }
 
-    static java.io.PrintWriter logFile;
+    static volatile java.io.PrintWriter logFile;
 
-    /** Keeps the engine log on storage so a crash can be read afterwards. */
+    /** Keeps the engine log on storage so a crash can be read afterwards. No lock is held while storage is touched. */
     static void openLogFile(Context c) {
-        synchronized (log) {
-            try {
-                File dir = Store.dir(c, "logs");
-                File last = new File(dir, "engine-last.log");
-                if (last.isFile()) last.renameTo(new File(dir, "engine-previous.log"));
-                if (logFile != null) logFile.close();
-                logFile = new java.io.PrintWriter(new java.io.FileWriter(last), true);
-            } catch (Exception e) {
-                logFile = null;
-            }
+        java.io.PrintWriter old = logFile;
+        logFile = null;
+        if (old != null) old.close();
+        try {
+            File dir = Store.dir(c, "logs");
+            File last = new File(dir, "engine-last.log");
+            if (last.isFile()) last.renameTo(new File(dir, "engine-previous.log"));
+            logFile = new java.io.PrintWriter(new java.io.FileWriter(last), false);
+        } catch (Exception e) {
+            logFile = null;
         }
     }
 
+    /** Bumped on every new line, so the screen only rebuilds the log text when it changed. */
+    static volatile int logVersion;
+    // Lines for the log file go through a queue to their own thread: a write to shared storage
+    // can stall for seconds under load, and nothing that holds the log lock may wait for it.
+    private static final java.util.concurrent.LinkedBlockingQueue<String> fileQueue = new java.util.concurrent.LinkedBlockingQueue<String>(5000);
+    private static Thread fileWriter;
+
     static void addLog(String s) {
         synchronized (log) {
-            if (logFile != null) logFile.println(s);
             log.add(s);
             while (log.size() > LOG_MAX) log.remove(0);
+            logVersion++;
         }
+        fileQueue.offer(s); // dropped, not waited for, if the writer has fallen far behind
+        startFileWriter();
+    }
+
+    private static synchronized void startFileWriter() {
+        if (fileWriter != null) return;
+        fileWriter = new Thread(new Runnable() {
+            public void run() {
+                while (true) {
+                    try {
+                        String s = fileQueue.take();
+                        java.io.PrintWriter w = logFile;
+                        if (w != null) {
+                            w.println(s);
+                            if (fileQueue.isEmpty()) w.flush();
+                        }
+                    } catch (InterruptedException e) {
+                        return;
+                    } catch (Exception e) {
+                        // a failed write loses a log line, never the engine
+                    }
+                }
+            }
+        }, "log-file");
+        fileWriter.setDaemon(true);
+        fileWriter.setPriority(Thread.MIN_PRIORITY);
+        fileWriter.start();
     }
 
     static String logText() {
@@ -161,7 +201,20 @@ public class EngineService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         self = this;
         startForeground(1, note("Engine running"));
-        if (proc == null) launch();
+        // Starting touches shared storage, which can stall under load, so it runs off the main thread.
+        if (proc == null && !launching) {
+            launching = true;
+            running = true; // "starting" until the engine answers, as before
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        launch();
+                    } finally {
+                        launching = false;
+                    }
+                }
+            }, "engine-launch").start();
+        }
         return START_NOT_STICKY;
     }
 
@@ -255,6 +308,13 @@ public class EngineService extends Service {
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "killayue:engine");
             wake.acquire();
             List<String> args = buildArgs(this);
+            boolean gentle = gentle(this);
+            // Gentle mode, CPU side: the engine runs at a lower priority than everything on screen.
+            if (gentle && new File("/system/bin/nice").exists()) {
+                args.add(0, "10");
+                args.add(0, "-n");
+                args.add(0, "/system/bin/nice");
+            }
             ProcessBuilder pb = new ProcessBuilder(args);
             pb.redirectErrorStream(true);
             pb.directory(getFilesDir());
@@ -266,10 +326,25 @@ public class EngineService extends Service {
             pb.environment().put("VK_ICD_FILENAMES", icd);
             pb.environment().put("HOME", getFilesDir().getAbsolutePath());
             pb.environment().put("TMPDIR", getCacheDir().getAbsolutePath());
+            if (gentle) {
+                // smaller GPU jobs, so the screen gets the GPU between them
+                pb.environment().put("GGML_VK_MAX_NODES_PER_SUBMIT", "8");
+                // read by our engine and driver patches (engine/); older builds ignore them
+                pb.environment().put("YUE_THREADS", "2");
+                pb.environment().put("YUE_AR_PAUSE_MS", "15");
+                pb.environment().put("YUE_NAR_PAUSE_MS", "1500");
+                pb.environment().put("TU_KGSL_PRIORITY", "15");
+            }
             lastError = "";
             openLogFile(this);
             addLog("[App] Starting engine: " + args.toString());
             final Process p = pb.start();
+            if (destroyed) {
+                // the service was stopped while the engine was being started
+                p.destroy();
+                running = false;
+                return;
+            }
             proc = p;
             running = true;
             setStage("", 0, 0);
@@ -313,6 +388,7 @@ public class EngineService extends Service {
 
     @Override
     public void onDestroy() {
+        destroyed = true;
         if (self == this) self = null;
         Process p = proc;
         proc = null;
