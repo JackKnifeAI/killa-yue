@@ -1041,7 +1041,7 @@ public class MainActivity extends Activity {
 
     static final ArrayList<JSONObject> queue = new ArrayList<JSONObject>();
     static volatile boolean queueRunning;
-    static final int QUEUE_BATTERY = 50; // do not start a song below this charge
+    static final int[] QUEUE_LEVELS = {50, 60, 70, 75, 80, 85, 90, 95};
     Button queueBtn;
     String queueNote = "";
 
@@ -1096,7 +1096,7 @@ public class MainActivity extends Activity {
     void showQueue() {
         if (queue.size() == 0) {
             alert("Queue", "Nothing is queued. Fill in a song and press \"Add to queue\"; do that for as many songs as you like, "
-                    + "then start the queue and leave the phone on its charger.");
+                    + "then start the queue and leave the phone on its charger. The battery level it waits for is set on the Engine tab.");
             return;
         }
         final String[] names = new String[queue.size()];
@@ -1153,8 +1153,9 @@ public class MainActivity extends Activity {
         }
         boolean[] charging = new boolean[1];
         int level = battery(charging);
-        if (level >= 0 && level < QUEUE_BATTERY) {
-            queueNote = "Queue is waiting for the battery to reach " + QUEUE_BATTERY + "% (now " + level + "%"
+        int need = cfg.getInt("queue_battery", 75);
+        if (level >= 0 && level < need) {
+            queueNote = "Queue is waiting for the battery to reach " + need + "% (now " + level + "%"
                     + (charging[0] ? ", charging)" : ", not charging)");
             return;
         }
@@ -2039,6 +2040,25 @@ public class MainActivity extends Activity {
                 if (!ready || Skin.IDS[pos].equals(Skin.id(MainActivity.this))) return;
                 cfg.edit().putString("skin", Skin.IDS[pos]).putInt("tab", TAB_ENGINE).apply();
                 recreate(); // everything is rebuilt with the new artwork and colours
+            }
+
+            public void onNothingSelected(AdapterView<?> p) {
+            }
+        });
+
+        c.addView(label("Queue: start the next song only when the battery is at least"));
+        String[] levels = new String[QUEUE_LEVELS.length];
+        int levelAt = 3;
+        for (int i = 0; i < levels.length; i++) {
+            levels[i] = QUEUE_LEVELS[i] + "%";
+            if (QUEUE_LEVELS[i] == cfg.getInt("queue_battery", 75)) levelAt = i;
+        }
+        final Spinner queueSpin = spinner(levels);
+        queueSpin.setSelection(levelAt);
+        c.addView(queueSpin);
+        queueSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (ready) cfg.edit().putInt("queue_battery", QUEUE_LEVELS[pos]).apply();
             }
 
             public void onNothingSelected(AdapterView<?> p) {
