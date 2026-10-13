@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in the app does not work as it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What went wrong
+      description: What you did, what you expected, and what happened.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the Create tab
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: Samsung Galaxy S25 Ultra, Android 16
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Killa YuE version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Engine log, if the engine was involved
+      description: Engine tab, then "Copy log". It contains your style and lyrics, so remove anything you would rather not share.
+      render: text

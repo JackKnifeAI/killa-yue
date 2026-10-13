@@ -1,0 +1,61 @@
+name: Device report
+description: Tell us whether Killa YuE runs on your phone. The app has been tested on one device, so every report helps.
+title: "Device report: "
+labels: ["device-report"]
+body:
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model
+      placeholder: Samsung Galaxy S25 Ultra
+    validations:
+      required: true
+  - type: input
+    id: chip
+    attributes:
+      label: Chip and GPU
+      description: Settings, About phone, or a search for your model will tell you.
+      placeholder: Snapdragon 8 Elite, Adreno 830
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      placeholder: "16"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Killa YuE version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: What happened
+      options:
+        - A song was generated
+        - The engine started but the song failed
+        - The engine did not start
+        - The app did not install or open
+    validations:
+      required: true
+  - type: textarea
+    id: timing
+    attributes:
+      label: Song length, render steps and how long it took
+      description: If a song was generated. The progress line shows the elapsed time.
+      placeholder: 20 seconds, 32 steps, about 7 minutes
+  - type: textarea
+    id: log
+    attributes:
+      label: Engine log
+      description: Engine tab, then "Copy log", and paste it here. It contains your style and lyrics, so remove anything you would rather not share.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

@@ -65,6 +65,12 @@ See [BUILDING.md](BUILDING.md).
 
 Killa YuE is an independent project. It is not affiliated with or endorsed by M-A-P or the YuE2 authors.
 
+## Contact
+
+Bugs, device reports and ideas: please [open an issue](../../issues/new/choose).
+
+For anything that should not be public, including security reports: **jackknifeai@proton.me**
+
 ## Who made this
 
 Alexander, founder of JackKnife AI, and Claudia, his AI partner, who wrote the code. It went from an idea to a song in one day, on the phone it runs on.
