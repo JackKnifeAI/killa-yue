@@ -474,6 +474,72 @@ Copyright (c) 2014-2025 The Khronos Group Inc., Valve Corporation, LunarG, Inc. 
 
 Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions. See https://llvm.org/LICENSE.txt
 
+## Qualcomm AI Engine Direct (QNN) runtime 2.50 (album covers)
+
+The APK contains four libraries from Qualcomm's QNN runtime, version 2.50.0 (Maven Central, `com.qualcomm.qti:qnn-runtime`): `libQnnHtp.so`, `libQnnSystem.so`, `libQnnHtpV79Stub.so` and `libQnnHtpV79Skel.so`. They are licensed under the **Qualcomm AI Hub Model License** (https://softwarecenter.qualcomm.com/api/download/software/licenses/ai_model_hub/v1/LICENSE.pdf), which allows them to be distributed in object code as part of an application, and not on their own. They are not covered by this project's Apache License, are not in this repository, and that licence forbids reverse engineering them.
+
+## QNN API headers (qualcomm/geniex-qairt-plugin)
+
+The cover painter (`engine/npu/sdnpu.cpp`, shipped as `libsdnpu.so`) is compiled against the QNN API headers from https://github.com/qualcomm/geniex-qairt-plugin.
+
+```
+Copyright 2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and
+the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions
+and the following disclaimer in the documentation and/or other materials provided with the
+distribution.
+
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse
+or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
+THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+## CLIP tokenizer vocabulary (OpenAI CLIP)
+
+`app/assets/clip/bpe_simple_vocab_16e6.txt.gz` comes from https://github.com/openai/CLIP.
+
+```
+MIT License
+
+Copyright (c) 2021 OpenAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Stable Diffusion 1.5 cover model (not included)
+
+The app downloads Stable Diffusion 1.5, as compiled by Qualcomm for the Snapdragon 8 Elite, at the user's request from Qualcomm's AI Hub release (Hugging Face `qualcomm/Stable-Diffusion-v1.5`). The weights are licensed CreativeML OpenRAIL-M, whose use restrictions apply to everyone who uses them. They are not part of this repository or of the APK.
+
 ## YuE2 model weights (not included)
 
 The app downloads the YuE2 weights at the user's request from Hugging Face. They are the work of M-A-P and are licensed CC BY-NC 4.0 with the authors' additional creator permission. They are not part of this repository or of the APK.

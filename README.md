@@ -10,7 +10,7 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-Version 1.0.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+Version 1.1.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
 
 ## Requirements
 
@@ -32,6 +32,13 @@ On first launch, allow storage access, open the **Engine** tab and press **Get**
 - **Recordings**: cover a recording (melody, or melody and chords), continue from it, or re-render it. Needs the cover and recording packs from the Engine tab.
 - **Style adapters (LoRA)**: install from a Hugging Face repository or a file, then switch them on per song.
 - **Writing aids**: save and recall styles and lyrics, clear both at once, undo and redo.
+- **Player**: a deck with previous, back 10 s, play or pause, forward 10 s and next; song titles; a sleep timer; the song in the system's now-playing card, lock screen and status bar.
+- **Lyrics**: a Lyrics tab that lights up each line as it is sung; tap along once for exact timing. Every song gets an `.lrc` file and MP3 tags with the title, lyrics, timed lyrics and cover.
+- **Queue, takes and recipes**: line up songs to make one after another on the charger; songs with the same lyrics and score are grouped as takes; share a song's recipe as a `.killa` file so another phone can make it.
+- **Album covers on the NPU**: on a Snapdragon 8 Elite, a cover is painted in about three seconds with Stable Diffusion 1.5 on the Hexagon NPU, and the app letters the title. The cover model is a separate 710 MB download on the Engine tab.
+- **Skins**: Killa Gold, Neon District and Foundry.
+
+What comes next is in [ROADMAP.md](ROADMAP.md).
 
 ## How fast is it
 

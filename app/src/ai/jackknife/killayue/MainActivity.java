@@ -87,6 +87,9 @@ public class MainActivity extends Activity {
             + "GPU driver: Mesa Turnip, MIT. Vulkan loader, Apache License 2.0.\n"
             + "zlib (zlib licence), Zstandard (BSD), Expat (MIT), libc++ (Apache 2.0 with LLVM exception).\n"
             + "Killa typefaces: SIL Open Font License 1.1.\n"
+            + "Album covers: Qualcomm AI Engine Direct (QNN) runtime, under the Qualcomm AI Hub Model License, included in this app only; "
+            + "QNN API headers (c) 2026 Qualcomm Technologies, Inc., BSD 3-Clause; CLIP tokenizer vocabulary (c) 2021 OpenAI, MIT. "
+            + "The cover model (Stable Diffusion 1.5 as compiled by Qualcomm) is downloaded separately and is licensed CreativeML OpenRAIL-M.\n"
             + "Adapters you install belong to their makers and carry their own terms.\n\n"
             + "Killa YuE is an independent project and is not affiliated with or endorsed by the YuE2 authors.\n"
             + "Full licence texts are in the source repository: github.com/JackKnifeAI/killa-yue";
