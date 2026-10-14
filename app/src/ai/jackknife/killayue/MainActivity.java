@@ -121,6 +121,9 @@ public class MainActivity extends Activity {
     int[] timingTimes;
     EditText songTitle;
     static volatile String pendingTitle = "";
+    static volatile String pendingAlbum = "";
+    /** When an album is playing, its songs in album order; otherwise null and the library order is used. */
+    ArrayList<JSONObject> albumOrder;
     String playTitle = "";
     final ArrayList<JSONObject> playlist = new ArrayList<JSONObject>();
     DialView lengthDial;
@@ -887,7 +890,7 @@ public class MainActivity extends Activity {
     }
 
     View savedRow(final String kind, final String word, final EditText box) {
-        return chipRow(new String[] {"Save this " + word, "My saved " + kind}, new Runnable[] {
+        return chipRow(new String[] {("lyrics".equals(word) ? "Save these " : "Save this ") + word, "My saved " + kind}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     saveCurrent(kind, word, box);
@@ -1098,6 +1101,7 @@ public class MainActivity extends Activity {
 
     void generate() {
         JSONObject req = formRequest();
+        pendingAlbum = "";
         if (req != null) startSong(req, val(songTitle), false);
     }
 
@@ -1267,6 +1271,7 @@ public class MainActivity extends Activity {
         JSONObject item = queue.remove(0);
         saveQueue();
         JSONObject req = item.optJSONObject("req");
+        pendingAlbum = item.optString("album");
         if (req != null) startSong(req, item.optString("given"), true);
     }
 
@@ -1411,6 +1416,7 @@ public class MainActivity extends Activity {
                 meta.put("_created", System.currentTimeMillis());
                 meta.put("_seconds", frames / 25);
                 Store.write(new File(lib, base + ".json"), meta.toString().getBytes("UTF-8"));
+                if (pendingAlbum.length() > 0) Albums.add(app, pendingAlbum, base + ".json"); // made for an album
                 try {
                     Tags.write(new File(lib, base + ext), meta.optString("_title"),
                             Karaoke.build(meta.optString("lyrics"), meta.optString("abc"), frames * 40));
@@ -1626,7 +1632,12 @@ public class MainActivity extends Activity {
             libraryBox.addView(t);
             return;
         }
-        libraryBox.addView(chipRow(new String[] {"Sleep timer", "Open a recipe"}, new Runnable[] {
+        libraryBox.addView(chipRow(new String[] {"Albums", "Sleep timer", "Open a recipe"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    showAlbums();
+                }
+            },
             new Runnable() {
                 public void run() {
                     askSleepTimer();
@@ -1682,6 +1693,7 @@ public class MainActivity extends Activity {
             });
             r.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
+                    albumOrder = null; // a song tapped in the library plays in library order
                     play(m);
                 }
             });
@@ -1710,8 +1722,8 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Share", "Share as a recipe", "Change the title",
-            "Details", "Delete",
+            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Add to an album", "Share", "Share as a recipe",
+            "Change the title", "Details", "Delete",
         };
         new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
@@ -1777,6 +1789,8 @@ public class MainActivity extends Activity {
                     makeCover(m, true);
                 } else if ("Share as a recipe".equals(pick)) {
                     shareRecipe(m);
+                } else if ("Add to an album".equals(pick)) {
+                    addToAlbum(mf.getName());
                 } else {
                     new AlertDialog.Builder(MainActivity.this).setTitle("Delete this song?")
                             .setMessage(title + "\nThe audio file and its saved melody are removed for good.")
@@ -1794,6 +1808,336 @@ public class MainActivity extends Activity {
     }
 
     /** Paints a cover on the NPU in the background, then embeds it in the song and refreshes the list. */
+    // ---------- albums: an ordered set of songs with one title, one sound and one cover ----------
+
+    void showAlbums() {
+        final ArrayList<JSONObject> list = Albums.all(this);
+        final String[] items = new String[list.size() + 1];
+        items[0] = "New album";
+        for (int i = 0; i < list.size(); i++) {
+            JSONObject a = list.get(i);
+            int n = a.optJSONArray("tracks") == null ? 0 : a.optJSONArray("tracks").length();
+            items[i + 1] = a.optString("title") + "   ·   " + n + (n == 1 ? " song" : " songs");
+        }
+        new AlertDialog.Builder(this).setTitle("Albums").setItems(items, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                if (w == 0) newAlbum(null);
+                else albumMenu(list.get(w - 1));
+            }
+        }).show();
+    }
+
+    /** Asks for a title; the album's sound starts as the Create tab's style. addSong, if given, goes in first. */
+    void newAlbum(final String addSong) {
+        final EditText name = new EditText(this);
+        name.setHint("Album title");
+        name.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("New album").setView(name)
+                .setMessage("The album's sound starts as the style on the Create tab; songs made for the album use it.")
+                .setPositiveButton("Make it", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        String t = name.getText().toString().trim();
+                        if (t.length() == 0) t = "Untitled album";
+                        try {
+                            JSONObject a = Albums.create(MainActivity.this, t, val(style));
+                            if (addSong != null) Albums.add(MainActivity.this, a.getString("id"), addSong);
+                            toast(addSong != null ? "Album made, with this song in it" : "Album made");
+                            albumMenu(Albums.get(MainActivity.this, a.getString("id")));
+                        } catch (Exception e) {
+                            toast("Could not make the album: " + e.getMessage());
+                        }
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** From a song's menu. songJson is the song's .json name in the library. */
+    void addToAlbum(final String songJson) {
+        final ArrayList<JSONObject> list = Albums.all(this);
+        final String[] items = new String[list.size() + 1];
+        items[0] = "New album";
+        for (int i = 0; i < list.size(); i++) items[i + 1] = list.get(i).optString("title");
+        new AlertDialog.Builder(this).setTitle("Add to an album").setItems(items, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                if (w == 0) {
+                    newAlbum(songJson);
+                } else {
+                    Albums.add(MainActivity.this, list.get(w - 1).optString("id"), songJson);
+                    toast("Added to " + list.get(w - 1).optString("title"));
+                }
+            }
+        }).show();
+    }
+
+    void albumMenu(final JSONObject a) {
+        if (a == null) return;
+        final String id = a.optString("id");
+        final String[] items = {
+            "Play the album", "Songs in this album", "Add songs from the library", "Make new songs for this album",
+            "Paint the album cover", "Use the Create tab's style for this album", "Rename", "Export to Music", "Share the album",
+            "Delete the album",
+        };
+        String sub = a.optString("style").length() > 0 ? "Sound: " + a.optString("style") : "No sound set yet";
+        new AlertDialog.Builder(this).setTitle(a.optString("title") + "\n" + sub).setItems(items, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                String pick = items[w];
+                JSONObject fresh = Albums.get(MainActivity.this, id);
+                if (fresh == null) return;
+                if ("Play the album".equals(pick)) {
+                    ArrayList<JSONObject> songs = Albums.songs(MainActivity.this, fresh);
+                    if (songs.size() == 0) {
+                        toast("This album has no songs yet");
+                        return;
+                    }
+                    albumOrder = songs;
+                    play(songs.get(0));
+                } else if ("Songs in this album".equals(pick)) {
+                    albumSongs(fresh);
+                } else if ("Add songs from the library".equals(pick)) {
+                    addSongsTo(fresh);
+                } else if ("Make new songs for this album".equals(pick)) {
+                    queueAlbumSongs(fresh);
+                } else if ("Paint the album cover".equals(pick)) {
+                    paintAlbumCover(fresh);
+                } else if ("Use the Create tab's style for this album".equals(pick)) {
+                    try {
+                        fresh.put("style", val(style));
+                        Albums.save(MainActivity.this, fresh);
+                        toast(val(style).length() > 0 ? "The album's sound is now the Create tab's style" : "The album has no sound set now");
+                    } catch (Exception e) {
+                        toast("Could not save the album");
+                    }
+                } else if ("Rename".equals(pick)) {
+                    renameAlbum(fresh);
+                } else if ("Export to Music".equals(pick)) {
+                    exportAlbum(fresh, false);
+                } else if ("Share the album".equals(pick)) {
+                    exportAlbum(fresh, true);
+                } else {
+                    final JSONObject gone = fresh;
+                    new AlertDialog.Builder(MainActivity.this).setTitle("Delete this album?")
+                            .setMessage(gone.optString("title") + "\nThe songs stay in your library; only the album goes.")
+                            .setPositiveButton("Delete", new DialogInterface.OnClickListener() {
+                                public void onClick(DialogInterface d2, int w2) {
+                                    Albums.delete(MainActivity.this, gone.optString("id"));
+                                    albumOrder = null;
+                                    toast("Album deleted");
+                                }
+                            }).setNegativeButton("Keep", null).show();
+                }
+            }
+        }).show();
+    }
+
+    void albumSongs(final JSONObject a) {
+        final ArrayList<JSONObject> songs = Albums.songs(this, a);
+        if (songs.size() == 0) {
+            toast("This album has no songs yet. Add some from the library or make new ones.");
+            return;
+        }
+        String[] items = new String[songs.size()];
+        for (int i = 0; i < items.length; i++) {
+            items[i] = (i + 1) + ".  " + songs.get(i).optString("_title", "Untitled") + "   " + clock(songs.get(i).optInt("_seconds"));
+        }
+        new AlertDialog.Builder(this).setTitle(a.optString("title")).setItems(items, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, final int at) {
+                final String[] acts = {"Play from here", "Move up", "Move down", "Take out of the album"};
+                new AlertDialog.Builder(MainActivity.this).setTitle(songs.get(at).optString("_title"))
+                        .setItems(acts, new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d2, int w) {
+                                try {
+                                    // songs deleted from the library are not listed, so find this one's place by name
+                                    String name = metaFile(songs.get(at)).getName();
+                                    JSONArray t = a.optJSONArray("tracks");
+                                    int pos = -1;
+                                    for (int i = 0; i < t.length(); i++) if (name.equals(t.optString(i))) pos = i;
+                                    if (w == 0) {
+                                        albumOrder = songs;
+                                        play(songs.get(at));
+                                        return;
+                                    }
+                                    if (pos < 0) return;
+                                    if (w == 1) Albums.move(MainActivity.this, a, pos, pos - 1);
+                                    else if (w == 2) Albums.move(MainActivity.this, a, pos, pos + 1);
+                                    else Albums.remove(MainActivity.this, a, pos);
+                                    albumSongs(Albums.get(MainActivity.this, a.optString("id")));
+                                } catch (Exception e) {
+                                    toast("Could not change the album");
+                                }
+                            }
+                        }).show();
+            }
+        }).show();
+    }
+
+    void addSongsTo(final JSONObject a) {
+        if (playlist.size() == 0) {
+            toast("No songs in the library yet");
+            return;
+        }
+        final ArrayList<JSONObject> all = new ArrayList<JSONObject>(playlist);
+        String[] items = new String[all.size()];
+        final boolean[] on = new boolean[all.size()];
+        for (int i = 0; i < items.length; i++) items[i] = all.get(i).optString("_title", "Untitled");
+        new AlertDialog.Builder(this).setTitle("Add to " + a.optString("title"))
+                .setMultiChoiceItems(items, on, new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface d, int w, boolean c) {
+                        on[w] = c;
+                    }
+                })
+                .setPositiveButton("Add", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        int n = 0;
+                        // oldest first, so the album runs in the order the songs were made
+                        for (int i = all.size() - 1; i >= 0; i--) {
+                            if (on[i] && Albums.add(MainActivity.this, a.optString("id"), metaFile(all.get(i)).getName())) n++;
+                        }
+                        toast(n + (n == 1 ? " song" : " songs") + " added to " + a.optString("title"));
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** The album builder: one queued song per saved lyric, all in the album's sound; each joins the album when it is made. */
+    void queueAlbumSongs(final JSONObject a) {
+        final JSONArray saved = loadSaved("lyrics");
+        if (saved.length() == 0) {
+            alert("No saved lyrics yet", "Write lyrics on the Create tab and press \"Save these lyrics\" for each song you want on the album. "
+                    + "Then come back here and pick them; each becomes a song in the album's sound.");
+            return;
+        }
+        String[] items = new String[saved.length()];
+        final boolean[] on = new boolean[saved.length()];
+        for (int i = 0; i < items.length; i++) items[i] = saved.optJSONObject(i).optString("name");
+        new AlertDialog.Builder(this).setTitle("Songs for " + a.optString("title"))
+                .setMultiChoiceItems(items, on, new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface d, int w, boolean c) {
+                        on[w] = c;
+                    }
+                })
+                .setPositiveButton("Queue them", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        JSONObject base = formRequest();
+                        if (base == null) return;
+                        int n = 0;
+                        try {
+                            for (int i = 0; i < on.length; i++) {
+                                if (!on[i]) continue;
+                                JSONObject s = saved.optJSONObject(i);
+                                JSONObject req = new JSONObject(base.toString());
+                                req.put("lyrics", s.optString("text"));
+                                if (a.optString("style").length() > 0) req.put("style", a.optString("style"));
+                                req.remove("abc"); // each song writes its own score
+                                JSONObject item = new JSONObject();
+                                item.put("title", s.optString("name"));
+                                item.put("given", s.optString("name"));
+                                item.put("req", req);
+                                item.put("album", a.optString("id"));
+                                queue.add(item);
+                                n++;
+                            }
+                        } catch (Exception e) {
+                            toast("Could not queue the songs: " + e.getMessage());
+                        }
+                        saveQueue();
+                        if (n > 0) {
+                            alert("Queued for " + a.optString("title"), n + (n == 1 ? " song is" : " songs are")
+                                    + " in the queue, in the album's sound and with the Create tab's length and settings. "
+                                    + "Start the queue from the Create tab and leave the phone on its charger; each song joins the album when it is made.");
+                        }
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    void paintAlbumCover(final JSONObject a) {
+        if (!Covers.ready(this)) {
+            alert("One more download needed", "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB).");
+            return;
+        }
+        toast("Painting the album cover. It takes a few seconds.");
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                try {
+                    JSONObject m = Albums.coverMeta(a, Albums.songs(app, a));
+                    File made = Covers.make(app, m, (int) (System.currentTimeMillis() % 100000));
+                    File dst = Albums.coverFile(app, a.optString("id"));
+                    dst.delete();
+                    if (!made.renameTo(dst)) {
+                        Store.write(dst, Store.read(made));
+                        made.delete();
+                    }
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final String ferr = err;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) alert("No cover this time", ferr);
+                        else toast("Album cover painted. Export the album to put it on every song.");
+                    }
+                });
+            }
+        }, "album-cover").start();
+    }
+
+    void renameAlbum(final JSONObject a) {
+        final EditText name = new EditText(this);
+        name.setSingleLine(true);
+        name.setText(a.optString("title"));
+        new AlertDialog.Builder(this).setTitle("Rename the album").setView(name)
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        String t = name.getText().toString().trim();
+                        if (t.length() == 0) return;
+                        try {
+                            a.put("title", t);
+                            Albums.save(MainActivity.this, a);
+                            toast("Renamed");
+                        } catch (Exception e) {
+                            toast("Could not rename the album");
+                        }
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** Writes the album to Music/Killa YuE (tagged, with cover and playlist); share also sends it as a zip. */
+    void exportAlbum(final JSONObject a, final boolean share) {
+        toast("Exporting " + a.optString("title") + "…");
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                File zip = null;
+                try {
+                    zip = Albums.export(app, a, null);
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final String ferr = err;
+                final File fzip = zip;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) {
+                            alert("The album was not exported", ferr);
+                            return;
+                        }
+                        if (share && fzip != null) {
+                            Intent s = new Intent(Intent.ACTION_SEND);
+                            s.setType("application/zip");
+                            s.putExtra(Intent.EXTRA_STREAM, TrackProvider.uri(fzip.getName()));
+                            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            startActivity(Intent.createChooser(s, "Share the album"));
+                        } else {
+                            alert("Album exported", "It is in Music/Killa YuE/" + Albums.safeName(a.optString("title"))
+                                    + ": every song tagged with the album, track number, lyrics and cover, plus a playlist. "
+                                    + "Music apps on this phone will list it as an album.");
+                        }
+                    }
+                });
+            }
+        }, "album-export").start();
+    }
+
     void makeCover(final JSONObject m, final boolean tell) {
         if (!Covers.ready(this)) {
             if (tell) {
@@ -2183,8 +2527,14 @@ public class MainActivity extends Activity {
         am.requestAudioFocus(focus, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN);
     }
 
+    /** What next and previous step through: the playing album, or the library. */
+    ArrayList<JSONObject> order() {
+        return albumOrder != null ? albumOrder : playlist;
+    }
+
     int playingIndex() {
-        for (int i = 0; i < playlist.size(); i++) if (playlist.get(i).optString("_audio").equals(playingFile)) return i;
+        ArrayList<JSONObject> o = order();
+        for (int i = 0; i < o.size(); i++) if (o.get(i).optString("_audio").equals(playingFile)) return i;
         return -1;
     }
 
@@ -2206,6 +2556,7 @@ public class MainActivity extends Activity {
 
     /** Moves to the next (1) or previous (-1) song in library order. False when there is none. */
     boolean playStep(int dir) {
+        ArrayList<JSONObject> playlist = order();
         if (playlist.size() == 0) return false;
         int at = playingIndex();
         // previous restarts the current song first, as players do, once it is a few seconds in

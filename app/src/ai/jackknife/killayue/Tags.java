@@ -42,9 +42,23 @@ public class Tags {
     }
 
     static byte[] id3(String title, ArrayList<Karaoke.Line> lines, byte[] cover) throws Exception {
+        return id3(title, lines, cover, null, null, 0, 0);
+    }
+
+    /** The tag, with album, artist and "track/total" when album is not null. */
+    static byte[] id3(String title, ArrayList<Karaoke.Line> lines, byte[] cover, String album, String artist,
+                      int track, int total) throws Exception {
         ByteArrayOutputStream frames = new ByteArrayOutputStream();
         frame(frames, "TIT2", text(title));
         frame(frames, "TSSE", text("Killa YuE"));
+        if (album != null) {
+            frame(frames, "TALB", text(album));
+            if (artist != null && artist.length() > 0) {
+                frame(frames, "TPE1", text(artist));
+                frame(frames, "TPE2", text(artist));
+            }
+            if (track > 0) frame(frames, "TRCK", text(track + "/" + total));
+        }
         if (lines.size() > 0) {
             StringBuilder plain = new StringBuilder();
             for (int i = 0; i < lines.size(); i++) plain.append(lines.get(i).text).append('\n');
