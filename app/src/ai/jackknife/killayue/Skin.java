@@ -94,6 +94,11 @@ public class Skin {
         return (alpha << 24) | (ACCENT & 0xFFFFFF);
     }
 
+    /** Just the palette, for places that draw no artwork (the home-screen widget). */
+    static synchronized void colours(Context c) {
+        if (loaded == null) palette(id(c));
+    }
+
     static synchronized void load(Context c) {
         String id = id(c);
         if (id.equals(loaded)) return;

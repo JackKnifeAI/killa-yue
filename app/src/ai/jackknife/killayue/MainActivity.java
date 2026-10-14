@@ -570,6 +570,7 @@ public class MainActivity extends Activity {
             watchTyping();
             runQueue();
             NowPlaying.turn(MainActivity.this);
+            if (jobBusy) Widget.refresh(MainActivity.this, false); // the time it has run, and the time left
             // the lyrics view animates itself only while music plays; this wakes it when playback starts with the tab open
             if (karaokeView != null && panels[TAB_LYRICS].getVisibility() == View.VISIBLE) karaokeView.invalidate();
             ui.postDelayed(this, 600);
@@ -1331,6 +1332,7 @@ public class MainActivity extends Activity {
             // the default number of render passes
         }
         Eta.begin(getApplicationContext(), lengthSeconds(), st, EngineService.gentle(this));
+        Widget.refresh(this, true);
         new Thread(new Runnable() {
             public void run() {
                 String err = null;
@@ -1345,6 +1347,7 @@ public class MainActivity extends Activity {
                 jobId = null;
                 jobError = ferr == null ? "" : ferr;
                 EngineService.setStage("", 0, 0);
+                Widget.refresh(inst != null ? inst : EngineService.self, true); // the screen may be off and the app closed
                 if (ferr == null) EngineService.announce("Finished. Tap to open.");
                 else if (!"Cancelled".equals(ferr)) EngineService.announce("That did not work: " + ferr);
                 final MainActivity a = inst;

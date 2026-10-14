@@ -139,6 +139,7 @@ public class EngineService extends Service {
         if (me != null && s.length() > 0) {
             me.show(1, max > 0 ? s + "  " + cur + " / " + max : s, true);
         }
+        Widget.refresh(me, false);
     }
 
     /** Posts a notification: id 1 is the ongoing engine status, id 2 a finished or failed song. */
