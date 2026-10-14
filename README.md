@@ -37,6 +37,10 @@ On first launch, allow storage access, open the **Engine** tab and press **Get**
 - **Queue, takes and recipes**: line up songs to make one after another on the charger; songs with the same lyrics and score are grouped as takes; share a song's recipe as a `.killa` file so another phone can make it.
 - **Album covers on the NPU**: on a Snapdragon 8 Elite, a cover is painted in about three seconds with Stable Diffusion 1.5 on the Hexagon NPU, and the app letters the title. The cover model is a separate 710 MB download on the Engine tab.
 - **Skins**: Killa Gold, Neon District and Foundry.
+- **Gentle mode** (on by default): the engine runs at low CPU and GPU priority, in smaller GPU jobs with short pauses, so the phone stays smooth while a song is made. On the test phone, with a hot GPU, a 30-second song took about 2% longer in gentle mode, and Android's "isn't responding" message stopped appearing. Turn it off on the Engine tab for the last bit of speed.
+- **Time left**: an estimate next to the elapsed time, learned from this phone's earlier songs and corrected live when the GPU slows down with heat.
+- **Background**: songs keep going while you use other apps. Before the first song the app asks Android to let it run without battery optimisation; the Engine tab shows what else can stop a song and links to the settings.
+- **Albums**: put songs in order under one title, sound and cover; queue new songs straight into an album from saved lyrics; paint the album cover on the NPU; export to `Music/Killa YuE/<album>` with every track tagged (album, track number, lyrics, timed lyrics, cover) plus a playlist, or share the album as a zip.
 
 What comes next is in [ROADMAP.md](ROADMAP.md).
 

@@ -1,0 +1,12 @@
+[binaries]
+c = ['/path/to/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64/bin/clang', '--target=aarch64-linux-android28']
+cpp = ['/path/to/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++', '--target=aarch64-linux-android28']
+ar = '/path/to/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+strip = '/path/to/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+pkg-config = '/bin/false'
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'armv8'
+endian = 'little'

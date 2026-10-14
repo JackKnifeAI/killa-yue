@@ -1,8 +1,53 @@
 # Building Killa YuE
 
-The project was built on the phone itself, inside a Termux and Ubuntu (proot) environment. Any Linux arm64 or cross-compiling setup with the same pieces should work, but only the on-device route has been exercised.
+There are three parts: the engine, the GPU driver, and the app. Release 1.1.0 is built on an x86-64 Linux PC with the Android NDK (r30) and SDK, as described first. Version 1.0.0 was built on the phone itself, in Termux and a proot Ubuntu; that route is kept further down.
 
-There are three parts: the engine, the GPU driver, and the app.
+## On a PC with the Android NDK (how 1.1.0 is built)
+
+Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, `d8`, `zipalign`, `apksigner`) and `platforms;android-23`, a JDK, CMake, Ninja, Meson, Python with Mako and PyYAML, `glslc`, and the Khronos Vulkan-Headers and SPIRV-Headers sources. Below, `$NDK` is the NDK folder and `$TC` is `$NDK/toolchains/llvm/prebuilt/linux-x86_64`.
+
+### Engine
+
+yue2.cpp at the commit given in section 1 below, with `engine/yue2-gentle.patch` applied (`git apply`). The patch adds gentle mode's pauses and thread limit, read from `YUE_AR_PAUSE_MS`, `YUE_NAR_PAUSE_MS` and `YUE_THREADS`; with them unset the engine behaves as before. Install SPIRV-Headers to a prefix (`cmake -S SPIRV-Headers -B b -DCMAKE_INSTALL_PREFIX=$SPV && cmake --install b`), then:
+
+```
+cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+  -DGGML_VULKAN=ON -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
+  -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF \
+  -DVulkan_INCLUDE_DIR=/path/to/Vulkan-Headers/include \
+  -DVulkan_LIBRARY=$TC/sysroot/usr/lib/aarch64-linux-android/28/libvulkan.so -DVulkan_GLSLC_EXECUTABLE=$(which glslc) \
+  -DSPIRV-Headers_DIR=$SPV/share/cmake/SPIRV-Headers -DCMAKE_CXX_FLAGS="-isystem $SPV/include"
+cmake --build build-android --target yue-server
+```
+
+ggml's Vulkan backend looks for SPIRV-Headers but does not add its include folder, hence the `-isystem`. The result needs only `libc`, `libm`, `libdl` and `libvulkan.so`.
+
+### GPU driver
+
+Mesa at the commit given in section 2 below, with `engine/turnip-no-fault-tolerance.patch` and then `engine/turnip-low-priority.patch` applied. The second patch lets gentle mode ask the kernel for the lowest GPU priority (`TU_KGSL_PRIORITY`), so the work that draws the screen can preempt the engine. Compile the two stubs, `engine/ahb_stub.c` and `engine/ndk_sync_wait.c` (the NDK's libsync lacks `sync_wait`, which the phone's own libsync has), with `$TC/bin/clang --target=aarch64-linux-android28 -fPIC -O2 -c`. Copy `engine/android-ndk.ini.example` to `android-ndk.ini` and set its paths, then:
+
+```
+meson setup build-ndk --cross-file android-ndk.ini \
+  -Dbuildtype=release -Dplatforms= -Dgallium-drivers= -Dvulkan-drivers=freedreno \
+  -Dfreedreno-kmds=kgsl -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dopengl=false \
+  -Dgles1=disabled -Dgles2=disabled -Dllvm=disabled -Dvideo-codecs= -Dtools= \
+  -Dbuild-tests=false -Dandroid-libbacktrace=disabled -Dzstd=disabled -Dxmlconfig=disabled \
+  -Dc_args="-I$MESA/include/android_stub" -Dcpp_args="-I$MESA/include/android_stub" \
+  -Dc_link_args="-llog -lsync /path/to/ahb_stub.o /path/to/ndk_sync_wait.o" \
+  -Dcpp_link_args="-llog -lsync /path/to/ahb_stub.o /path/to/ndk_sync_wait.o"
+ninja -C build-ndk
+```
+
+The output, `build-ndk/src/freedreno/vulkan/libvulkan_freedreno.so`, is the app's `libturnip.so`. It needs `libc++_shared.so`; use the NDK's (`$TC/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so`) as `LIBCXX`. The Vulkan loader and the other files in `DRIVER_DIR` are as in section 2.
+
+### App
+
+As in section 3, with the SDK's `d8` in place of `dalvik-exchange`: set `DX` to `app/dx-d8.sh` and `D8` to the build-tools `d8` in `local.env`, `ANDROID_JAR` to the API 23 `android.jar`, and `STRIP` to any strip that handles arm64 ELF (`llvm-strip` from the NDK, or `eu-strip`).
+
+## On the phone (how 1.0.0 was built)
+
+The sections below are the original on-device route. Apply `engine/yue2-gentle.patch` and `engine/turnip-low-priority.patch` as above to get gentle mode.
 
 ## 1. Engine (yue2.cpp for Android)
 

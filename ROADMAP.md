@@ -15,14 +15,18 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Skins**: Killa Gold, Neon District (cyberpunk) and Foundry (industrial).
 - **System now-playing**: status-bar chip coloured to the skin, media card, lock screen, headset buttons, and polite audio focus.
 - **Album covers painted on the NPU**: about 3 seconds on a Snapdragon 8 Elite, with the title lettered by the app.
+- **Gentle mode**, on by default: low CPU and GPU priority, smaller GPU jobs and short pauses, so the phone stays smooth while a song is made. The "isn't responding" message is gone.
+- **Time left**: an estimate next to the elapsed time that learns from this phone and follows heat throttling.
+- **Background**: battery-optimisation request before the first song, and a status line with links to the settings that can stop a song.
+- **Albums**: build, reorder, queue new songs into an album, paint the album cover, play in album order, export a tagged album folder with a playlist, and share it as a zip.
+- **Built on a PC**: the engine and GPU driver are now built with the Android NDK (see BUILDING.md).
 - **Issue forms**: device report, bug report and feature request.
 
 ## 1.2.0 (next release)
 
 ### Smooth on a busy phone
-- **Gentle mode**: a speed setting that trades song speed for a responsive phone. It lowers the CPU priority and thread count, gives our GPU work the lowest priority so the screen can cut in, uses smaller GPU jobs, and adds optional pauses between steps.
-- **No more "isn't responding"**: move storage checks, library loading and cover decoding off the screen thread, and slow the now-playing artwork updates while a song generates.
 - **Phone check**: a few-second GPU test on first launch. It reports chip, driver and memory, and switches to processor mode automatically if the GPU test fails. Results can be pasted into the device-report form.
+- **Engine inside the app**: run the engine as a library in its own app process instead of a child process, so Android's child-process limits never apply.
 
 ### More phones
 - **GPU covers**: Stable Diffusion on the GPU for phones without the 8 Elite NPU.
@@ -48,7 +52,6 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Sheet music and MIDI export**: the score already keeps vocal and instrument parts separate, so producers can take them into a DAW.
 - **Ringtones and alarms**: pick the chorus and set it as a ringtone. Or wake up to a brand-new song the queue made overnight.
 - **Sing along**: record your voice over a song in the Lyrics tab and save the mix.
-- **Album builder**: one theme, a set of songs, and matching covers. Export the whole album with its tags.
 - **Make songs from your computer**: an opt-in mode that lets a laptop on the same Wi-Fi use the phone's engine through a browser, protected by a PIN.
 - **Remix chains**: continue a friend's song from their recipe, then pass it on.
 - **Honest labels**: an "AI-generated on this phone, offline" note and the recipe in each file's tags, for platforms that ask for AI disclosure.

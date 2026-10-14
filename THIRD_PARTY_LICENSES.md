@@ -54,7 +54,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## Mesa, Turnip Vulkan driver (built with one patch, see engine/)
+## Mesa, Turnip Vulkan driver (built with two patches, see engine/)
 
 ```
 License and Copyright
