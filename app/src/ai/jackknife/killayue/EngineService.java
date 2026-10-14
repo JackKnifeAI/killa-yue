@@ -4,8 +4,10 @@ import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.IBinder;
@@ -288,8 +290,9 @@ public class EngineService extends Service {
      * crashes on the engine's shaders. This folder makes the engine's "libvulkan.so"
      * resolve to the bundled loader and tells that loader where the driver is.
      */
-    private File prepareDriver(String lib) throws Exception {
-        File vk = new File(getFilesDir(), "vk");
+    static File prepareDriver(Context c) throws Exception {
+        String lib = c.getApplicationInfo().nativeLibraryDir;
+        File vk = new File(c.getFilesDir(), "vk");
         vk.mkdirs();
         // the names the engine and the driver ask for, mapped to the files the APK can carry
         String[][] links = {
@@ -320,11 +323,15 @@ public class EngineService extends Service {
                 args.add(0, "-n");
                 args.add(0, "/system/bin/nice");
             }
+            String lib = getApplicationInfo().nativeLibraryDir;
+            File vk = prepareDriver(this);
+            if (inProcessMode(this)) {
+                launchInProcess(buildArgs(this), gentle, vk);
+                return;
+            }
             ProcessBuilder pb = new ProcessBuilder(args);
             pb.redirectErrorStream(true);
             pb.directory(getFilesDir());
-            String lib = getApplicationInfo().nativeLibraryDir;
-            File vk = prepareDriver(lib);
             pb.environment().put("LD_LIBRARY_PATH", vk.getAbsolutePath() + ":" + lib);
             String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
             pb.environment().put("VK_DRIVER_FILES", icd);
@@ -374,21 +381,8 @@ public class EngineService extends Service {
                     }
                     addLog("[App] Engine exited with code " + code);
                     if (proc == p) {
-                        if ((code == 137 || code == 9) && lastError.length() == 0) {
-                            lastError = Background.killedMessage(EngineService.this); // SIGKILL: Android stopped it
-                        }
-                        SharedPreferences sp = getSharedPreferences("cfg", 0);
-                        if ((code == 134 || code == 139) && !sawProgress && "Vulkan0".equals(sp.getString("device", "Vulkan0"))) {
-                            // the GPU driver crashed before any work was done: this phone's GPU is not one it can drive
-                            sp.edit().putString("device", "CPU").apply();
-                            lastError = "The GPU driver crashed on this phone before the song started, so Killa YuE has switched to the processor. "
-                                    + "That is much slower. The Engine tab's \"Device report\" helps add support for this phone.";
-                        }
-                        if (code != 0 && lastError.length() == 0) lastError = "Engine stopped (exit code " + code + ")";
                         proc = null;
-                        running = false;
-                        setStage("", 0, 0);
-                        stopSelf();
+                        engineEnded(code);
                     }
                 }
             }, "engine-log");
@@ -402,10 +396,177 @@ public class EngineService extends Service {
         }
     }
 
+    /** After the engine stops, in either mode: explain why, if it was not a clean exit. code: exit code, 128+signal for a signal. */
+    private void engineEnded(int code) {
+        if ((code == 137 || code == 9) && lastError.length() == 0) {
+            lastError = Background.killedMessage(EngineService.this); // SIGKILL: Android stopped it
+        }
+        SharedPreferences sp = getSharedPreferences("cfg", 0);
+        if ((code == 134 || code == 139) && !sawProgress && "Vulkan0".equals(sp.getString("device", "Vulkan0"))) {
+            // the GPU driver crashed before any work was done: this phone's GPU is not one it can drive
+            sp.edit().putString("device", "CPU").apply();
+            lastError = "The GPU driver crashed on this phone before the song started, so Killa YuE has switched to the processor. "
+                    + "That is much slower. The Engine tab's \"Device report\" helps add support for this phone.";
+        }
+        if (code != 0 && lastError.length() == 0) lastError = "Engine stopped (exit code " + code + ")";
+        running = false;
+        setStage("", 0, 0);
+        stopSelf();
+    }
+
+    // ---------------- the engine in its own app process (EngineHost, JNI) ----------------
+
+    /** True when the engine runs in the ":engine" app process: the setting is on and the library is in the APK. */
+    static boolean inProcessMode(Context c) {
+        boolean have = new File(c.getApplicationInfo().nativeLibraryDir, "libyueengine.so").isFile();
+        return have && c.getSharedPreferences("cfg", 0).getBoolean("engine_process", false);
+    }
+
+    private volatile ServiceConnection hostConn;
+    private volatile boolean hostConnected, hostGone;
+
+    private void launchInProcess(List<String> args, boolean gentle, File vk) throws Exception {
+        final File logf = new File(getFilesDir(), "engine-run.log");
+        logf.delete();
+        ArrayList<String> env = new ArrayList<String>();
+        String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
+        env.add("VK_DRIVER_FILES=" + icd);   // read by our loader, libkvulkan.so, which the engine library links to by that name
+        env.add("VK_ICD_FILENAMES=" + icd);
+        env.add("HOME=" + getFilesDir().getAbsolutePath());
+        env.add("TMPDIR=" + getCacheDir().getAbsolutePath());
+        if (gentle) {
+            env.add("GGML_VK_MAX_NODES_PER_SUBMIT=8");
+            env.add("YUE_THREADS=2");
+            env.add("YUE_AR_PAUSE_MS=15");
+            env.add("YUE_NAR_PAUSE_MS=1500");
+            env.add("TU_KGSL_PRIORITY=15");
+        }
+        args.set(0, "yue-server");
+        lastError = "";
+        openLogFile(this);
+        addLog("[App] Starting engine in its own process: " + args.toString());
+        final long since = System.currentTimeMillis();
+        Intent in = new Intent(this, EngineHost.class)
+                .putExtra("args", args.toArray(new String[0]))
+                .putExtra("env", env.toArray(new String[0]))
+                .putExtra("log", logf.getAbsolutePath())
+                .putExtra("nice", gentle ? 10 : 0);
+        hostConnected = false;
+        hostGone = false;
+        hostConn = new ServiceConnection() {
+            public void onServiceConnected(ComponentName n, IBinder b) {
+                hostConnected = true;
+            }
+
+            public void onServiceDisconnected(ComponentName n) {
+                hostGone = true;   // the ":engine" process ended
+            }
+        };
+        // BIND_IMPORTANT: the engine's process gets the protection of this foreground service
+        if (!bindService(in, hostConn, BIND_AUTO_CREATE | BIND_IMPORTANT)) throw new Exception("the engine process could not be started");
+        running = true;
+        sawProgress = false;
+        setStage("", 0, 0);
+        new Thread(new Runnable() {
+            public void run() {
+                int code = Integer.MIN_VALUE;
+                java.util.regex.Pattern end = java.util.regex.Pattern.compile("\\[App\\] Engine exited with code (-?\\d+)");
+                try {
+                    // follow the log file the engine writes in the other process
+                    long pos = 0, quietSince = System.currentTimeMillis();
+                    StringBuilder part = new StringBuilder();
+                    while (true) {
+                        boolean read = false;
+                        if (logf.isFile() && logf.length() > pos) {
+                            java.io.RandomAccessFile f = new java.io.RandomAccessFile(logf, "r");
+                            try {
+                                f.seek(pos);
+                                byte[] buf = new byte[(int) Math.min(1 << 16, logf.length() - pos)];
+                                int n = f.read(buf);
+                                if (n > 0) {
+                                    pos += n;
+                                    read = true;
+                                    part.append(new String(buf, 0, n, "UTF-8"));
+                                    int nl;
+                                    while ((nl = part.indexOf("\n")) >= 0) {
+                                        String line = part.substring(0, nl);
+                                        part.delete(0, nl + 1);
+                                        addLog(line);
+                                        parse(line);
+                                        java.util.regex.Matcher m = end.matcher(line);
+                                        if (m.find()) code = Integer.parseInt(m.group(1));
+                                    }
+                                }
+                            } finally {
+                                f.close();
+                            }
+                        }
+                        if (read) quietSince = System.currentTimeMillis();
+                        if ((hostGone || destroyed) && !read && System.currentTimeMillis() - quietSince > 600) break;
+                        if (!read) Thread.sleep(200);
+                    }
+                } catch (Exception e) {
+                    addLog("[App] Log reader stopped: " + e);
+                }
+                if (destroyed) {
+                    running = false;
+                    return;
+                }
+                if (code == Integer.MIN_VALUE) code = exitCodeFromSystem(since);
+                addLog("[App] Engine process ended (" + code + ")");
+                try {
+                    unbindService(hostConn);
+                } catch (Exception e) {
+                    // already gone
+                }
+                hostConn = null;
+                engineEnded(code);
+            }
+        }, "engine-log").start();
+    }
+
+    /**
+     * Why the ":engine" process ended, from Android's own record (Android 11 and later), as an exit code:
+     * the code itself, 128 + signal, 137 when Android killed it (memory, background limits), 139 for a native crash.
+     */
+    private int exitCodeFromSystem(long since) {
+        try {
+            android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            java.lang.reflect.Method get = android.app.ActivityManager.class.getMethod("getHistoricalProcessExitReasons",
+                    String.class, int.class, int.class);
+            for (Object o : (List<?>) get.invoke(am, getPackageName(), 0, 8)) {
+                Class<?> k = o.getClass();
+                String name = (String) k.getMethod("getProcessName").invoke(o);
+                long at = (Long) k.getMethod("getTimestamp").invoke(o);
+                if (name == null || !name.endsWith(":engine") || at < since) continue;
+                int reason = (Integer) k.getMethod("getReason").invoke(o);
+                int status = (Integer) k.getMethod("getStatus").invoke(o);
+                addLog("[App] Android's record: reason " + reason + ", status " + status + ", " + k.getMethod("getDescription").invoke(o));
+                if (reason == 1) return status;                    // exited by itself
+                if (reason == 2) return 128 + status;              // a signal
+                if (reason == 5 || reason == 4) return 139;        // crashed
+                if (reason == 10 || reason == 11) return 0;        // the user stopped it
+                return 137;                                        // low memory, background limits, other kills
+            }
+        } catch (Exception e) {
+            // Android 10 and older keep no record: it is reported as a kill
+        }
+        return 137;
+    }
+
     @Override
     public void onDestroy() {
         destroyed = true;
         if (self == this) self = null;
+        ServiceConnection hc = hostConn;
+        hostConn = null;
+        if (hc != null) {
+            try {
+                unbindService(hc);   // EngineHost ends its process when unbound
+            } catch (Exception e) {
+                // already unbound
+            }
+        }
         Process p = proc;
         proc = null;
         running = false;

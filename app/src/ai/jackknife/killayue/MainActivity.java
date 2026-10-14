@@ -90,6 +90,9 @@ public class MainActivity extends Activity {
             + "Album covers: Qualcomm AI Engine Direct (QNN) runtime, under the Qualcomm AI Hub Model License, included in this app only; "
             + "QNN API headers (c) 2026 Qualcomm Technologies, Inc., BSD 3-Clause; CLIP tokenizer vocabulary (c) 2021 OpenAI, MIT. "
             + "QR codes: QR Code generator by Project Nayuki, MIT. "
+            + "GPU covers: stable-diffusion.cpp by leejet, MIT; the GPU cover models (Stable Diffusion 1.5, OpenRAIL-M; LCM LoRA, OpenRAIL++; "
+            + "TAESD, MIT) are downloaded separately. "
+            + "Lyric sync: whisper.cpp by ggml-org, MIT; the Whisper small model (OpenAI, MIT) is downloaded separately. "
             + "The cover model (Stable Diffusion 1.5 as compiled by Qualcomm) is downloaded separately and is licensed CreativeML OpenRAIL-M.\n"
             + "Adapters you install belong to their makers and carry their own terms.\n\n"
             + "Killa YuE is an independent project and is not affiliated with or endorsed by the YuE2 authors.\n"
@@ -130,7 +133,7 @@ public class MainActivity extends Activity {
     DialView lengthDial;
     Spinner cotSpin, formatSpin, deviceSpin, quantSpin, seqSpin;
     LinearLayout advBox, libraryBox, modelBox, adapterBox;
-    TextView adapterStatus, coverStatus;
+    TextView adapterStatus, coverStatus, syncStatus;
     String adapterSeen = "", packsSeen = null;
     long adapterSeenAt;
     int logSeen = -1;
@@ -138,7 +141,7 @@ public class MainActivity extends Activity {
 
     // Facts from storage and the GPU for the status line. Shared storage can stall for seconds
     // while a song is made, so these are gathered on the "probe" thread, never on the screen thread.
-    static volatile boolean snapReady, snapCore, snapCovers;
+    static volatile boolean snapReady, snapCore, snapCovers, snapSync;
     static volatile long snapAt;
     static volatile String snapHeat = "", snapAdapters = "", snapBg = "";
     static volatile java.util.HashMap<String, Boolean> snapHave = new java.util.HashMap<String, Boolean>(),
@@ -536,7 +539,8 @@ public class MainActivity extends Activity {
         snapHave = have;
         snapPart = part;
         snapCore = Store.coreReady(this);
-        snapCovers = Covers.ready(this);
+        snapCovers = Covers.anyReady(this);
+        snapSync = LyricSync.ready(this);
         snapAdapters = now.toString();
         snapHeat = gpuHeat();
         snapBg = Background.status(this);
@@ -1166,6 +1170,7 @@ public class MainActivity extends Activity {
         refreshLibrary(new Runnable() {
             public void run() {
                 if (playlist.size() > 0 && !Covers.coverFor(MainActivity.this, playlist.get(0)).isFile()) makeCover(playlist.get(0), false);
+                syncNewest();
             }
         });
     }
@@ -2088,13 +2093,10 @@ public class MainActivity extends Activity {
     }
 
     void paintAlbumCover(final JSONObject a) {
-        if (!PhoneCheck.npuCovers()) {
-            alert("Covers need a Snapdragon 8 Elite", "Album covers are painted on the Snapdragon 8 Elite's NPU, and this phone has a "
-                    + PhoneCheck.socModel() + ". The album uses its first song's cover until then.");
-            return;
-        }
-        if (!Covers.ready(this)) {
-            alert("One more download needed", "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB).");
+        if (!Covers.anyReady(this)) {
+            alert("One more download needed", PhoneCheck.npuCovers()
+                    ? "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB)."
+                    : "Covers are painted on this phone's GPU. Get the GPU cover model on the Engine tab (" + size(Covers.gpuBytes()) + ").");
             return;
         }
         toast("Painting the album cover. It takes a few seconds.");
@@ -2511,15 +2513,90 @@ public class MainActivity extends Activity {
         }, "lyric-video").start();
     }
 
-    void makeCover(final JSONObject m, final boolean tell) {
-        if (!PhoneCheck.npuCovers()) {
-            if (tell) alert("Covers need a Snapdragon 8 Elite", "Album covers are painted on the Snapdragon 8 Elite's NPU, and this phone has a "
-                    + PhoneCheck.socModel() + ". Painting covers on other phones' GPUs is coming in a later version.");
+    /** Times the playing song's lyrics with the speech recogniser. */
+    void syncLyrics() {
+        if (playMeta == null) {
+            toast("Play a song first, then sync its lyrics");
             return;
         }
-        if (!Covers.ready(this)) {
+        if (!LyricSync.ready(this)) {
+            new Lux.Builder(this).setTitle("Lyric sync")
+                    .setMessage("A speech recogniser listens to the song on this phone and times every line to when it is sung. "
+                            + "It needs a one-time download of " + size(Long.parseLong(LyricSync.MODEL[1]))
+                            + " (whisper \"small\", MIT licence), checked against its published checksum.")
+                    .setPositiveButton("Download", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d, int w) {
+                            LyricSync.download(getApplicationContext());
+                            toast("Downloading the lyric sync model. Progress is on the Engine tab.");
+                        }
+                    }).setNegativeButton("Cancel", null).show();
+            return;
+        }
+        final JSONObject m = playMeta;
+        final File mf = metaFile(m);
+        final AlertDialog d = new Lux.Builder(this).setTitle("Listening to the song")
+                .setMessage("The recogniser is listening to “" + m.optString("_title") + "” and timing each line. "
+                        + "This takes about a minute.").setCancelable(false).create();
+        d.show();
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String msg, err = null;
+                try {
+                    msg = LyricSync.sync(app, m, mf);
+                } catch (Exception e) {
+                    msg = null;
+                    err = e.getMessage();
+                }
+                final String fmsg = msg, ferr = err;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (d.isShowing()) d.dismiss();
+                        if (ferr != null) {
+                            alert("The lyrics were not synced", ferr);
+                            return;
+                        }
+                        if (m == playMeta && player != null) {
+                            karaoke = linesFor(playMeta, player.getDuration());
+                            timedByHand = true;
+                        }
+                        karaokeView.invalidate();
+                        alert("Lyrics synced", fmsg);
+                    }
+                });
+            }
+        }, "lyric-sync").start();
+    }
+
+    /** After a new song: sync its lyrics in the background, if the model is installed and the setting is on. */
+    void syncNewest() {
+        if (!LyricSync.ready(this) || !cfg.getBoolean("auto_sync", true) || playlist.size() == 0) return;
+        final JSONObject m = playlist.get(0);
+        if (m.optJSONArray("_times") != null || m.optString("lyrics").trim().length() == 0) return;
+        final File mf = metaFile(m);
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    final String msg = LyricSync.sync(app, m, mf);
+                    ui.post(new Runnable() {
+                        public void run() {
+                            toast("Lyrics of “" + m.optString("_title") + "” synced");
+                        }
+                    });
+                } catch (Exception e) {
+                    EngineService.addLog("[Sync] " + e.getMessage());
+                }
+            }
+        }, "lyric-sync-auto").start();
+    }
+
+    void makeCover(final JSONObject m, final boolean tell) {
+        if (!Covers.anyReady(this)) {
             if (tell) {
-                alert("One more download needed", "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB).");
+                alert("One more download needed", PhoneCheck.npuCovers()
+                        ? "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB)."
+                        : "Covers are painted on this phone's GPU. Get the GPU cover model on the Engine tab (" + size(Covers.gpuBytes()) + ").");
                 showTab(TAB_ENGINE);
             }
             return;
@@ -2722,7 +2799,12 @@ public class MainActivity extends Activity {
                 },
             }));
         } else {
-            lyricsChips.addView(chipRow(new String[] {"Time the lyrics by tapping", "Share timed lyrics"}, new Runnable[] {
+            lyricsChips.addView(chipRow(new String[] {"Sync automatically", "Time the lyrics by tapping", "Share timed lyrics"}, new Runnable[] {
+                new Runnable() {
+                    public void run() {
+                        syncLyrics();
+                    }
+                },
                 new Runnable() {
                     public void run() {
                         startTiming();
@@ -3050,6 +3132,19 @@ public class MainActivity extends Activity {
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
         gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
+        final CheckBox procBox = new CheckBox(this);
+        procBox.setText("Run the engine in its own app process (new: Android's limits on child processes no longer apply)");
+        procBox.setTextColor(TEXT);
+        procBox.setShadowLayer(4, 0, 1, 0x99000000);
+        procBox.setChecked(cfg.getBoolean("engine_process", false));
+        procBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                cfg.edit().putBoolean("engine_process", on).apply();
+                if (EngineService.running && !jobBusy) EngineService.stop(MainActivity.this);
+                toast(jobBusy ? "This takes effect with the next song" : "The engine starts this way with the next song");
+            }
+        });
+        c.addView(procBox, gap(8));
         bgStatus = text("", DIM, 13);
         bgStatus.setShadowLayer(4, 0, 1, 0x99000000);
         c.addView(bgStatus, gap(8));
@@ -3108,11 +3203,45 @@ public class MainActivity extends Activity {
         c.addView(storageNote, gap(8));
         refreshModels();
 
-        c.addView(label("Album covers (painted on the NPU)"));
+        boolean npuPhone = PhoneCheck.npuCovers();
+        c.addView(label(npuPhone ? "Album covers (painted on the NPU)" : "Album covers (painted on the GPU)"));
         final Button coverGet = button("Get the cover model (710 MB)", false);
-        c.addView(coverGet);
+        if (npuPhone) c.addView(coverGet);
+        final Button gpuGet = button("Get the GPU cover model (" + size(Covers.gpuBytes()) + ")", false);
+        if (npuPhone) c.addView(gpuGet, gap(6));
+        else c.addView(gpuGet);
+        if (npuPhone) {
+            final CheckBox useGpu = new CheckBox(this);
+            useGpu.setText("Paint covers on the GPU instead (for testing the version other phones use)");
+            useGpu.setTextColor(TEXT);
+            useGpu.setChecked(cfg.getBoolean("cover_gpu", false));
+            useGpu.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(CompoundButton b, boolean on) {
+                    cfg.edit().putBoolean("cover_gpu", on).apply();
+                }
+            });
+            c.addView(useGpu, gap(4));
+        }
         coverStatus = text("", DIM, 12);
         c.addView(coverStatus, gap(6));
+        gpuGet.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (Covers.gpuReady(MainActivity.this)) {
+                    toast("The GPU cover model is already installed");
+                    return;
+                }
+                new Lux.Builder(MainActivity.this).setTitle("GPU cover model")
+                        .setMessage("Stable Diffusion 1.5 with the LCM LoRA and the TAESD decoder, " + size(Covers.gpuBytes())
+                                + ", for phones without the Snapdragon 8 Elite's NPU. A cover takes from several seconds to a minute, "
+                                + "depending on the phone. Licensed under CreativeML OpenRAIL-M, which forbids using it to break the law, "
+                                + "to harm people, or to spread false information to cause harm. Each file is checked against its published checksum.")
+                        .setPositiveButton("Download", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                Covers.downloadGpu(getApplicationContext());
+                            }
+                        }).setNegativeButton("Cancel", null).show();
+            }
+        });
         coverGet.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (Covers.ready(MainActivity.this)) {
@@ -3128,6 +3257,31 @@ public class MainActivity extends Activity {
                                 Covers.download(getApplicationContext());
                             }
                         }).setNegativeButton("Cancel", null).show();
+            }
+        });
+
+        c.addView(label("Lyric sync"));
+        final Button syncGet = button("Get the lyric sync model (" + size(Long.parseLong(LyricSync.MODEL[1])) + ")", false);
+        c.addView(syncGet);
+        final CheckBox autoSync = new CheckBox(this);
+        autoSync.setText("Sync the lyrics of each new song automatically");
+        autoSync.setTextColor(TEXT);
+        autoSync.setChecked(cfg.getBoolean("auto_sync", true));
+        autoSync.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                cfg.edit().putBoolean("auto_sync", on).apply();
+            }
+        });
+        c.addView(autoSync, gap(4));
+        syncStatus = text("", DIM, 12);
+        c.addView(syncStatus, gap(6));
+        syncGet.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (LyricSync.ready(MainActivity.this)) {
+                    toast("The lyric sync model is already installed");
+                    return;
+                }
+                LyricSync.download(getApplicationContext());
             }
         });
 
@@ -3636,8 +3790,13 @@ public class MainActivity extends Activity {
             }
             adapterStatus.setText(adapterMsg);
             if (bgStatus != null && !snapBg.equals(bgStatus.getText().toString())) bgStatus.setText(snapBg);
+            if (syncStatus != null) {
+                String ss = LyricSync.state.length() > 0 && (LyricSync.busy || !snapSync) ? LyricSync.state
+                        : snapSync ? "Installed. Lyrics are timed to the singing after each song, or from the Lyrics tab." : "Not installed.";
+                if (!ss.equals(syncStatus.getText().toString())) syncStatus.setText(ss);
+            }
             coverStatus.setText(Covers.state.length() > 0 ? Covers.state
-                    : snapCovers ? "Installed. New songs get a cover by themselves; \"Make a cover\" in a song's menu paints another."
+                    : snapCovers ? "Installed (" + ("gpu".equals(Covers.painter(this)) ? "GPU" : "NPU") + "). New songs get a cover by themselves; \"Make a cover\" in a song's menu paints another."
                     : "Not installed.");
             // only a list read after the last refresh counts, so a removal is not seen twice
             if (snapReady && snapAt > adapterSeenAt && !snapAdapters.equals(adapterSeen)) adaptersChanged();

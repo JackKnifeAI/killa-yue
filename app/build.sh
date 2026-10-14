@@ -33,6 +33,21 @@ cp "$DRIVER_DIR/libexpat.so.1" out/apk/lib/arm64-v8a/libkexpat.so
 
 # NPU cover painter: our runner plus Qualcomm's QNN runtime. The runtime is fetched from Maven
 # (com.qualcomm.qti:qnn-runtime) into NPU_DIR; its licence lets it ship inside the APK but not in this repository.
+# The engine as a JNI library for its own app process (EngineHost), and our Vulkan loader under its own
+# soname (libkvulkan.so) so it never collides with the system's libvulkan.so in an app process.
+if [ -n "$ENGINE_LIB_DIR" ]; then
+    cp "$ENGINE_LIB_DIR/libyueengine.so" "$ENGINE_LIB_DIR/libkvulkan.so" out/apk/lib/arm64-v8a/
+fi
+# Lyric sync: whisper.cpp's whisper-cli built for Android.
+if [ -n "$WHISPER_BIN" ]; then
+    cp "$WHISPER_BIN" out/apk/lib/arm64-v8a/libwhisper.so
+    $STRIP out/apk/lib/arm64-v8a/libwhisper.so 2>/dev/null || true
+fi
+# GPU cover painter for phones without the NPU: stable-diffusion.cpp's sd-cli built for Android (see BUILDING.md).
+if [ -n "$SD_BIN" ]; then
+    cp "$SD_BIN" out/apk/lib/arm64-v8a/libsdgpu.so
+    $STRIP out/apk/lib/arm64-v8a/libsdgpu.so 2>/dev/null || true
+fi
 if [ -n "$NPU_DIR" ]; then
     cp "$NPU_DIR/sdnpu" out/apk/lib/arm64-v8a/libsdnpu.so
     cp "$NPU_DIR"/lib/libQnnHtp.so "$NPU_DIR"/lib/libQnnSystem.so "$NPU_DIR"/lib/libQnnHtpV79Stub.so "$NPU_DIR"/lib/libQnnHtpV79Skel.so out/apk/lib/arm64-v8a/
@@ -43,7 +58,8 @@ import zipfile, os
 z = zipfile.ZipFile('out/unsigned.apk', 'a')
 z.write('out/apk/classes.dex', 'classes.dex', zipfile.ZIP_DEFLATED)
 for n in sorted(os.listdir('out/apk/lib/arm64-v8a')):
-    z.write('out/apk/lib/arm64-v8a/' + n, 'lib/arm64-v8a/' + n, zipfile.ZIP_STORED)
+    # compressed: the manifest has extractNativeLibs="true", so Android unpacks them at install
+    z.write('out/apk/lib/arm64-v8a/' + n, 'lib/arm64-v8a/' + n, zipfile.ZIP_DEFLATED)
 z.close()
 PY
 zipalign -f -p 4 out/unsigned.apk out/aligned.apk

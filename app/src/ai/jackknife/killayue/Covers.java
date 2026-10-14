@@ -37,6 +37,96 @@ public class Covers {
     static final String[] FILES = {"text_encoder.bin", "unet.bin", "vae.bin"};
     static final long[] SIZES = {163058576L, 880144176L, 60452704L};
 
+    // GPU covers, for phones without the 8 Elite NPU: name, size, SHA-256 (as published), URL
+    static final String[][] GPU_FILES = {
+        {"stable-diffusion-v1-5-pruned-emaonly-Q8_0.gguf", "1763578176", "d0555243938c62faeefb4ac93f6c7a053ad373a4290c5256bce229aeb193bf94",
+            "https://huggingface.co/second-state/stable-diffusion-v1-5-GGUF/resolve/main/stable-diffusion-v1-5-pruned-emaonly-Q8_0.gguf"},
+        {"lcm-lora-sdv1-5.safetensors", "134621556", "8f90d840e075ff588a58e22c6586e2ae9a6f7922996ee6649a7f01072333afe4",
+            "https://huggingface.co/latent-consistency/lcm-lora-sdv1-5/resolve/main/pytorch_lora_weights.safetensors"},
+        // the diffusers-format TAESD (stable-diffusion.cpp does not read the bare decoder file)
+        {"taesd.safetensors", "9793292", "db169d69145ec4ff064e49d99c95fa05d3eb04ee453de35824a6d0f325513549",
+            "https://huggingface.co/madebyollin/taesd/resolve/main/diffusion_pytorch_model.safetensors"},
+    };
+
+    static File gpuDir(Context c) {
+        return Store.dir(c, "cover-gpu");
+    }
+
+    static boolean gpuReady(Context c) {
+        for (int i = 0; i < GPU_FILES.length; i++) {
+            File f = new File(gpuDir(c), GPU_FILES[i][0]);
+            if (!f.isFile() || f.length() != Long.parseLong(GPU_FILES[i][1])) return false;
+        }
+        return true;
+    }
+
+    static long gpuBytes() {
+        long n = 0;
+        for (int i = 0; i < GPU_FILES.length; i++) n += Long.parseLong(GPU_FILES[i][1]);
+        return n;
+    }
+
+    /** "npu", "gpu", or "" when no cover model is installed. The NPU is used where it exists, unless the GPU is chosen. */
+    static String painter(Context c) {
+        boolean preferGpu = c.getSharedPreferences("cfg", 0).getBoolean("cover_gpu", false);
+        boolean npu = PhoneCheck.npuCovers() && ready(c);
+        if (npu && !preferGpu) return "npu";
+        if (gpuReady(c)) return "gpu";
+        return npu ? "npu" : "";
+    }
+
+    static boolean anyReady(Context c) {
+        return painter(c).length() > 0;
+    }
+
+    /** Downloads the GPU cover pack file by file, checking each against its published SHA-256. */
+    static void downloadGpu(final Context app) {
+        if (busy) return;
+        busy = true;
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    for (int i = 0; i < GPU_FILES.length; i++) {
+                        final String[] f = GPU_FILES[i];
+                        File dest = new File(gpuDir(app), f[0]);
+                        if (dest.isFile() && dest.length() == Long.parseLong(f[1])) continue;
+                        File part = new File(gpuDir(app), f[0] + ".part");
+                        final Store.Dl d = new Store.Dl();
+                        d.total = Long.parseLong(f[1]);
+                        final int k = i;
+                        Thread watch = new Thread(new Runnable() {
+                            public void run() {
+                                while (busy && !"done".equals(d.state)) {
+                                    state = "GPU cover model, file " + (k + 1) + " of " + GPU_FILES.length + ": "
+                                            + MainActivity.size(d.done) + " of " + MainActivity.size(d.total);
+                                    try {
+                                        Thread.sleep(700);
+                                    } catch (InterruptedException e) {
+                                        return;
+                                    }
+                                }
+                            }
+                        });
+                        watch.start();
+                        Store.fetch(f[3], part, d);
+                        d.state = "done";
+                        state = "Checking " + f[0];
+                        if (!Store.sha256(part).equals(f[2])) {
+                            part.delete();
+                            throw new Exception(f[0] + " did not match its checksum and was removed. Try again.");
+                        }
+                        if (!part.renameTo(dest)) throw new Exception("Could not move " + f[0] + " into place");
+                    }
+                    state = gpuReady(app) ? "GPU cover model ready" : "The GPU cover model is incomplete";
+                } catch (Exception e) {
+                    state = "GPU cover model download failed: " + e.getMessage();
+                } finally {
+                    busy = false;
+                }
+            }
+        }, "cover-gpu-dl").start();
+    }
+
     static volatile String state = "";
     static volatile boolean busy;
 
@@ -229,14 +319,23 @@ public class Covers {
      * call from a background thread. variation changes the picture for the same song.
      */
     static File make(Context c, JSONObject meta, int variation) throws Exception {
-        if (!ready(c)) throw new Exception("The cover model is not downloaded yet. Get it on the Engine tab.");
+        String how = painter(c);
+        if (how.length() == 0) throw new Exception("No cover model is installed yet. Get one on the Engine tab.");
+        long seed = (Math.abs((long) (meta.optString("_audio") + meta.optString("lyrics")).hashCode()) + variation * 7919L) % 2000000000L;
+        int[] px = "gpu".equals(how) ? paintGpu(c, meta, seed) : paintNpu(c, meta, seed);
+        return finish(c, meta, px);
+    }
+
+    private static final String NEGATIVE = "text, letters, words, watermark, signature, logo, blurry, low quality, deformed";
+
+    /** 512x512 pixels from the NPU (Qualcomm's compiled model, 20 steps with guidance). */
+    private static int[] paintNpu(Context c, JSONObject meta, long seed) throws Exception {
         String lib = c.getApplicationInfo().nativeLibraryDir;
         File raw = new File(c.getCacheDir(), "cover.rgb");
         raw.delete();
-        long seed = (Math.abs((long) (meta.optString("_audio") + meta.optString("lyrics")).hashCode()) + variation * 7919L) % 2000000000L;
         ProcessBuilder pb = new ProcessBuilder(lib + "/libsdnpu.so", "--dir", dir(c).getAbsolutePath(), "--lib", lib,
                 "--tokens", tokens(c, prompt(meta)),
-                "--neg", tokens(c, "text, letters, words, watermark, signature, logo, blurry, low quality, deformed"),
+                "--neg", tokens(c, NEGATIVE),
                 "--steps", "20", "--guidance", "7.5", "--seed", String.valueOf(seed), "--out", raw.getAbsolutePath());
         pb.redirectErrorStream(true);
         pb.environment().put("LD_LIBRARY_PATH", lib + ":/vendor/lib64");
@@ -254,6 +353,55 @@ public class Covers {
         for (int i = 0; i < px.length; i++) {
             px[i] = 0xFF000000 | ((rgb[i * 3] & 0xff) << 16) | ((rgb[i * 3 + 1] & 0xff) << 8) | (rgb[i * 3 + 2] & 0xff);
         }
+        return px;
+    }
+
+    /**
+     * 512x512 pixels from the GPU: stable-diffusion.cpp (shipped as libsdgpu.so) with Stable Diffusion 1.5,
+     * the LCM LoRA (a good picture in 6 steps) and the tiny TAESD decoder, on the bundled Turnip driver
+     * on Adreno phones or the phone's own Vulkan driver elsewhere.
+     */
+    private static int[] paintGpu(Context c, JSONObject meta, long seed) throws Exception {
+        String lib = c.getApplicationInfo().nativeLibraryDir;
+        File d = gpuDir(c);
+        File png = new File(c.getCacheDir(), "cover-gpu.png");
+        png.delete();
+        ProcessBuilder pb = new ProcessBuilder(lib + "/libsdgpu.so",
+                "-m", new File(d, GPU_FILES[0][0]).getAbsolutePath(),
+                "--lora-model-dir", d.getAbsolutePath(),
+                "--taesd", new File(d, GPU_FILES[2][0]).getAbsolutePath(),
+                "-p", prompt(meta) + " <lora:lcm-lora-sdv1-5:1>",
+                "-n", NEGATIVE,
+                "--sampling-method", "lcm", "--steps", "6", "--cfg-scale", "1.5",
+                "-W", "512", "-H", "512", "-s", String.valueOf(seed), "-o", png.getAbsolutePath());
+        pb.redirectErrorStream(true);
+        pb.directory(c.getCacheDir());
+        if (PhoneCheck.adrenoNumber() >= 600 || PhoneCheck.adrenoNumber() == 0) {
+            File vk = EngineService.prepareDriver(c);   // our Turnip, as for songs
+            pb.environment().put("LD_LIBRARY_PATH", vk.getAbsolutePath() + ":" + lib);
+            String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
+            pb.environment().put("VK_DRIVER_FILES", icd);
+            pb.environment().put("VK_ICD_FILENAMES", icd);
+        } else {
+            pb.environment().put("LD_LIBRARY_PATH", lib);  // the phone's own Vulkan driver
+        }
+        Process p = pb.start();
+        String log = new String(Api.readAll(p.getInputStream()), "UTF-8");
+        int code = p.waitFor();
+        EngineService.addLog("[Cover/GPU] exit " + code + " " + log.substring(Math.max(0, log.length() - 400)).replace('\n', ' '));
+        Bitmap b = png.isFile() ? BitmapFactory.decodeFile(png.getAbsolutePath()) : null;
+        png.delete();
+        if (code != 0 || b == null) {
+            throw new Exception("The GPU could not paint the cover (code " + code + "). The engine log has the details.");
+        }
+        if (b.getWidth() != 512 || b.getHeight() != 512) b = Bitmap.createScaledBitmap(b, 512, 512, true);
+        int[] px = new int[512 * 512];
+        b.getPixels(px, 0, 512, 0, 0, 512, 512);
+        return px;
+    }
+
+    /** Puts the title on the painted picture in the skin's lettering and saves the 1024 px cover. */
+    private static File finish(Context c, JSONObject meta, int[] px) throws Exception {
         Bitmap art = Bitmap.createBitmap(1024, 1024, Bitmap.Config.ARGB_8888);
         Canvas cv = new Canvas(art);
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
