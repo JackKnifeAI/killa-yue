@@ -1267,6 +1267,13 @@ public class MainActivity extends Activity {
         jobId = null;
         jobStart = System.currentTimeMillis();
         EngineService.setStage("", 0, 0);
+        int st = 32;
+        try {
+            if (val(steps).length() > 0) st = Integer.parseInt(val(steps));
+        } catch (Exception e) {
+            // the default number of render passes
+        }
+        Eta.begin(getApplicationContext(), lengthSeconds(), st, EngineService.gentle(this));
         new Thread(new Runnable() {
             public void run() {
                 String err = null;
@@ -1276,6 +1283,7 @@ public class MainActivity extends Activity {
                     err = jobCancel ? "Cancelled" : String.valueOf(e.getMessage());
                 }
                 final String ferr = err;
+                Eta.end();
                 jobBusy = false;
                 jobId = null;
                 jobError = ferr == null ? "" : ferr;
@@ -2286,7 +2294,7 @@ public class MainActivity extends Activity {
         gentleBox.setText("Gentle mode (songs take longer, the phone stays smooth while one is made)");
         gentleBox.setTextColor(TEXT);
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
-        gentleBox.setChecked(cfg.getBoolean("gentle", false));
+        gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
 
         AdapterView.OnItemSelectedListener changed = new AdapterView.OnItemSelectedListener() {
@@ -2399,7 +2407,7 @@ public class MainActivity extends Activity {
         boolean gentle = gentleBox.isChecked();
         boolean same = dev.equals(cfg.getString("device", "Vulkan0")) && q.equals(cfg.getString("quant", "Q6_K"))
                 && seq == cfg.getInt("maxseq", 8192) && keep == cfg.getBoolean("keep", false)
-                && gentle == cfg.getBoolean("gentle", false);
+                && gentle == cfg.getBoolean("gentle", true);
         if (same) return;
         cfg.edit().putString("device", dev).putString("quant", q).putInt("maxseq", seq).putBoolean("keep", keep)
                 .putBoolean("gentle", gentle).apply();
@@ -2802,7 +2810,9 @@ public class MainActivity extends Activity {
             }
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);
             String heat = snapHeat;
-            progText.setText(st + "   ·   " + clock(el) + " elapsed" + (heat.length() > 0 ? "\n" + heat : ""));
+            String eta = Eta.text();
+            progText.setText(st + "   ·   " + clock(el) + " elapsed" + (eta.length() > 0 ? ", " + eta : "")
+                    + (heat.length() > 0 ? "\n" + heat : ""));
         } else {
             prog.setVisibility(View.GONE);
             String idle = jobError.length() > 0 && !"Cancelled".equals(jobError) ? "Last attempt failed: " + jobError : "";

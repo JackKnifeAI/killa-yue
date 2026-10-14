@@ -30,7 +30,7 @@ public class EngineService extends Service {
 
     /** Gentle mode: slower songs that leave the phone responsive. */
     static boolean gentle(Context c) {
-        return c.getSharedPreferences("cfg", 0).getBoolean("gentle", false);
+        return c.getSharedPreferences("cfg", 0).getBoolean("gentle", true);
     }
     static volatile String stage = "";
     static volatile int progCur, progMax;
@@ -159,6 +159,7 @@ public class EngineService extends Service {
     }
 
     static void parse(String line) {
+        Eta.line(line);
         Matcher m = P_NAR.matcher(line);
         if (m.find()) {
             setStage("Rendering audio", Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
