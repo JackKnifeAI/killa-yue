@@ -4,9 +4,9 @@ Written 13 October 2026, at the end of the session that built the app on the pho
 
 ## State
 
-- Public: https://github.com/JackKnifeAI/killa-yue, release v1.0.0 only. **Everything after 1.0.0 is committed locally and NOT pushed.** Alexander decides when 1.1.0 is published; ask first.
-- The newest build is installed on the phone (Galaxy S25 Ultra, SM-S938W) and is in its Downloads as `killa-yue.apk`.
-- Version in the manifest is 1.1.0 (versionCode 3). Bump it before the next release.
+- Public: https://github.com/JackKnifeAI/killa-yue, releases v1.0.0 and v1.1.0 (13 October 2026, versionCode 5, APK SHA-256 90b340e2…ab31). Everything on `main` is pushed. Bump versionCode and versionName before the next release.
+- The 1.1.0 release build is installed on the phone (Galaxy S25 Ultra, SM-S938W).
+- Builds now happen on ops, not the phone: `~/killa-yue` (app, `app/local.env` points at the natives in `~/killa-yue-vendor/gentle` and the key in `~/.keys/killa-yue`), natives with the Android NDK from `~/src/killa` (BUILDING.md has the commands). The phone only runs and tests.
 
 ## What exists after 1.0.0 (all tested on the phone unless noted)
 
