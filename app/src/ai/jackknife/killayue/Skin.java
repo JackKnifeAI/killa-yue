@@ -138,6 +138,19 @@ public class Skin {
         return (alpha << 24) | (ACCENT & 0xFFFFFF);
     }
 
+    /** Just the palette, for places that draw no artwork (the home-screen widget). Community skins included. */
+    static synchronized void colours(Context c) {
+        if (loaded != null) return;
+        String id = id(c);
+        try {
+            JSONObject pack = SkinPack.installed(c, id) ? SkinPack.info(c, id) : null;
+            palette(pack == null ? id : base(c, id));
+            if (pack != null) community(pack);
+        } catch (Exception e) {
+            palette(IDS[0]);
+        }
+    }
+
     /** Makes the next load read the skin again, after it was installed anew. */
     static synchronized void forget() {
         loaded = null;

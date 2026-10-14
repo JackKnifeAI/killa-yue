@@ -28,6 +28,12 @@
         </activity>
         <service android:name=".EngineService" android:exported="false"/>
         <service android:name=".NowPlaying" android:exported="false"/>
+        <receiver android:name=".Widget" android:label="Killa YuE" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info"/>
+        </receiver>
         <!-- Samsung One UI: lets the now-playing chip in the status bar take our colour and icon -->
         <meta-data android:name="com.samsung.android.support.ongoing_activity" android:value="true"/>
         <provider android:name=".TrackProvider" android:authorities="ai.jackknife.killayue.tracks"
