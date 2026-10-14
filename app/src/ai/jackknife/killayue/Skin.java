@@ -121,6 +121,15 @@ public class Skin {
         }
     }
 
+    /** The skin's background art, for panels that draw it themselves (LuxFrame). */
+    static Bitmap backgroundBitmap() {
+        return bg;
+    }
+
+    static boolean tiledBackground() {
+        return tileBg;
+    }
+
     /** The page background: tiled black leather for the gold skin, a darkened wallpaper for the others. */
     static Drawable background(Context c) {
         if (tileBg) {

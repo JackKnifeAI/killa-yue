@@ -301,12 +301,35 @@ public class MainActivity extends Activity {
 
     Spinner spinner(String[] items) {
         Spinner s = new Spinner(this);
-        ArrayAdapter<String> a = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items);
+        // the closed field and the open list both in the skin's lettering; the list on the gold-rimmed panel
+        ArrayAdapter<String> a = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            @Override
+            public View getView(int pos, View v, ViewGroup parent) {
+                return dressItem(super.getView(pos, v, parent), false);
+            }
+
+            @Override
+            public View getDropDownView(int pos, View v, ViewGroup parent) {
+                return dressItem(super.getDropDownView(pos, v, parent), true);
+            }
+        };
         a.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         s.setAdapter(a);
+        s.setPopupBackgroundDrawable(new LuxFrame(18, 8));
         s.setBackground(glass(EDGE));
         s.setPadding(dp(6), dp(8), dp(6), dp(8));
         return s;
+    }
+
+    View dressItem(View v, boolean open) {
+        if (v instanceof TextView) {
+            TextView t = (TextView) v;
+            t.setTypeface(Skin.text());
+            t.setTextColor(TEXT);
+            t.setShadowLayer(4, 0, 1, 0x99000000);
+            if (open) t.setPadding(dp(18), dp(12), dp(18), dp(12));
+        }
+        return v;
     }
 
     HorizontalScrollView chipRow(String[] names, final Runnable[] actions) {
@@ -343,7 +366,7 @@ public class MainActivity extends Activity {
     }
 
     void alert(String title, String msg) {
-        new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show();
+        new Lux.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show();
     }
 
     // ---------- lifecycle ----------
@@ -926,7 +949,7 @@ public class MainActivity extends Activity {
         FrameLayout f = new FrameLayout(this);
         f.setPadding(dp(20), dp(8), dp(20), 0);
         f.addView(name);
-        new AlertDialog.Builder(this).setTitle("Save this " + word + " as").setView(f)
+        new Lux.Builder(this).setTitle("Save this " + word + " as").setView(f)
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         String n = val(name).length() == 0 ? "Untitled" : val(name);
@@ -958,11 +981,11 @@ public class MainActivity extends Activity {
         }
         final String[] names = new String[items.length()];
         for (int i = 0; i < names.length; i++) names[i] = items.optJSONObject(names.length - 1 - i).optString("name");
-        new AlertDialog.Builder(this).setTitle("My saved " + kind).setItems(names, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle("My saved " + kind).setItems(names, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int which) {
                 final int index = names.length - 1 - which;
                 final JSONObject item = items.optJSONObject(index);
-                new AlertDialog.Builder(MainActivity.this).setTitle(item.optString("name"))
+                new Lux.Builder(MainActivity.this).setTitle(item.optString("name"))
                         .setMessage(item.optString("text"))
                         .setPositiveButton("Use it", new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface dd, int ww) {
@@ -1086,7 +1109,7 @@ public class MainActivity extends Activity {
     /** Asked once, before the first song: Android's own dialog for running without battery optimisation. */
     void askBackgroundThenGenerate() {
         cfg.edit().putBoolean("bg_asked", true).apply();
-        new AlertDialog.Builder(this).setTitle("Let songs finish in the background?")
+        new Lux.Builder(this).setTitle("Let songs finish in the background?")
                 .setMessage("A song takes a while. To keep making it while you use other apps or the screen is off, "
                         + "Android needs to let Killa YuE run without battery optimisation. The next screen asks for that.\n\n"
                         + "You can change it later on the Engine tab.")
@@ -1209,11 +1232,11 @@ public class MainActivity extends Activity {
         }
         final String[] names = new String[queue.size()];
         for (int i = 0; i < names.length; i++) names[i] = (i + 1) + ".  " + queue.get(i).optString("title");
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
+        AlertDialog.Builder b = new Lux.Builder(this)
                 .setTitle(queueRunning ? "Queue (running)" : "Queue (paused)")
                 .setItems(names, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, final int which) {
-                        new AlertDialog.Builder(MainActivity.this).setTitle(queue.get(which).optString("title"))
+                        new Lux.Builder(MainActivity.this).setTitle(queue.get(which).optString("title"))
                                 .setMessage("Take this song out of the queue?")
                                 .setPositiveButton("Take it out", new DialogInterface.OnClickListener() {
                                     public void onClick(DialogInterface dd, int w) {
@@ -1457,7 +1480,7 @@ public class MainActivity extends Activity {
             "Start a new song with part of it",
             "Re-render it through YuE",
         };
-        new AlertDialog.Builder(this).setTitle("What should happen with this recording?")
+        new Lux.Builder(this).setTitle("What should happen with this recording?")
                 .setItems(options, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int which) {
                         importAudio(u, which);
@@ -1527,7 +1550,7 @@ public class MainActivity extends Activity {
         final EditText b = numEdit(String.valueOf(total));
         l.addView(labelled("From second", a));
         l.addView(labelled("To second", b));
-        new AlertDialog.Builder(this).setTitle("Which part starts the new song?")
+        new Lux.Builder(this).setTitle("Which part starts the new song?")
                 .setMessage("The source is " + clock(total) + " long.").setView(l)
                 .setPositiveButton("Use it", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
@@ -1734,7 +1757,7 @@ public class MainActivity extends Activity {
             "Continue from this song", "Use the same style and lyrics", "Make a cover", "Add to an album", "Share", "Share as a recipe",
             "Share with a QR code", "Change the title", "Details", "Delete",
         };
-        new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 final String pick = items[w];
                 if ("Play".equals(pick)) {
@@ -1803,7 +1826,7 @@ public class MainActivity extends Activity {
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
-                    new AlertDialog.Builder(MainActivity.this).setTitle("Delete this song?")
+                    new Lux.Builder(MainActivity.this).setTitle("Delete this song?")
                             .setMessage(title + "\nThe audio file and its saved melody are removed for good.")
                             .setPositiveButton("Delete", new DialogInterface.OnClickListener() {
                                 public void onClick(DialogInterface dd, int ww) {
@@ -1830,7 +1853,7 @@ public class MainActivity extends Activity {
             int n = a.optJSONArray("tracks") == null ? 0 : a.optJSONArray("tracks").length();
             items[i + 1] = a.optString("title") + "   ·   " + n + (n == 1 ? " song" : " songs");
         }
-        new AlertDialog.Builder(this).setTitle("Albums").setItems(items, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle("Albums").setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (w == 0) newAlbum(null);
                 else albumMenu(list.get(w - 1));
@@ -1843,7 +1866,7 @@ public class MainActivity extends Activity {
         final EditText name = new EditText(this);
         name.setHint("Album title");
         name.setSingleLine(true);
-        new AlertDialog.Builder(this).setTitle("New album").setView(name)
+        new Lux.Builder(this).setTitle("New album").setView(name)
                 .setMessage("The album's sound starts as the style on the Create tab; songs made for the album use it.")
                 .setPositiveButton("Make it", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
@@ -1867,7 +1890,7 @@ public class MainActivity extends Activity {
         final String[] items = new String[list.size() + 1];
         items[0] = "New album";
         for (int i = 0; i < list.size(); i++) items[i + 1] = list.get(i).optString("title");
-        new AlertDialog.Builder(this).setTitle("Add to an album").setItems(items, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle("Add to an album").setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (w == 0) {
                     newAlbum(songJson);
@@ -1888,7 +1911,7 @@ public class MainActivity extends Activity {
             "Delete the album",
         };
         String sub = a.optString("style").length() > 0 ? "Sound: " + a.optString("style") : "No sound set yet";
-        new AlertDialog.Builder(this).setTitle(a.optString("title") + "\n" + sub).setItems(items, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle(a.optString("title") + "\n" + sub).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 String pick = items[w];
                 JSONObject fresh = Albums.get(MainActivity.this, id);
@@ -1927,7 +1950,7 @@ public class MainActivity extends Activity {
                     exportAlbum(fresh, true);
                 } else {
                     final JSONObject gone = fresh;
-                    new AlertDialog.Builder(MainActivity.this).setTitle("Delete this album?")
+                    new Lux.Builder(MainActivity.this).setTitle("Delete this album?")
                             .setMessage(gone.optString("title") + "\nThe songs stay in your library; only the album goes.")
                             .setPositiveButton("Delete", new DialogInterface.OnClickListener() {
                                 public void onClick(DialogInterface d2, int w2) {
@@ -1951,10 +1974,10 @@ public class MainActivity extends Activity {
         for (int i = 0; i < items.length; i++) {
             items[i] = (i + 1) + ".  " + songs.get(i).optString("_title", "Untitled") + "   " + clock(songs.get(i).optInt("_seconds"));
         }
-        new AlertDialog.Builder(this).setTitle(a.optString("title")).setItems(items, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle(a.optString("title")).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, final int at) {
                 final String[] acts = {"Play from here", "Move up", "Move down", "Take out of the album"};
-                new AlertDialog.Builder(MainActivity.this).setTitle(songs.get(at).optString("_title"))
+                new Lux.Builder(MainActivity.this).setTitle(songs.get(at).optString("_title"))
                         .setItems(acts, new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface d2, int w) {
                                 try {
@@ -1991,7 +2014,7 @@ public class MainActivity extends Activity {
         String[] items = new String[all.size()];
         final boolean[] on = new boolean[all.size()];
         for (int i = 0; i < items.length; i++) items[i] = all.get(i).optString("_title", "Untitled");
-        new AlertDialog.Builder(this).setTitle("Add to " + a.optString("title"))
+        new Lux.Builder(this).setTitle("Add to " + a.optString("title"))
                 .setMultiChoiceItems(items, on, new DialogInterface.OnMultiChoiceClickListener() {
                     public void onClick(DialogInterface d, int w, boolean c) {
                         on[w] = c;
@@ -2020,7 +2043,7 @@ public class MainActivity extends Activity {
         String[] items = new String[saved.length()];
         final boolean[] on = new boolean[saved.length()];
         for (int i = 0; i < items.length; i++) items[i] = saved.optJSONObject(i).optString("name");
-        new AlertDialog.Builder(this).setTitle("Songs for " + a.optString("title"))
+        new Lux.Builder(this).setTitle("Songs for " + a.optString("title"))
                 .setMultiChoiceItems(items, on, new DialogInterface.OnMultiChoiceClickListener() {
                     public void onClick(DialogInterface d, int w, boolean c) {
                         on[w] = c;
@@ -2102,7 +2125,7 @@ public class MainActivity extends Activity {
         final EditText name = new EditText(this);
         name.setSingleLine(true);
         name.setText(a.optString("title"));
-        new AlertDialog.Builder(this).setTitle("Rename the album").setView(name)
+        new Lux.Builder(this).setTitle("Rename the album").setView(name)
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         String t = name.getText().toString().trim();
@@ -2205,7 +2228,7 @@ public class MainActivity extends Activity {
         v.addView(steps, gap(12));
         final TextView status = text("Waiting for the other phone", DIM, 13);
         v.addView(status, gap(8));
-        final AlertDialog d = new AlertDialog.Builder(this).setTitle("Share " + ("app".equals(kind) ? "Killa YuE" : "models".equals(kind) ? "the models" : "“" + title + "”"))
+        final AlertDialog d = new Lux.Builder(this).setTitle("Share " + ("app".equals(kind) ? "Killa YuE" : "models".equals(kind) ? "the models" : "“" + title + "”"))
                 .setView(scroll(v)).setPositiveButton("Done", null).create();
         d.setOnDismissListener(new DialogInterface.OnDismissListener() {
             public void onDismiss(DialogInterface x) {
@@ -2299,7 +2322,7 @@ public class MainActivity extends Activity {
                             alert("Nothing to copy", "This phone already has every model your friend's phone offers.");
                             return;
                         }
-                        new AlertDialog.Builder(MainActivity.this).setTitle("Copy the models from your friend?")
+                        new Lux.Builder(MainActivity.this).setTitle("Copy the models from your friend?")
                                 .setMessage(need.size() + (need.size() == 1 ? " file, " : " files, ") + size(fbytes)
                                         + ", over Wi-Fi, no mobile data. Each file is checked against its published checksum before it is used, "
                                         + "and an interrupted copy picks up where it stopped. Keep both phones on the same Wi-Fi until the Engine tab says ready.")
@@ -2382,7 +2405,7 @@ public class MainActivity extends Activity {
     /** Copies what the project needs to know about this phone, and opens the GitHub form for it. */
     void deviceReport() {
         final String r = PhoneCheck.report(this);
-        new AlertDialog.Builder(this).setTitle("Device report").setMessage(r + "\nCopy this and paste it into the device report on GitHub. "
+        new Lux.Builder(this).setTitle("Device report").setMessage(r + "\nCopy this and paste it into the device report on GitHub. "
                 + "It helps make Killa YuE work on more phones. Nothing is sent by the app.")
                 .setPositiveButton("Copy and open GitHub", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
@@ -2457,7 +2480,7 @@ public class MainActivity extends Activity {
             names[i] = "Take " + (i + 1) + "   " + df.format(new Date(t.optLong("_created"))) + "   " + t.optString("steps", "32") + " steps"
                     + (t.optString("_audio").equals(m.optString("_audio")) ? "   (this one)" : "");
         }
-        new AlertDialog.Builder(this).setTitle("Takes of " + m.optString("_title", "this song"))
+        new Lux.Builder(this).setTitle("Takes of " + m.optString("_title", "this song"))
                 .setItems(names, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         play(takes.get(w));
@@ -2524,7 +2547,7 @@ public class MainActivity extends Activity {
     void askSleepTimer() {
         final int[] minutes = {0, 15, 30, 45, 60, 90};
         String[] names = {"Off", "15 minutes", "30 minutes", "45 minutes", "1 hour", "1 hour 30"};
-        new AlertDialog.Builder(this).setTitle("Stop the music after").setItems(names, new DialogInterface.OnClickListener() {
+        new Lux.Builder(this).setTitle("Stop the music after").setItems(names, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (sleepStop != null) ui.removeCallbacks(sleepStop);
                 sleepStop = null;
@@ -2553,7 +2576,7 @@ public class MainActivity extends Activity {
         FrameLayout f = new FrameLayout(this);
         f.setPadding(dp(20), dp(8), dp(20), 0);
         f.addView(e);
-        new AlertDialog.Builder(this).setTitle("Song title").setView(f)
+        new Lux.Builder(this).setTitle("Song title").setView(f)
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         try {
@@ -2652,7 +2675,7 @@ public class MainActivity extends Activity {
             toast("This song has no lyrics to time");
             return;
         }
-        new AlertDialog.Builder(this).setTitle("Time the lyrics")
+        new Lux.Builder(this).setTitle("Time the lyrics")
                 .setMessage("The song starts from the beginning. Tap the lyrics the moment each line begins. "
                         + "\"Back one line\" lets you redo a line you missed.")
                 .setPositiveButton("Start", new DialogInterface.OnClickListener() {
@@ -3007,7 +3030,7 @@ public class MainActivity extends Activity {
                     toast("The cover model is already installed");
                     return;
                 }
-                new AlertDialog.Builder(MainActivity.this).setTitle("Cover model")
+                new Lux.Builder(MainActivity.this).setTitle("Cover model")
                         .setMessage("Stable Diffusion 1.5, compiled by Qualcomm for the Snapdragon 8 Elite. 710 MB. "
                                 + "It is licensed under CreativeML OpenRAIL-M, which forbids using it to break the law, "
                                 + "to harm people, or to spread false information to cause harm. It only runs on phones with this chip.")
@@ -3130,7 +3153,7 @@ public class MainActivity extends Activity {
         if (Store.busy(name)) {
             Store.cancel(name);
         } else if (Store.have(this, name)) {
-            new AlertDialog.Builder(this).setTitle("Remove this download?")
+            new Lux.Builder(this).setTitle("Remove this download?")
                     .setMessage(name + "\nYou can download it again later.")
                     .setPositiveButton("Remove", new DialogInterface.OnClickListener() {
                         public void onClick(DialogInterface d, int w) {
@@ -3226,7 +3249,7 @@ public class MainActivity extends Activity {
             });
             del.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
-                    new AlertDialog.Builder(MainActivity.this).setTitle("Remove this adapter?").setMessage(f.getName())
+                    new Lux.Builder(MainActivity.this).setTitle("Remove this adapter?").setMessage(f.getName())
                             .setPositiveButton("Remove", new DialogInterface.OnClickListener() {
                                 public void onClick(DialogInterface d, int w) {
                                     deleteAll(f);
@@ -3320,7 +3343,7 @@ public class MainActivity extends Activity {
         FrameLayout f = new FrameLayout(this);
         f.setPadding(dp(20), dp(8), dp(20), 0);
         f.addView(box);
-        new AlertDialog.Builder(this).setTitle("Adapter on Hugging Face")
+        new Lux.Builder(this).setTitle("Adapter on Hugging Face")
                 .setMessage("Paste the repository that holds the adapter. It looks like name/repository.")
                 .setView(f)
                 .setPositiveButton("Look", new DialogInterface.OnClickListener() {
@@ -3381,7 +3404,7 @@ public class MainActivity extends Activity {
                     adapterMsg = "";
                     ui.post(new Runnable() {
                         public void run() {
-                            new AlertDialog.Builder(MainActivity.this).setTitle("Which adapter?")
+                            new Lux.Builder(MainActivity.this).setTitle("Which adapter?")
                                     .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
                                         public void onClick(DialogInterface d, int which) {
                                             downloadAdapter(repo, groups.get(which), files.get(which));

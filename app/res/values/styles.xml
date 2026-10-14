@@ -7,15 +7,49 @@
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:statusBarColor">#080909</item>
         <item name="android:navigationBarColor">#080909</item>
+        <item name="android:alertDialogTheme">@style/Lux.Dialog</item>
     </style>
     <style name="App.Cyber" parent="@style/App">
         <item name="android:colorAccent">#19E6FF</item>
         <item name="android:statusBarColor">#04050A</item>
         <item name="android:navigationBarColor">#04050A</item>
+        <item name="android:alertDialogTheme">@style/Lux.Dialog.Cyber</item>
     </style>
     <style name="App.Foundry" parent="@style/App">
         <item name="android:colorAccent">#FF7A1A</item>
         <item name="android:statusBarColor">#090A0A</item>
         <item name="android:navigationBarColor">#090A0A</item>
+        <item name="android:alertDialogTheme">@style/Lux.Dialog.Foundry</item>
+    </style>
+
+    <!-- Dialogs: the panel itself is drawn by LuxFrame (set in Lux.dress); these are the colours inside it. -->
+    <style name="Lux.Dialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorAccent">#E7BD61</item>
+        <item name="android:colorControlNormal">#8F6A22</item>
+        <item name="android:colorControlActivated">#E7BD61</item>
+        <item name="android:colorControlHighlight">#33E7BD61</item>
+        <item name="android:textColorPrimary">#E9E3D5</item>
+        <item name="android:textColorSecondary">#9D988C</item>
+        <item name="android:textColorAlertDialogListItem">#E9E3D5</item>
+        <item name="android:backgroundDimAmount">0.72</item>
+    </style>
+    <style name="Lux.Dialog.Cyber">
+        <item name="android:colorAccent">#19E6FF</item>
+        <item name="android:colorControlNormal">#0B7C99</item>
+        <item name="android:colorControlActivated">#19E6FF</item>
+        <item name="android:colorControlHighlight">#3319E6FF</item>
+        <item name="android:textColorPrimary">#E8F8FF</item>
+        <item name="android:textColorSecondary">#8496B4</item>
+        <item name="android:textColorAlertDialogListItem">#E8F8FF</item>
+    </style>
+    <style name="Lux.Dialog.Foundry">
+        <item name="android:colorAccent">#FF7A1A</item>
+        <item name="android:colorControlNormal">#9C4A10</item>
+        <item name="android:colorControlActivated">#FF7A1A</item>
+        <item name="android:colorControlHighlight">#33FF7A1A</item>
+        <item name="android:textColorPrimary">#E6E3DD</item>
+        <item name="android:textColorSecondary">#98948C</item>
+        <item name="android:textColorAlertDialogListItem">#E6E3DD</item>
     </style>
 </resources>

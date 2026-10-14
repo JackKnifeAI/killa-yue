@@ -388,6 +388,7 @@ public class ShareServer {
                 + ".files{margin:10px 0 0;padding:0;list-style:none}.files li{display:flex;justify-content:space-between;gap:10px;padding:7px 0;"
                 + "border-bottom:1px dashed rgba(128,110,60,.3);font-size:13.5px}.files li span:last-child{color:var(--acc);white-space:nowrap}"
                 + ".foot{text-align:center;color:var(--dim);font-size:12px;margin-top:40px;letter-spacing:.06em}"
+                + ".ios .android-only{display:none}.ios-only{display:none}.ios .ios-only{display:block}"
                 + ".foot b{display:block;font:400 " + (gold ? "26px KS" : "16px KT") + ";color:var(--acc);letter-spacing:0;margin-bottom:6px}";
     }
 
@@ -416,8 +417,12 @@ public class ShareServer {
     }
 
     private String getApp(boolean primary) {
-        return (primary ? "<a class='cta' href='app.apk'>Download Killa YuE</a>" : "<a class='alt' href='app.apk'>Get Killa YuE</a>")
-                + "<details" + (primary ? " open" : "") + "><summary>How to install it</summary>" + steps(INSTALL) + needs() + "</details>";
+        return "<div class='android-only'>"
+                + (primary ? "<a class='cta' href='app.apk'>Download Killa YuE</a>" : "<a class='alt' href='app.apk'>Get Killa YuE</a>")
+                + "<details" + (primary ? " open" : "") + "><summary>How to install it</summary>" + steps(INSTALL) + needs() + "</details></div>"
+                + "<div class='ios-only card'><p class='note' style='text-align:center;margin:0'>Killa YuE makes songs on Android phones "
+                + "with a Qualcomm Snapdragon chip, so it cannot be installed on an iPhone. Send this page to a friend with one, or find the project "
+                + "at github.com/JackKnifeAI/killa-yue.</p></div>";
     }
 
     private String player(int i, Item it, boolean big) throws Exception {
@@ -441,7 +446,7 @@ public class ShareServer {
             String self = "http://" + hostHere + "/" + token + "/";
             b.append("<img class='medal' src='a/dial.png' alt=''><h1>The Models</h1><div class='sub'>").append(items.size()).append(" files · ")
                     .append(String.format(java.util.Locale.US, "%.1f GB", total / 1e9)).append(" · straight from your friend's phone</div>").append(staff());
-            b.append("<a class='cta' href='killayue://models?from=").append(URLEncoder.encode(self, "UTF-8")).append("'>Open in Killa YuE</a>");
+            b.append("<a class='cta android-only' href='killayue://models?from=").append(URLEncoder.encode(self, "UTF-8")).append("'>Open in Killa YuE</a>");
             b.append("<div class='card'>").append(steps(new String[] {
                 "No Killa YuE yet? Get it below first, open it once and allow storage access, then come back to this page.",
                 "Tap <b>Open in Killa YuE</b>. The app copies the models it is missing over Wi-Fi: <b>no mobile data</b>.",
@@ -461,7 +466,10 @@ public class ShareServer {
             b.append(title.length() > 22 ? "<h1 class='long'>" : "<h1>").append(esc(title)).append("</h1><div class='sub'>")
                     .append(album ? items.size() + (items.size() == 1 ? " song" : " songs") + " · " : "").append("made on a phone with Killa YuE</div>").append(staff());
             if (album) {
-                if (zip != null) b.append("<a class='cta' href='album.zip'>Download the album</a>");
+                if (zip != null) {
+                    b.append("<a class='cta' href='album.zip'>Download the album</a>");
+                    b.append("<p class='note ios-only' style='text-align:center'>On iPhone the album is saved in the Files app, under Downloads; tap it there to unpack it.</p>");
+                }
                 b.append("<div class='card'>");
                 for (int i = 0; i < items.size(); i++) {
                     Item it = items.get(i);
@@ -476,6 +484,7 @@ public class ShareServer {
                         .append("<div class='t'><div class='sub' style='text-align:left'>Press play</div><div class='bar'><i></i></div>")
                         .append("<div class='time'>0:00</div></div></div></div>");
                 b.append("<a class='cta' href='f/0/").append(URLEncoder.encode(it.name, "UTF-8")).append("'>Download the song</a>");
+                b.append("<p class='note ios-only' style='text-align:center'>On iPhone the song is saved in the Files app, under Downloads.</p>");
                 if (it.lyrics != null && it.lyrics.trim().length() > 0) {
                     b.append("<h2>Lyrics</h2><div class='card'><pre class='ly'>").append(esc(it.lyrics.trim())).append("</pre></div>");
                 }
@@ -484,7 +493,9 @@ public class ShareServer {
         }
         b.append("<div class='foot'><b>Killa YuE</b>made on a phone · free and open source · github.com/JackKnifeAI/killa-yue</div></div>");
         // one shared player: tapping a gold button plays that song, its bar shows progress
-        b.append("<audio id='au' preload='none'></audio><script>(function(){var au=document.getElementById('au'),cur=null;")
+        b.append("<audio id='au' preload='none'></audio><script>(function(){")
+                .append("if(/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1))document.documentElement.classList.add('ios');")
+                .append("var au=document.getElementById('au'),cur=null;")
                 .append("function bar(btn){var r=btn.closest('.tr')||btn.closest('.deck');return r?r.querySelector('.bar i'):null}")
                 .append("function fmt(s){s=Math.floor(s||0);return Math.floor(s/60)+':'+('0'+s%60).slice(-2)}")
                 .append("document.querySelectorAll('.play').forEach(function(b){b.addEventListener('click',function(){")
