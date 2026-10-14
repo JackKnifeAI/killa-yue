@@ -75,7 +75,9 @@ public class Lux {
             boolean useScript = Skin.SCRIPT_TITLES && script != null;
             t.setTypeface(useScript ? script : text, useScript ? Typeface.NORMAL : Typeface.BOLD);
             t.setTextColor(Skin.ACCENT);
-            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, useScript ? 27 : 20);
+            // the script is ornate: long titles get a smaller size so they stay readable
+            int len = t.getText() == null ? 0 : t.getText().length();
+            t.setTextSize(TypedValue.COMPLEX_UNIT_SP, useScript ? (len > 40 ? 19 : len > 24 ? 22 : 27) : (len > 40 ? 17 : 20));
             t.setShadowLayer(10, 0, 2, 0xE6000000);
             t.setLetterSpacing(useScript ? 0f : 0.04f);
             t.setMaxLines(3);
