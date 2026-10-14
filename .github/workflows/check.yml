@@ -1,0 +1,36 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  app:
+    name: App compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK pieces
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-23" "build-tools;35.0.0" > /dev/null
+      - name: Compile resources, Java and dex
+        run: |
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-23/android.jar" \
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0" \
+          app/check.sh
+
+  licences:
+    name: Nothing that must not be committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No native binaries, QNN files, keys or local settings
+        run: |
+          bad=$(git ls-files | grep -Ei '\.so(\.[0-9]+)*$|qnn|\.keystore$|\.jks$|(^|/)local\.env$|\.apk$' || true)
+          if [ -n "$bad" ]; then echo "These must not be in the repository:"; echo "$bad"; exit 1; fi
+          echo "Clean."
