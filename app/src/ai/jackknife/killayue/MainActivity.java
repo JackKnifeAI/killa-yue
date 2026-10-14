@@ -136,12 +136,13 @@ public class MainActivity extends Activity {
     // while a song is made, so these are gathered on the "probe" thread, never on the screen thread.
     static volatile boolean snapReady, snapCore, snapCovers;
     static volatile long snapAt;
-    static volatile String snapHeat = "", snapAdapters = "";
+    static volatile String snapHeat = "", snapAdapters = "", snapBg = "";
     static volatile java.util.HashMap<String, Boolean> snapHave = new java.util.HashMap<String, Boolean>(),
             snapPart = new java.util.HashMap<String, Boolean>();
     Button genBtn, engineBtn, scoreToggle;
     StaffProgress prog;
     CheckBox keepBox, gentleBox;
+    TextView bgStatus;
     String[] modelNames;
     TextView[] modelText;
     Button[] modelBtn;
@@ -508,6 +509,7 @@ public class MainActivity extends Activity {
         snapCovers = Covers.ready(this);
         snapAdapters = now.toString();
         snapHeat = gpuHeat();
+        snapBg = Background.status(this);
         snapAt = at;
         snapReady = true;
     }
@@ -741,6 +743,7 @@ public class MainActivity extends Activity {
         genBtn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (jobBusy) cancelJob();
+                else if (!cfg.getBoolean("bg_asked", false) && !Background.exempt(MainActivity.this)) askBackgroundThenGenerate();
                 else generate();
             }
         });
@@ -1073,6 +1076,26 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Asked once, before the first song: Android's own dialog for running without battery optimisation. */
+    void askBackgroundThenGenerate() {
+        cfg.edit().putBoolean("bg_asked", true).apply();
+        new AlertDialog.Builder(this).setTitle("Let songs finish in the background?")
+                .setMessage("A song takes a while. To keep making it while you use other apps or the screen is off, "
+                        + "Android needs to let Killa YuE run without battery optimisation. The next screen asks for that.\n\n"
+                        + "You can change it later on the Engine tab.")
+                .setPositiveButton("Allow", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        Background.askExemption(MainActivity.this);
+                        generate();
+                    }
+                })
+                .setNegativeButton("Not now", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        generate();
+                    }
+                }).show();
+    }
+
     void generate() {
         JSONObject req = formRequest();
         if (req != null) startSong(req, val(songTitle), false);
@@ -1339,7 +1362,9 @@ public class MainActivity extends Activity {
         while (true) {
             Thread.sleep(1500);
             if (!EngineService.running) {
-                throw new Exception("The engine stopped while working. " + EngineService.lastError
+                String why = EngineService.lastError;
+                if (why.startsWith("Android stopped the engine")) throw new Exception(why);
+                throw new Exception("The engine stopped while working. " + why
                         + "\nThis usually means the phone ran out of memory. Try a shorter song, a smaller context, or the CPU device.");
             }
             String s = Api.status(id);
@@ -2296,6 +2321,22 @@ public class MainActivity extends Activity {
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
         gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
+        bgStatus = text("", DIM, 13);
+        bgStatus.setShadowLayer(4, 0, 1, 0x99000000);
+        c.addView(bgStatus, gap(8));
+        c.addView(chipRow(new String[] {"Allow in background", "Developer options"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    cfg.edit().putBoolean("bg_asked", true).apply();
+                    Background.askExemption(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Background.openDeveloperOptions(MainActivity.this);
+                }
+            },
+        }), gap(4));
 
         AdapterView.OnItemSelectedListener changed = new AdapterView.OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
@@ -2851,6 +2892,7 @@ public class MainActivity extends Activity {
                 packsSeen = packs;
             }
             adapterStatus.setText(adapterMsg);
+            if (bgStatus != null && !snapBg.equals(bgStatus.getText().toString())) bgStatus.setText(snapBg);
             coverStatus.setText(Covers.state.length() > 0 ? Covers.state
                     : snapCovers ? "Installed. New songs get a cover by themselves; \"Make a cover\" in a song's menu paints another."
                     : "Not installed.");

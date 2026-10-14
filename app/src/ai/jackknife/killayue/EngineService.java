@@ -369,6 +369,9 @@ public class EngineService extends Service {
                     }
                     addLog("[App] Engine exited with code " + code);
                     if (proc == p) {
+                        if ((code == 137 || code == 9) && lastError.length() == 0) {
+                            lastError = Background.killedMessage(EngineService.this); // SIGKILL: Android stopped it
+                        }
                         if (code != 0 && lastError.length() == 0) lastError = "Engine stopped (exit code " + code + ")";
                         proc = null;
                         running = false;
