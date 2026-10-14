@@ -48,7 +48,7 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     // filled from the skin when the activity starts
     static int BG, CARD, TEXT, DIM, ACCENT, EDGE;
-    static final int PICK_AUDIO = 7, PICK_ADAPTER = 8, PICK_RECIPE = 9;
+    static final int PICK_AUDIO = 7, PICK_ADAPTER = 8, PICK_RECIPE = 9, PICK_SKIN = 10;
     static volatile String adapterMsg = "";
 
     static final String[] STYLES = {
@@ -373,7 +373,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle b) {
-        setTheme(Skin.themeFor(Skin.id(this)));
+        setTheme(Skin.themeFor(this, Skin.id(this)));
         super.onCreate(b);
         inst = this;
         cfg = getSharedPreferences("cfg", 0);
@@ -1470,6 +1470,10 @@ public class MainActivity extends Activity {
         }
         if (code == PICK_RECIPE) {
             openRecipe(data.getData());
+            return;
+        }
+        if (code == PICK_SKIN) {
+            installSkin(data.getData());
             return;
         }
         if (code != PICK_AUDIO) return;
@@ -2992,19 +2996,39 @@ public class MainActivity extends Activity {
         });
 
         c.addView(label("Skin"));
-        final Spinner skinSpin = spinner(Skin.NAMES);
-        skinSpin.setSelection(Math.max(0, Arrays.asList(Skin.IDS).indexOf(Skin.id(this))));
+        final ArrayList<String> skinIds = Skin.ids(this);
+        final Spinner skinSpin = spinner(Skin.names(this).toArray(new String[0]));
+        skinSpin.setSelection(Math.max(0, skinIds.indexOf(Skin.id(this))));
         c.addView(skinSpin);
         skinSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
-                if (!ready || Skin.IDS[pos].equals(Skin.id(MainActivity.this))) return;
-                cfg.edit().putString("skin", Skin.IDS[pos]).putInt("tab", TAB_ENGINE).apply();
-                recreate(); // everything is rebuilt with the new artwork and colours
+                if (!ready || skinIds.get(pos).equals(Skin.id(MainActivity.this))) return;
+                useSkin(skinIds.get(pos));
             }
 
             public void onNothingSelected(AdapterView<?> p) {
             }
         });
+        c.addView(chipRow(new String[] {"Install a skin", "Remove a skin", "Make your own"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.setType("*/*");
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(Intent.createChooser(i, "Pick a skin file"), PICK_SKIN);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    removeSkin();
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    skinTemplate();
+                }
+            },
+        }));
 
         c.addView(label("Queue: start the next song only when the battery is at least"));
         String[] levels = new String[QUEUE_LEVELS.length];
@@ -3384,6 +3408,97 @@ public class MainActivity extends Activity {
     void adaptersChanged() {
         refreshAdapters();
         if (EngineService.running && !jobBusy) EngineService.stop(this);
+    }
+
+    // ---------- community skins ----------
+
+    void useSkin(String id) {
+        cfg.edit().putString("skin", id).putInt("tab", TAB_ENGINE).apply();
+        recreate(); // everything is rebuilt with the new artwork and colours
+    }
+
+    void installSkin(final Uri u) {
+        toast("Installing the skin...");
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String id = null, err = null;
+                try {
+                    id = SkinPack.install(app, u);
+                } catch (Exception e) {
+                    err = String.valueOf(e.getMessage());
+                }
+                final String fid = id, ferr = err;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) {
+                            alert("Could not install the skin", ferr);
+                            return;
+                        }
+                        Skin.forget();
+                        toast("Installed " + SkinPack.name(MainActivity.this, fid));
+                        useSkin(fid);
+                    }
+                });
+            }
+        }, "skin-install").start();
+    }
+
+    void removeSkin() {
+        final ArrayList<String> ids = SkinPack.ids(this);
+        if (ids.size() == 0) {
+            alert("Remove a skin", "Only skins you installed can be removed, and none are installed. The three built-in skins always stay.");
+            return;
+        }
+        String[] names = new String[ids.size()];
+        for (int i = 0; i < names.length; i++) names[i] = SkinPack.name(this, ids.get(i));
+        new Lux.Builder(this).setTitle("Remove a skin").setItems(names, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                String id = ids.get(w);
+                boolean inUse = id.equals(Skin.id(MainActivity.this));
+                SkinPack.remove(MainActivity.this, id);
+                if (inUse) {
+                    Skin.forget();
+                    useSkin(Skin.IDS[0]);
+                } else {
+                    cfg.edit().putInt("tab", TAB_ENGINE).apply();
+                    recreate(); // the skin list is rebuilt without it
+                }
+            }
+        }).show();
+    }
+
+    /** Writes the skin in use as a skin file to start from, and explains what to change. */
+    void skinTemplate() {
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                File out = null;
+                try {
+                    File dir = new File(android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOCUMENTS), "Killa YuE");
+                    if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
+                    out = SkinPack.template(app, new File(dir, "skin-template.zip"));
+                } catch (Exception e) {
+                    err = String.valueOf(e.getMessage());
+                }
+                final String ferr = err;
+                final File fout = out;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) {
+                            alert("Could not write the template", ferr);
+                            return;
+                        }
+                        alert("Make your own skin", "The skin you are using is saved as " + fout.getAbsolutePath() + ".\n\n"
+                                + "Unzip it, repaint the pictures (keep their names and sizes), set your colours and a new name in "
+                                + "skin.json, zip the files again and choose \"Install a skin\". Share the zip and anyone can install it. "
+                                + "SKINS.md in the source repository describes every file.");
+                    }
+                });
+            }
+        }, "skin-template").start();
     }
 
     void importAdapterFile(final Uri u) {

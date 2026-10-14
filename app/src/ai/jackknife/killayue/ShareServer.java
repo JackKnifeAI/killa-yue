@@ -102,7 +102,7 @@ public class ShareServer {
         File apk = new File(c.getPackageCodePath());
         ShareServer s = new ShareServer(kind, title, items, cover, apk, zip);
         s.app = c.getApplicationContext();
-        s.skin = Skin.id(c);
+        s.skin = Skin.base(c, Skin.id(c)); // the page uses the art inside the APK, so a community skin shows as its base
         ServerSocket ss = new ServerSocket();
         ss.setReuseAddress(true);
         int port = PORT;
