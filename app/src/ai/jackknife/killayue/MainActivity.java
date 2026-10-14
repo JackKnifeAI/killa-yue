@@ -1756,7 +1756,7 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Add to an album", "Share", "Share as a recipe",
+            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
             "Share with a QR code", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
@@ -1827,6 +1827,8 @@ public class MainActivity extends Activity {
                     shareSongQr(m);
                 } else if ("Make a lyric video".equals(pick)) {
                     makeLyricVideo(m);
+                } else if ("Sheet music and MIDI".equals(pick)) {
+                    exportScore(m);
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
@@ -2427,6 +2429,79 @@ public class MainActivity extends Activity {
     }
 
     /** A vertical lyric video of the song, for TikTok, Reels and Shorts. */
+    static File scoreDir() {
+        return new File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS), "Killa YuE");
+    }
+
+    /** Sheet music (PDF), a MIDI file and the ABC score itself, from the score the song was made from. */
+    void exportScore(final JSONObject m) {
+        final String abc = m.optString("abc");
+        if (abc.trim().length() == 0) {
+            alert("No score", "This song was made without a score (\"No score\" on the Create tab), so there is nothing to print. "
+                    + "Songs made with the full score or the melody only have one.");
+            return;
+        }
+        toast("Writing the sheet music...");
+        final String title = m.optString("_title", "Untitled");
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                final File dir = scoreDir();
+                final String name = Albums.safeName(title);
+                try {
+                    if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
+                    Abc.Score sc = Abc.parse(abc);
+                    String style = m.optString("style").trim();
+                    if (style.length() > 60) style = style.substring(0, 60) + "\u2026";
+                    String sub = "Killa YuE  \u00b7  \u2669 = " + sc.bpm + "  \u00b7  key of " + sc.key
+                            + (style.length() > 0 ? "  \u00b7  " + style : "");
+                    SheetMusic.write(sc, title, sub, new File(dir, name + ".pdf"));
+                    MidiFile.write(sc, title, new File(dir, name + ".mid"));
+                    Store.write(new File(dir, name + ".abc"), abc.getBytes("UTF-8"));
+                } catch (Exception e) {
+                    err = String.valueOf(e.getMessage());
+                }
+                final String ferr = err;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) {
+                            alert("Could not write the sheet music", ferr);
+                            return;
+                        }
+                        new Lux.Builder(MainActivity.this).setTitle("Sheet music ready")
+                                .setMessage("Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the sheet music\n" + name
+                                        + ".mid, MIDI with the vocal, instrument and chord tracks\n" + name + ".abc, the score itself")
+                                .setPositiveButton("Share", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface x, int w) {
+                                        ArrayList<Uri> uris = new ArrayList<Uri>();
+                                        uris.add(TrackProvider.uri(name + ".pdf"));
+                                        uris.add(TrackProvider.uri(name + ".mid"));
+                                        uris.add(TrackProvider.uri(name + ".abc"));
+                                        Intent s = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                                        s.setType("*/*");
+                                        s.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                        startActivity(Intent.createChooser(s, "Share the sheet music"));
+                                    }
+                                })
+                                .setNeutralButton("Open", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface x, int w) {
+                                        Intent s = new Intent(Intent.ACTION_VIEW);
+                                        s.setDataAndType(TrackProvider.uri(name + ".pdf"), "application/pdf");
+                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                        try {
+                                            startActivity(s);
+                                        } catch (Exception e) {
+                                            toast("No PDF viewer found");
+                                        }
+                                    }
+                                }).setNegativeButton("Close", null).show();
+                    }
+                });
+            }
+        }, "sheet-music").start();
+    }
+
     void makeLyricVideo(final JSONObject m) {
         LinearLayout v = column();
         v.setPadding(dp(22), dp(6), dp(22), dp(6));
