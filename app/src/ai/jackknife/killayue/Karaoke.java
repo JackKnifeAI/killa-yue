@@ -34,6 +34,7 @@ public class Karaoke {
 
     private static final Pattern TEMPO = Pattern.compile("Q:\\s*(\\d+)/(\\d+)\\s*=\\s*(\\d+)");
     private static final Pattern UNIT = Pattern.compile("L:\\s*(\\d+)/(\\d+)");
+    private static final Pattern METER = Pattern.compile("(?m)^M:\\s*(\\d+)/(\\d+)");
     // a note or rest with its length: optional accidental, letter, octave marks, numerator, slashes, denominator
     private static final Pattern TOKEN = Pattern.compile("([_^=]*)([A-Ga-gzZx])([,']*)(\\d*)(/*)(\\d*)(-?)");
 
@@ -103,6 +104,9 @@ public class Karaoke {
         double unit = quarter * 4 / 8; // default L:1/8
         m = UNIT.matcher(abc);
         if (m.find()) unit = quarter * 4 * Integer.parseInt(m.group(1)) / Integer.parseInt(m.group(2));
+        double bar = quarter * 4; // default M:4/4
+        m = METER.matcher(abc);
+        if (m.find()) bar = quarter * 4 * Integer.parseInt(m.group(1)) / Integer.parseInt(m.group(2)); // M:C and C| are 4/4 long too
 
         double t = 0;
         boolean vocal = false, tied = false;
@@ -130,7 +134,11 @@ public class Karaoke {
                 double len = k.group(4).length() > 0 ? Integer.parseInt(k.group(4)) : 1;
                 int slashes = k.group(5).length();
                 if (slashes > 0) len /= k.group(6).length() > 0 ? Integer.parseInt(k.group(6)) : Math.pow(2, slashes);
-                if (c == 'Z') continue; // whole-bar rests appear only in the instrumental voice
+                if (c == 'Z') { // whole-bar rests: Z is one bar, Z4 is four; the vocal often opens with them
+                    t += (k.group(4).length() > 0 ? Integer.parseInt(k.group(4)) : 1) * bar;
+                    tied = false;
+                    continue;
+                }
                 boolean rest = c == 'z' || c == 'x';
                 if (!rest && !tied && cur != null) cur.onsets.add(Double.valueOf(t));
                 tied = !rest && k.group(7).length() > 0;
