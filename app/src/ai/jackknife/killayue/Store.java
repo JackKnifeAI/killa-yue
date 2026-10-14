@@ -115,6 +115,14 @@ public class Store {
     }
 
     static void download(final Context app, final String name) {
+        download(app, name, BASE);
+    }
+
+    /**
+     * Fetches a model from base + name: Hugging Face, or a friend's phone sharing its models
+     * (ShareServer). Either way the file must match the SHA-256 published on Hugging Face.
+     */
+    static void download(final Context app, final String name, final String base) {
         if (busy(name)) return;
         final String[] f = info(name);
         if (f == null) return;
@@ -128,7 +136,7 @@ public class Store {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    fetch(BASE + name, part, d);
+                    fetch(base + name, part, d);
                     if (d.cancel) {
                         d.state = "cancelled";
                         return;

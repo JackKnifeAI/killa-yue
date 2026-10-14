@@ -158,8 +158,12 @@ public class EngineService extends Service {
         }
     }
 
+    /** True once this engine has shown progress on a job, so a later crash is not blamed on the GPU driver. */
+    static volatile boolean sawProgress;
+
     static void parse(String line) {
         Eta.line(line);
+        if (!sawProgress && (line.startsWith("[AR] ") || line.startsWith("[NAR] Step"))) sawProgress = true;
         Matcher m = P_NAR.matcher(line);
         if (m.find()) {
             setStage("Rendering audio", Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
@@ -348,6 +352,7 @@ public class EngineService extends Service {
             }
             proc = p;
             running = true;
+            sawProgress = false;
             setStage("", 0, 0);
             Thread t = new Thread(new Runnable() {
                 public void run() {
@@ -371,6 +376,13 @@ public class EngineService extends Service {
                     if (proc == p) {
                         if ((code == 137 || code == 9) && lastError.length() == 0) {
                             lastError = Background.killedMessage(EngineService.this); // SIGKILL: Android stopped it
+                        }
+                        SharedPreferences sp = getSharedPreferences("cfg", 0);
+                        if ((code == 134 || code == 139) && !sawProgress && "Vulkan0".equals(sp.getString("device", "Vulkan0"))) {
+                            // the GPU driver crashed before any work was done: this phone's GPU is not one it can drive
+                            sp.edit().putString("device", "CPU").apply();
+                            lastError = "The GPU driver crashed on this phone before the song started, so Killa YuE has switched to the processor. "
+                                    + "That is much slower. The Engine tab's \"Device report\" helps add support for this phone.";
                         }
                         if (code != 0 && lastError.length() == 0) lastError = "Engine stopped (exit code " + code + ")";
                         proc = null;

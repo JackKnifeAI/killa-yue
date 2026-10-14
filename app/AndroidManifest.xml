@@ -18,6 +18,13 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- "Open in Killa YuE" on a friend's model-sharing page: killayue://models?from=<their address> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="killayue" android:host="models"/>
+            </intent-filter>
         </activity>
         <service android:name=".EngineService" android:exported="false"/>
         <service android:name=".NowPlaying" android:exported="false"/>

@@ -89,6 +89,7 @@ public class MainActivity extends Activity {
             + "Killa typefaces: SIL Open Font License 1.1.\n"
             + "Album covers: Qualcomm AI Engine Direct (QNN) runtime, under the Qualcomm AI Hub Model License, included in this app only; "
             + "QNN API headers (c) 2026 Qualcomm Technologies, Inc., BSD 3-Clause; CLIP tokenizer vocabulary (c) 2021 OpenAI, MIT. "
+            + "QR codes: QR Code generator by Project Nayuki, MIT. "
             + "The cover model (Stable Diffusion 1.5 as compiled by Qualcomm) is downloaded separately and is licensed CreativeML OpenRAIL-M.\n"
             + "Adapters you install belong to their makers and carry their own terms.\n\n"
             + "Killa YuE is an independent project and is not affiliated with or endorsed by the YuE2 authors.\n"
@@ -421,6 +422,9 @@ public class MainActivity extends Activity {
         tick.run();
         healthLoop();
         probeLoop();
+        String check = PhoneCheck.firstLaunch(this);
+        if (check.length() > 0) alert("About this phone", check);
+        handleLink(getIntent());
     }
 
     View scroll(View v) {
@@ -1632,10 +1636,15 @@ public class MainActivity extends Activity {
             libraryBox.addView(t);
             return;
         }
-        libraryBox.addView(chipRow(new String[] {"Albums", "Sleep timer", "Open a recipe"}, new Runnable[] {
+        libraryBox.addView(chipRow(new String[] {"Albums", "Share the app", "Sleep timer", "Open a recipe"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     showAlbums();
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    shareAppQr();
                 }
             },
             new Runnable() {
@@ -1723,7 +1732,7 @@ public class MainActivity extends Activity {
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
             "Continue from this song", "Use the same style and lyrics", "Make a cover", "Add to an album", "Share", "Share as a recipe",
-            "Change the title", "Details", "Delete",
+            "Share with a QR code", "Change the title", "Details", "Delete",
         };
         new AlertDialog.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
@@ -1789,6 +1798,8 @@ public class MainActivity extends Activity {
                     makeCover(m, true);
                 } else if ("Share as a recipe".equals(pick)) {
                     shareRecipe(m);
+                } else if ("Share with a QR code".equals(pick)) {
+                    shareSongQr(m);
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
@@ -1873,7 +1884,7 @@ public class MainActivity extends Activity {
         final String id = a.optString("id");
         final String[] items = {
             "Play the album", "Songs in this album", "Add songs from the library", "Make new songs for this album",
-            "Paint the album cover", "Use the Create tab's style for this album", "Rename", "Export to Music", "Share the album",
+            "Paint the album cover", "Use the Create tab's style for this album", "Rename", "Export to Music", "Share with a QR code", "Share the album",
             "Delete the album",
         };
         String sub = a.optString("style").length() > 0 ? "Sound: " + a.optString("style") : "No sound set yet";
@@ -1908,6 +1919,8 @@ public class MainActivity extends Activity {
                     }
                 } else if ("Rename".equals(pick)) {
                     renameAlbum(fresh);
+                } else if ("Share with a QR code".equals(pick)) {
+                    shareAlbumQr(fresh);
                 } else if ("Export to Music".equals(pick)) {
                     exportAlbum(fresh, false);
                 } else if ("Share the album".equals(pick)) {
@@ -2048,6 +2061,11 @@ public class MainActivity extends Activity {
     }
 
     void paintAlbumCover(final JSONObject a) {
+        if (!PhoneCheck.npuCovers()) {
+            alert("Covers need a Snapdragon 8 Elite", "Album covers are painted on the Snapdragon 8 Elite's NPU, and this phone has a "
+                    + PhoneCheck.socModel() + ". The album uses its first song's cover until then.");
+            return;
+        }
         if (!Covers.ready(this)) {
             alert("One more download needed", "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB).");
             return;
@@ -2138,7 +2156,255 @@ public class MainActivity extends Activity {
         }, "album-export").start();
     }
 
+    // ---------- sharing phone to phone with a QR code ----------
+
+    /** The QR code for a text, black on white with the quiet zone the standard asks for. */
+    android.graphics.Bitmap qrBitmap(String text, int px) {
+        io.nayuki.qrcodegen.QrCode q = io.nayuki.qrcodegen.QrCode.encodeText(text, io.nayuki.qrcodegen.QrCode.Ecc.MEDIUM);
+        int n = q.size + 8, scale = Math.max(1, px / n), side = n * scale;
+        int[] pix = new int[side * side];
+        for (int y = 0; y < side; y++) {
+            for (int x = 0; x < side; x++) {
+                boolean dark = q.getModule(x / scale - 4, y / scale - 4);
+                pix[y * side + x] = dark ? 0xFF080909 : 0xFFFFFFFF;
+            }
+        }
+        return android.graphics.Bitmap.createBitmap(pix, side, side, android.graphics.Bitmap.Config.ARGB_8888);
+    }
+
+    /**
+     * Starts the share server for one thing and shows its QR code with the steps for both people.
+     * The server stops when this screen closes, so it stays open until the other phone has its download.
+     */
+    void showQrShare(String kind, String title, java.util.List<ShareServer.Item> items, File cover, File zip) {
+        String url;
+        try {
+            url = ShareServer.start(getApplicationContext(), kind, title, items, cover, zip);
+        } catch (Exception e) {
+            alert("Sharing needs Wi-Fi", e.getMessage());
+            return;
+        }
+        LinearLayout v = column();
+        v.setPadding(dp(20), dp(8), dp(20), dp(8));
+        android.widget.ImageView iv = new android.widget.ImageView(this);
+        iv.setImageBitmap(qrBitmap(url, dp(260)));
+        iv.setBackground(box(0xFFFFFFFF, 12));
+        iv.setPadding(dp(8), dp(8), dp(8), dp(8));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(260), dp(260));
+        lp.gravity = Gravity.CENTER_HORIZONTAL;
+        v.addView(iv, lp);
+        String what = "app".equals(kind) ? "Killa YuE" : "album".equals(kind) ? "this album" : "this song";
+        String third = "models".equals(kind)
+                ? "3. A page opens there. They install Killa YuE from it if they need to, then tap Open in Killa YuE: their app copies the models from this phone and checks each one.\n"
+                : "3. A page opens there with " + what + ("app".equals(kind) ? "" : ", players, downloads, and Killa YuE itself")
+                + ", plus the steps to install the app.\n";
+        TextView steps = text("1. Both phones on the same Wi-Fi, or turn on your hotspot and let the other phone join it.\n"
+                + "2. On the other phone, open the camera, point it at this code and tap the link.\n"
+                + third
+                + "Keep this screen open until their download finishes.\n\n" + url, TEXT, 14);
+        v.addView(steps, gap(12));
+        final TextView status = text("Waiting for the other phone", DIM, 13);
+        v.addView(status, gap(8));
+        final AlertDialog d = new AlertDialog.Builder(this).setTitle("Share " + ("app".equals(kind) ? "Killa YuE" : "models".equals(kind) ? "the models" : "“" + title + "”"))
+                .setView(scroll(v)).setPositiveButton("Done", null).create();
+        d.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            public void onDismiss(DialogInterface x) {
+                ShareServer.stop();
+            }
+        });
+        d.show();
+        ui.post(new Runnable() {
+            public void run() {
+                if (!d.isShowing()) return;
+                ShareServer s = ShareServer.current();
+                if (s != null && s.bytesSent > 0) {
+                    status.setText("Sent " + size(s.bytesSent) + (s.served > 0 ? ", " + s.served + (s.served == 1 ? " download finished" : " downloads finished") : ""));
+                }
+                ui.postDelayed(this, 1000);
+            }
+        });
+    }
+
+    /** Shares every complete model file on this phone, so a friend can copy them without mobile data. */
+    void shareModelsQr() {
+        ArrayList<ShareServer.Item> items = new ArrayList<ShareServer.Item>();
+        for (int i = 0; i < Store.FILES.length; i++) {
+            String n = Store.FILES[i][0];
+            if (Store.have(this, n)) items.add(new ShareServer.Item(n, new File(Store.models(this), n), "application/octet-stream", null));
+        }
+        if (items.size() == 0) {
+            alert("No models to share yet", "Download the models on the Engine tab first; then you can pass them on to friends.");
+            return;
+        }
+        showQrShare("models", "Killa YuE models", items, null, null);
+    }
+
+    /** "Open in Killa YuE" on a friend's model page: copy the models this phone is missing from theirs. */
+    void handleLink(Intent in) {
+        if (in == null || in.getData() == null) return;
+        Uri u = in.getData();
+        if (!"killayue".equals(u.getScheme()) || !"models".equals(u.getHost())) return;
+        in.setData(null); // handle it once
+        final String from = u.getQueryParameter("from");
+        String host = null;
+        try {
+            host = Uri.parse(from).getHost();
+        } catch (Exception e) {
+            // checked below
+        }
+        // only a phone on the local network, in the form ShareServer gives out
+        if (from == null || !from.startsWith("http://") || !from.endsWith("/") || host == null
+                || !(host.startsWith("192.168.") || host.startsWith("10.") || host.matches("172\\.(1[6-9]|2\\d|3[01])\\..*"))) {
+            alert("That link is not a model share", "Ask your friend to open Engine > Share the models by QR and scan the code they show.");
+            return;
+        }
+        toast("Asking your friend's phone what it has…");
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                final ArrayList<String> need = new ArrayList<String>();
+                long bytes = 0;
+                String backbone = null;
+                try {
+                    java.net.HttpURLConnection con = (java.net.HttpURLConnection) new java.net.URL(from + "models.json").openConnection();
+                    con.setConnectTimeout(6000);
+                    con.setReadTimeout(10000);
+                    JSONArray a = new JSONArray(new String(Api.readAll(con.getInputStream()), "UTF-8"));
+                    con.disconnect();
+                    boolean haveBackbone = false;
+                    for (int i = 0; i < Store.QUANTS.length; i++) if (Store.have(app, "YuE2-3B-" + Store.QUANTS[i] + ".gguf")) haveBackbone = true;
+                    for (int i = 0; i < a.length(); i++) {
+                        String n = a.getJSONObject(i).getString("name");
+                        String[] f = Store.info(n);
+                        if (f == null || Store.have(app, n)) continue; // files the app does not know are never fetched
+                        boolean isBackbone = n.startsWith("YuE2-3B-");
+                        if (isBackbone && (haveBackbone || backbone != null)) continue; // one song model is enough
+                        if (isBackbone) backbone = n;
+                        need.add(n);
+                        bytes += Long.parseLong(f[1]);
+                    }
+                } catch (Exception e) {
+                    err = "Could not reach your friend's phone. Are you both on the same Wi-Fi, with their share screen still open? (" + e.getMessage() + ")";
+                }
+                final String ferr = err, fb = backbone;
+                final long fbytes = bytes;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) {
+                            alert("No connection", ferr);
+                            return;
+                        }
+                        if (need.size() == 0) {
+                            alert("Nothing to copy", "This phone already has every model your friend's phone offers.");
+                            return;
+                        }
+                        new AlertDialog.Builder(MainActivity.this).setTitle("Copy the models from your friend?")
+                                .setMessage(need.size() + (need.size() == 1 ? " file, " : " files, ") + size(fbytes)
+                                        + ", over Wi-Fi, no mobile data. Each file is checked against its published checksum before it is used, "
+                                        + "and an interrupted copy picks up where it stopped. Keep both phones on the same Wi-Fi until the Engine tab says ready.")
+                                .setPositiveButton("Copy", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface d, int w) {
+                                        if (fb != null) {
+                                            // use the song model the friend has
+                                            String q = fb.substring("YuE2-3B-".length(), fb.length() - ".gguf".length());
+                                            cfg.edit().putString("quant", q).apply();
+                                            if (quantSpin != null) quantSpin.setSelection(Math.max(0, Arrays.asList(Store.QUANTS).indexOf(q)));
+                                        }
+                                        for (int i = 0; i < need.size(); i++) Store.download(app, need.get(i), from + "m/");
+                                        refreshModels();
+                                        showTab(TAB_ENGINE);
+                                    }
+                                }).setNegativeButton("Cancel", null).show();
+                    }
+                });
+            }
+        }, "model-link").start();
+    }
+
+    @Override
+    protected void onNewIntent(Intent in) {
+        super.onNewIntent(in);
+        setIntent(in);
+        handleLink(in);
+    }
+
+    void shareAppQr() {
+        showQrShare("app", "Killa YuE", new ArrayList<ShareServer.Item>(), null, null);
+    }
+
+    void shareSongQr(JSONObject m) {
+        File cv = Covers.coverFor(this, m);
+        showQrShare("song", m.optString("_title", "Untitled"), ShareServer.songItems(this, m), cv.isFile() ? cv : null, null);
+    }
+
+    /** Exports the album first (tagged files and a zip), then shares those. */
+    void shareAlbumQr(final JSONObject a) {
+        toast("Getting " + a.optString("title") + " ready to share…");
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                File zip = null;
+                final ArrayList<ShareServer.Item> items = new ArrayList<ShareServer.Item>();
+                File cover = null;
+                try {
+                    zip = Albums.export(app, a, null);
+                    File folder = new File(Albums.get(app, a.optString("id")).optString("exported"));
+                    ArrayList<JSONObject> songs = Albums.songs(app, a);
+                    File[] fs = folder.listFiles();
+                    java.util.Arrays.sort(fs);
+                    int k = 0;
+                    for (int i = 0; fs != null && i < fs.length; i++) {
+                        String n = fs[i].getName().toLowerCase(Locale.US);
+                        if (!n.endsWith(".mp3") && !n.endsWith(".wav")) continue;
+                        String label = k < songs.size() ? songs.get(k).optString("_title", fs[i].getName()) : fs[i].getName();
+                        items.add(new ShareServer.Item(label, fs[i], n.endsWith(".wav") ? "audio/wav" : "audio/mpeg", null));
+                        k++;
+                    }
+                    File cv = new File(folder, "cover.jpg");
+                    if (cv.isFile()) cover = cv;
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final String ferr = err;
+                final File fzip = zip, fcover = cover;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (ferr != null) alert("The album could not be shared", ferr);
+                        else showQrShare("album", a.optString("title"), items, fcover, fzip);
+                    }
+                });
+            }
+        }, "album-share").start();
+    }
+
+    /** Copies what the project needs to know about this phone, and opens the GitHub form for it. */
+    void deviceReport() {
+        final String r = PhoneCheck.report(this);
+        new AlertDialog.Builder(this).setTitle("Device report").setMessage(r + "\nCopy this and paste it into the device report on GitHub. "
+                + "It helps make Killa YuE work on more phones. Nothing is sent by the app.")
+                .setPositiveButton("Copy and open GitHub", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(ClipData.newPlainText("Killa YuE device report", r));
+                        toast("Copied. Paste it into the form.");
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("https://github.com/JackKnifeAI/killa-yue/issues/new?template=device-report.yml")));
+                        } catch (Exception e) {
+                            toast("No browser to open the form");
+                        }
+                    }
+                }).setNegativeButton("Close", null).show();
+    }
+
     void makeCover(final JSONObject m, final boolean tell) {
+        if (!PhoneCheck.npuCovers()) {
+            if (tell) alert("Covers need a Snapdragon 8 Elite", "Album covers are painted on the Snapdragon 8 Elite's NPU, and this phone has a "
+                    + PhoneCheck.socModel() + ". Painting covers on other phones' GPUs is coming in a later version.");
+            return;
+        }
         if (!Covers.ready(this)) {
             if (tell) {
                 alert("One more download needed", "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB).");
@@ -2675,7 +2941,7 @@ public class MainActivity extends Activity {
         bgStatus = text("", DIM, 13);
         bgStatus.setShadowLayer(4, 0, 1, 0x99000000);
         c.addView(bgStatus, gap(8));
-        c.addView(chipRow(new String[] {"Allow in background", "Developer options"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Allow in background", "Developer options", "Device report"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     cfg.edit().putBoolean("bg_asked", true).apply();
@@ -2685,6 +2951,11 @@ public class MainActivity extends Activity {
             new Runnable() {
                 public void run() {
                     Background.openDeveloperOptions(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    deviceReport();
                 }
             },
         }), gap(4));
@@ -2712,6 +2983,13 @@ public class MainActivity extends Activity {
         });
 
         c.addView(label("Downloads"));
+        c.addView(chipRow(new String[] {"Share the models by QR"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    shareModelsQr();
+                }
+            },
+        }), gap(4));
         modelBox = column();
         c.addView(modelBox);
         storageNote = text("", DIM, 12);
