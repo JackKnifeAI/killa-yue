@@ -8,7 +8,7 @@
 function engrave(abc, staffwidth) {
   try {
     var tunes = ABCJS.renderAbc("paper", abc, { staffwidth: staffwidth, add_classes: true,
-      paddingtop: 0, paddingbottom: 0, paddingleft: 0, paddingright: 0 });
+      paddingtop: 0, paddingbottom: 0, paddingleft: 0, paddingright: 4 }); // the closing bar line sits just past staffwidth
     var warnings = (tunes[0] && tunes[0].warnings) || [];
     if (warnings.length) {
       Killa.fail(warnings.map(function (w) { return String(w).replace(/<[^>]+>/g, ""); }).join("\n"));
