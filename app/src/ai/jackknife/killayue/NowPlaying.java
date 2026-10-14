@@ -106,6 +106,7 @@ public class NowPlaying extends Service {
                 .build());
         shownTitle = a.playTitle;
         shownPlaying = playing;
+        Widget.nowPlaying(a, a.playTitle, playing, cover);
         Intent i = new Intent(a, NowPlaying.class);
         try {
             if (Build.VERSION.SDK_INT >= 26) Context.class.getMethod("startForegroundService", Intent.class).invoke(a, i);
@@ -134,6 +135,7 @@ public class NowPlaying extends Service {
             session = null;
         }
         shownPlaying = false;
+        Widget.stopped(c);
         if (self != null) {
             self.stopForeground(true);
             self.stopSelf();
