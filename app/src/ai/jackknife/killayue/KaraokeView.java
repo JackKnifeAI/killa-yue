@@ -178,7 +178,8 @@ public class KaraokeView extends View {
         txt.setColor(Skin.FAINT);
         txt.setTextSize(11 * dp);
         String note = a.timing ? "Tap anywhere here the moment the next line begins"
-                : a.timedByHand ? "Timed by hand" : "Timing is estimated from the score";
+                : a.timedByHand ? (a.playMeta != null && a.playMeta.has("_synced") ? "Synced to the singing" : "Timed by hand")
+                : "Timing is estimated from the score";
         if (a.timing) txt.setColor(Skin.ACCENT);
         c.drawText(note, rx, h - 12 * dp, txt);
 

@@ -2099,7 +2099,7 @@ public class MainActivity extends Activity {
                     : "Covers are painted on this phone's GPU. Get the GPU cover model on the Engine tab (" + size(Covers.gpuBytes()) + ").");
             return;
         }
-        toast("Painting the album cover. It takes a few seconds.");
+        toast("Painting the album cover. " + Covers.howLong(this));
         final Context app = getApplicationContext();
         new Thread(new Runnable() {
             public void run() {
@@ -2536,7 +2536,7 @@ public class MainActivity extends Activity {
         final File mf = metaFile(m);
         final AlertDialog d = new Lux.Builder(this).setTitle("Listening to the song")
                 .setMessage("The recogniser is listening to “" + m.optString("_title") + "” and timing each line. "
-                        + "This takes about a minute.").setCancelable(false).create();
+                        + "A full-length song takes two to three minutes.").setCancelable(false).create();
         d.show();
         final Context app = getApplicationContext();
         new Thread(new Runnable() {
@@ -2601,7 +2601,7 @@ public class MainActivity extends Activity {
             }
             return;
         }
-        if (tell) toast("Painting a cover. It takes a few seconds.");
+        if (tell) toast("Painting a cover. " + Covers.howLong(this));
         final Context app = getApplicationContext();
         final int variation = Covers.coverFor(this, m).isFile() ? (int) (System.currentTimeMillis() % 100000) : 0;
         new Thread(new Runnable() {
@@ -2660,6 +2660,7 @@ public class MainActivity extends Activity {
             JSONObject r = new JSONObject(m.toString());
             r.remove("_audio");
             r.remove("_times");
+            r.remove("_synced");
             r.put("_recipe", 1);
             String a = m.optString("_audio");
             int dot = a.lastIndexOf('.');
@@ -2891,6 +2892,7 @@ public class MainActivity extends Activity {
                     last = v;
                 }
                 playMeta.put("_times", t);
+                playMeta.remove("_synced"); // the times are now the ones tapped in
                 File mf = metaFile(playMeta);
                 long stamp = mf.lastModified();
                 Store.write(mf, playMeta.toString().getBytes("UTF-8"));
@@ -3232,8 +3234,8 @@ public class MainActivity extends Activity {
                 }
                 new Lux.Builder(MainActivity.this).setTitle("GPU cover model")
                         .setMessage("Stable Diffusion 1.5 with the LCM LoRA and the TAESD decoder, " + size(Covers.gpuBytes())
-                                + ", for phones without the Snapdragon 8 Elite's NPU. A cover takes from several seconds to a minute, "
-                                + "depending on the phone. Licensed under CreativeML OpenRAIL-M, which forbids using it to break the law, "
+                                + ", for phones without the Snapdragon 8 Elite's NPU. A cover takes about four minutes on a fast phone's GPU, "
+                                + "and longer on slower phones. Licensed under CreativeML OpenRAIL-M, which forbids using it to break the law, "
                                 + "to harm people, or to spread false information to cause harm. Each file is checked against its published checksum.")
                         .setPositiveButton("Download", new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface d, int w) {

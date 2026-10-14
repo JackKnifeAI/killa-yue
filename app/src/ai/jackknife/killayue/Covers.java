@@ -75,6 +75,11 @@ public class Covers {
         return npu ? "npu" : "";
     }
 
+    /** How long the next cover takes, for the message that announces it (GPU: about 4 minutes on a Galaxy S25 Ultra). */
+    static String howLong(Context c) {
+        return "gpu".equals(painter(c)) ? "On the GPU this takes about four minutes, longer on slower phones." : "It takes a few seconds.";
+    }
+
     static boolean anyReady(Context c) {
         return painter(c).length() > 0;
     }
@@ -315,7 +320,7 @@ public class Covers {
     }
 
     /**
-     * Paints a cover for the song and saves it beside the audio. Blocks for a few seconds;
+     * Paints a cover for the song and saves it beside the audio. Blocks for a few seconds on the NPU and minutes on the GPU;
      * call from a background thread. variation changes the picture for the same song.
      */
     static File make(Context c, JSONObject meta, int variation) throws Exception {
