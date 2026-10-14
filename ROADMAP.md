@@ -2,7 +2,7 @@
 
 Killa YuE is free and open source. Everything here runs on the phone, with no account and no server.
 
-## 1.1.0 (releasing now)
+## 1.1.0 (released)
 
 - **Player deck**: previous, back 10 s, play or pause, forward 10 s, next; a spinning record, level bars and a gold scrubber.
 - **Song titles**: a title box on the Create tab, plus retitling from the menu or with a long press.
@@ -22,22 +22,27 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Built on a PC**: the engine and GPU driver are now built with the Android NDK (see BUILDING.md).
 - **Issue forms**: device report, bug report and feature request.
 
-## 1.2.0 (next release)
+## 1.2.0 (released)
 
-### Smooth on a busy phone
-- **Phone check**: a few-second GPU test on first launch. It reports chip, driver and memory, and switches to processor mode automatically if the GPU test fails. Results can be pasted into the device-report form.
-- **Engine inside the app**: run the engine as a library in its own app process instead of a child process, so Android's child-process limits never apply.
+- **Share phone to phone with a QR code**: the app itself, a song, an album or the models. The other phone scans with its camera and gets a page in the app's own style, with players, downloads and install steps. Works with iPhones for songs and albums. No internet needed: both phones on the same Wi-Fi or a hotspot.
+- **Copy the models from a friend's phone**: no mobile data; every file is checked against its published checksum and interrupted copies resume.
+- **Dialogs and drop-downs in the app's own dress**: leather panel, gold rims, Killa lettering, in every skin.
+- **Phone check**: phones without a supported Adreno GPU switch to processor mode with an explanation; low-memory phones are warned; a GPU driver crash before a song starts switches to the processor. "Device report" on the Engine tab copies what the project needs to support more phones.
+- **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, for TikTok, Reels and Shorts.
+- **Fixes**: the Lyrics tab keeps moving when playback starts with it open; time left sits on its own line.
+
+## 1.3.0 (next)
 
 ### More phones
-- **GPU covers**: Stable Diffusion on the GPU for phones without the 8 Elite NPU.
+- **GPU covers**: Stable Diffusion on the GPU for phones without the 8 Elite NPU (already built for Android, needs wiring in).
 - **Other Snapdragon phones** first, then other chips through their own drivers or processor mode.
+- **Engine inside the app**: run the engine as a library in its own app process instead of a child process, so Android's child-process limits never apply.
 - **Emulator test pass** on Android 9 to 16 and several screen sizes before each release.
 
 ### Planned features
-- **Albums and playlists.**
+- **Automatic lyric sync**: listen to the finished song with a speech recogniser on the phone and time every line to when it is actually sung.
 - **Lyrics assistant on the phone**: ideally on the NPU, which sits idle while the GPU makes the song.
 - **Hum a melody**: record a tune and get a song built on it.
-- **Lyric video export**: cover, animated lyrics and the song, as an MP4 ready to post.
 - **Your own voice**: train a voice adapter from your recordings.
 - **Stems**: separate vocals and backing. The engine renders one mix, so this needs a separation model.
 - **Mastering**: loudness, EQ and limiting presets.
@@ -47,7 +52,6 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 
 ## Ideas being considered
 
-- **Song in a QR code**: a recipe is small enough for a QR code. Scan it on another phone to make the song.
 - **Live sheet music**: show the score being written as real notation while the model works.
 - **Sheet music and MIDI export**: the score already keeps vocal and instrument parts separate, so producers can take them into a DAW.
 - **Ringtones and alarms**: pick the chorus and set it as a ringtone. Or wake up to a brand-new song the queue made overnight.
