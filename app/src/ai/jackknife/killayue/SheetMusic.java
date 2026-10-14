@@ -22,7 +22,7 @@ import java.util.TreeSet;
  * with every voice's notes lined up in shared columns. Tuplet brackets are not drawn.
  */
 public class SheetMusic {
-    private static final float PAGE_W = 595, PAGE_H = 842, MARGIN = 40, LABEL_W = 30; // A4 in points
+    private static final float PAGE_W = 595, PAGE_H = 842, MARGIN = 40, LABEL_W = 36; // A4 in points
     private static final float SP = 5.2f; // the space between two staff lines
     private static final float STAFF_GAP = 9 * SP, ABOVE = 7 * SP, BELOW = 5 * SP;
 
@@ -313,9 +313,10 @@ public class SheetMusic {
         text.setTypeface(Typeface.create(Typeface.SERIF, Typeface.ITALIC));
         text.setTextSize(SP * 1.7f);
         text.setTextAlign(Paint.Align.RIGHT);
+        float labelRight = left - SP * 1.5f; // clear of the bracket, which starts at left - SP * 0.9
         for (int v = 0; v < nv; v++) {
             for (int l = 0; l < 5; l++) c.drawLine(left, bottoms[v] - l * SP, end, bottoms[v] - l * SP, line);
-            c.drawText(fit(text, shownVoices.get(v).name, LABEL_W - 4), left - 4, bottoms[v] - 1.5f * SP, text);
+            c.drawText(fit(text, shownVoices.get(v).name, labelRight - MARGIN), labelRight, bottoms[v] - 1.5f * SP, text);
         }
         line.setStrokeWidth(SP * 0.16f);
         c.drawLine(left, bottoms[0] - 4 * SP, left, bottoms[nv - 1], line);
