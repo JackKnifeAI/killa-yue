@@ -19,7 +19,9 @@ public class TrackProvider extends ContentProvider {
     private File file(Uri uri) throws FileNotFoundException {
         String name = uri.getLastPathSegment();
         if (name == null || name.contains("/") || name.contains("..")) throw new FileNotFoundException("bad name");
-        File f = new File(Store.library(getContext()), name);
+        // lyric videos live in Movies/Killa YuE; everything else in the library
+        File f = name.endsWith(".mp4") ? new File(new File(android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_MOVIES), "Killa YuE"), name) : new File(Store.library(getContext()), name);
         if (!f.isFile()) throw new FileNotFoundException(name);
         return f;
     }
@@ -39,6 +41,8 @@ public class TrackProvider extends ContentProvider {
         String n = String.valueOf(uri.getLastPathSegment());
         if (n.endsWith(".lrc")) return "text/plain";
         if (n.endsWith(".killa")) return "application/octet-stream";
+        if (n.endsWith(".mp4")) return "video/mp4";
+        if (n.endsWith(".zip")) return "application/zip";
         return n.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
     }
 

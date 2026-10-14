@@ -570,6 +570,8 @@ public class MainActivity extends Activity {
             watchTyping();
             runQueue();
             NowPlaying.turn(MainActivity.this);
+            // the lyrics view animates itself only while music plays; this wakes it when playback starts with the tab open
+            if (karaokeView != null && panels[TAB_LYRICS].getVisibility() == View.VISIBLE) karaokeView.invalidate();
             ui.postDelayed(this, 600);
         }
     };
@@ -949,7 +951,7 @@ public class MainActivity extends Activity {
         FrameLayout f = new FrameLayout(this);
         f.setPadding(dp(20), dp(8), dp(20), 0);
         f.addView(name);
-        new Lux.Builder(this).setTitle("Save this " + word + " as").setView(f)
+        new Lux.Builder(this).setTitle(("lyrics".equals(word) ? "Save these " : "Save this ") + word + " as").setView(f)
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         String n = val(name).length() == 0 ? "Untitled" : val(name);
@@ -1754,7 +1756,7 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Add to an album", "Share", "Share as a recipe",
+            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Add to an album", "Share", "Share as a recipe",
             "Share with a QR code", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
@@ -1823,6 +1825,8 @@ public class MainActivity extends Activity {
                     shareRecipe(m);
                 } else if ("Share with a QR code".equals(pick)) {
                     shareSongQr(m);
+                } else if ("Make a lyric video".equals(pick)) {
+                    makeLyricVideo(m);
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
@@ -2420,6 +2424,91 @@ public class MainActivity extends Activity {
                         }
                     }
                 }).setNegativeButton("Close", null).show();
+    }
+
+    /** A vertical lyric video of the song, for TikTok, Reels and Shorts. */
+    void makeLyricVideo(final JSONObject m) {
+        LinearLayout v = column();
+        v.setPadding(dp(22), dp(6), dp(22), dp(6));
+        final TextView what = text("Getting ready", TEXT, 15);
+        v.addView(what);
+        final android.widget.ProgressBar bar = new android.widget.ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        bar.setMax(100);
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(Skin.ACCENT));
+        v.addView(bar, gap(12));
+        TextView note = text("1080 x 1920, made on this phone. Long songs take a few minutes; keep the app open.", DIM, 12);
+        v.addView(note, gap(10));
+        final boolean[] stop = new boolean[1];
+        final AlertDialog d = new Lux.Builder(this).setTitle("Lyric video").setView(v)
+                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface x, int w) {
+                        stop[0] = true;
+                    }
+                }).setCancelable(false).create();
+        d.show();
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                File made = null;
+                try {
+                    made = LyricVideo.make(app, m, new LyricVideo.Progress() {
+                        int last = -1;
+
+                        public void at(final int pct, final String s) {
+                            if (pct == last) return;
+                            last = pct;
+                            ui.post(new Runnable() {
+                                public void run() {
+                                    bar.setProgress(pct);
+                                    what.setText(s + "   " + pct + "%");
+                                }
+                            });
+                        }
+
+                        public boolean cancelled() {
+                            return stop[0];
+                        }
+                    });
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final String ferr = err;
+                final File fmade = made;
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (d.isShowing()) d.dismiss();
+                        if (ferr != null) {
+                            if (!"Cancelled".equals(ferr)) alert("No video this time", ferr);
+                            return;
+                        }
+                        new Lux.Builder(MainActivity.this).setTitle("Lyric video ready")
+                                .setMessage("Saved in Movies/Killa YuE as “" + fmade.getName() + "”. It is in your gallery too.")
+                                .setPositiveButton("Share", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface x, int w) {
+                                        Intent s = new Intent(Intent.ACTION_SEND);
+                                        s.setType("video/mp4");
+                                        s.putExtra(Intent.EXTRA_STREAM, TrackProvider.uri(fmade.getName()));
+                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                        startActivity(Intent.createChooser(s, "Share the lyric video"));
+                                    }
+                                })
+                                .setNeutralButton("Watch", new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface x, int w) {
+                                        Intent s = new Intent(Intent.ACTION_VIEW);
+                                        s.setDataAndType(TrackProvider.uri(fmade.getName()), "video/mp4");
+                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                        try {
+                                            startActivity(s);
+                                        } catch (Exception e) {
+                                            toast("No video player found");
+                                        }
+                                    }
+                                }).setNegativeButton("Close", null).show();
+                    }
+                });
+            }
+        }, "lyric-video").start();
     }
 
     void makeCover(final JSONObject m, final boolean tell) {
