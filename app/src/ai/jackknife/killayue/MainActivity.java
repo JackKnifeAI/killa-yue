@@ -3593,7 +3593,9 @@ public class MainActivity extends Activity {
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);
             String heat = snapHeat;
             String eta = Eta.text();
-            progText.setText(st + "   ·   " + clock(el) + " elapsed" + (eta.length() > 0 ? ", " + eta : "")
+            // the estimate gets its own line, so the status never wraps in the middle of a phrase
+            progText.setText(st + "   ·   " + clock(el) + " elapsed"
+                    + (eta.length() > 0 ? "\n" + Character.toUpperCase(eta.charAt(0)) + eta.substring(1) : "")
                     + (heat.length() > 0 ? "\n" + heat : ""));
         } else {
             prog.setVisibility(View.GONE);
