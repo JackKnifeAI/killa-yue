@@ -563,6 +563,70 @@ out of or in connection with the Software or the use or other dealings in the
 Software.
 ```
 
+## stable-diffusion.cpp (GPU covers)
+
+Phones without the Snapdragon 8 Elite's NPU paint covers with `sd-cli` from https://github.com/leejet/stable-diffusion.cpp, built for Android and shipped as `libsdgpu.so` (it includes GGML, MIT).
+
+```
+MIT License
+
+Copyright (c) 2023 leejet
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## whisper.cpp (lyric sync)
+
+Lyric sync runs `whisper-cli` from https://github.com/ggml-org/whisper.cpp, built for Android and shipped as `libwhisper.so` (it includes GGML, MIT).
+
+```
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Lyric sync model (not included)
+
+On request the app downloads OpenAI's Whisper "small" model in whisper.cpp's format (`ggerganov/whisper.cpp`, `ggml-small-q5_1.bin`), MIT licence. It is not part of this repository or of the APK.
+
+## GPU cover models (not included)
+
+On request the app downloads, from Hugging Face: Stable Diffusion 1.5 as GGUF (`second-state/stable-diffusion-v1-5-GGUF`, CreativeML OpenRAIL-M), the LCM LoRA for SD 1.5 (`latent-consistency/lcm-lora-sdv1-5`, OpenRAIL++), and the TAESD decoder (`madebyollin/taesd`, MIT). Their use restrictions apply to everyone who uses them. They are not part of this repository or of the APK.
+
 ## Stable Diffusion 1.5 cover model (not included)
 
 The app downloads Stable Diffusion 1.5, as compiled by Qualcomm for the Snapdragon 8 Elite, at the user's request from Qualcomm's AI Hub release (Hugging Face `qualcomm/Stable-Diffusion-v1.5`). The weights are licensed CreativeML OpenRAIL-M, whose use restrictions apply to everyone who uses them. They are not part of this repository or of the APK.

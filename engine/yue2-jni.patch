@@ -1,0 +1,22 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 7a2ea75..2658b33 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -149,6 +149,17 @@ target_include_directories(yue-server PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+ target_link_libraries(yue-server PRIVATE yyjson httplib)
+ link_ggml_backends(yue-server)
+ 
++# yue-engine: the server as a shared library, for Android apps that run it inside an app process
++# (Killa YuE). Its main is renamed and called from a JNI bridge given in YUE_ENGINE_JNI.
++if(YUE_ENGINE_JNI)
++    add_library(yue-engine SHARED tools/yue-server.cpp src/request.cpp src/model-store.cpp ${WEBUI_OUTPUT} ${YUE_ENGINE_JNI})
++    set_source_files_properties(tools/yue-server.cpp PROPERTIES COMPILE_DEFINITIONS "main=yue_server_main")
++    target_include_directories(yue-engine PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
++    target_link_libraries(yue-engine PRIVATE yyjson httplib log)
++    link_ggml_backends(yue-engine)
++    set_target_properties(yue-engine PROPERTIES OUTPUT_NAME yueengine)
++endif()
++
+ # neural-codec: Oobleck VAE neural audio codec (audio <-> latent)
+ add_executable(neural-codec tools/neural-codec.cpp)
+ link_ggml_backends(neural-codec)

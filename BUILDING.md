@@ -41,6 +41,22 @@ ninja -C build-ndk
 
 The output, `build-ndk/src/freedreno/vulkan/libvulkan_freedreno.so`, is the app's `libturnip.so`. It needs `libc++_shared.so`; use the NDK's (`$TC/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so`) as `LIBCXX`. The Vulkan loader and the other files in `DRIVER_DIR` are as in section 2.
 
+### Engine as a JNI library (the engine's own app process)
+
+With `engine/yue2-jni.patch` applied too, configure as above plus `-DYUE_ENGINE_JNI=$PWD/../killa-yue/engine/jni/yue_jni.cpp` and build the `yue-engine` target, giving `libyueengine.so` (the server with its `main` renamed, called from `EngineHost` through JNI). Then give our Vulkan loader its own name, so an app process never confuses it with the system's `libvulkan.so`:
+
+```
+cp libvkloader.so libkvulkan.so && patchelf --set-soname libkvulkan.so libkvulkan.so
+llvm-strip libyueengine.so && patchelf --replace-needed libvulkan.so libkvulkan.so libyueengine.so
+```
+
+Put both in one folder: `ENGINE_LIB_DIR` in `local.env`.
+
+### Lyric sync and GPU covers
+
+- whisper.cpp (https://github.com/ggml-org/whisper.cpp): `cmake -S . -B build-android` with the NDK toolchain flags above, `-DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16`, target `whisper-cli`. Set `WHISPER_BIN`.
+- stable-diffusion.cpp (https://github.com/leejet/stable-diffusion.cpp): NDK toolchain, `-DSD_VULKAN=ON -DGGML_OPENMP=OFF -DSD_WEBM=OFF`, the same Vulkan and SPIRV-Headers flags as the engine, target `sd-cli`. Set `SD_BIN`.
+
 ### App
 
 As in section 3, with the SDK's `d8` in place of `dalvik-exchange`: set `DX` to `app/dx-d8.sh` and `D8` to the build-tools `d8` in `local.env`, `ANDROID_JAR` to the API 23 `android.jar`, and `STRIP` to any strip that handles arm64 ELF (`llvm-strip` from the NDK, or `eu-strip`).

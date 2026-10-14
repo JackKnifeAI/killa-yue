@@ -27,6 +27,8 @@
             </intent-filter>
         </activity>
         <service android:name=".EngineService" android:exported="false"/>
+        <!-- the song engine as a library in its own app process (JNI), bound by EngineService -->
+        <service android:name=".EngineHost" android:process=":engine" android:exported="false"/>
         <service android:name=".NowPlaying" android:exported="false"/>
         <!-- Samsung One UI: lets the now-playing chip in the status bar take our colour and icon -->
         <meta-data android:name="com.samsung.android.support.ongoing_activity" android:value="true"/>
