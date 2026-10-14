@@ -485,6 +485,13 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
+        if (wakeBtn != null) wakeBtn.setText(wakeLabel());
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
         // keep what was typed, so closing the app never loses a lyric
@@ -1176,6 +1183,48 @@ public class MainActivity extends Activity {
         });
     }
 
+    // ---------- wake-up song ----------
+
+    Button wakeBtn;
+
+    String wakeLabel() {
+        String w = Wake.describe(this);
+        return w.length() > 0 ? "Wake me at " + w : "Set a wake-up song";
+    }
+
+    void askWake() {
+        final boolean on = Wake.on(this);
+        final String[] items = on ? new String[] {"Change the time", "Turn it off"} : new String[] {"Choose a time"};
+        new Lux.Builder(this).setTitle(on ? "Wake me at " + Wake.describe(this) : "Wake-up song")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        if ("Turn it off".equals(items[w])) {
+                            Wake.off(MainActivity.this);
+                            wakeBtn.setText(wakeLabel());
+                            toast("The wake-up song is off");
+                        } else {
+                            pickWakeTime();
+                        }
+                    }
+                }).show();
+    }
+
+    void pickWakeTime() {
+        new android.app.TimePickerDialog(this, new android.app.TimePickerDialog.OnTimeSetListener() {
+            public void onTimeSet(android.widget.TimePicker t, final int h, final int min) {
+                final String[] when = {"Every morning", "Just once"};
+                new Lux.Builder(MainActivity.this).setTitle("How often?").setItems(when, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        Wake.set(MainActivity.this, h, min, w == 0);
+                        wakeBtn.setText(wakeLabel());
+                        long in = (Wake.next(h, min) - System.currentTimeMillis()) / 60000;
+                        toast("The alarm rings in " + (in / 60) + " h " + (in % 60) + " min. Start the queue and leave the phone charging.");
+                    }
+                }).show();
+            }
+        }, cfg.getInt("wake_h", 7), cfg.getInt("wake_m", 0), android.text.format.DateFormat.is24HourFormat(this)).show();
+    }
+
     // ---------- queue: songs lined up to be made one after another ----------
 
     static final ArrayList<JSONObject> queue = new ArrayList<JSONObject>();
@@ -1764,7 +1813,7 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Add to an album", "Share", "Share as a recipe",
+            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Add to an album", "Share", "Share as a recipe",
             "Share with a QR code", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
@@ -1835,6 +1884,8 @@ public class MainActivity extends Activity {
                     shareSongQr(m);
                 } else if ("Make a lyric video".equals(pick)) {
                     makeLyricVideo(m);
+                } else if ("Make it a ringtone".equals(pick)) {
+                    Ringtones.ask(MainActivity.this, m);
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
@@ -3109,6 +3160,15 @@ public class MainActivity extends Activity {
             }
 
             public void onNothingSelected(AdapterView<?> p) {
+            }
+        });
+
+        c.addView(label("Wake-up song: an alarm that plays your newest song, the last one the queue made overnight"));
+        wakeBtn = button(wakeLabel(), false);
+        c.addView(wakeBtn);
+        wakeBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                askWake();
             }
         });
 

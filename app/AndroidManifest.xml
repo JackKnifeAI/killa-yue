@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <!-- setting a song's chorus as the ringtone (the user allows it in Settings) and the wake-up song -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application android:label="Killa YuE" android:icon="@mipmap/ic_launcher"
         android:theme="@style/App" android:extractNativeLibs="true"
         android:usesCleartextTraffic="true" android:largeHeap="true" android:allowBackup="false">
@@ -26,6 +29,16 @@
                 <data android:scheme="killayue" android:host="models"/>
             </intent-filter>
         </activity>
+        <!-- the wake-up song rings here, over the lock screen -->
+        <activity android:name=".WakeActivity" android:exported="false" android:screenOrientation="portrait"
+            android:launchMode="singleInstance" android:excludeFromRecents="true" android:taskAffinity=""/>
+        <!-- sets the wake-up song again after a restart or an update -->
+        <receiver android:name=".Wake" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
         <service android:name=".EngineService" android:exported="false"/>
         <!-- the song engine as a library in its own app process (JNI), bound by EngineService -->
         <service android:name=".EngineHost" android:process=":engine" android:exported="false"/>

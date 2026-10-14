@@ -18,6 +18,7 @@ public class Karaoke {
         public String text;
         public int start, end; // milliseconds
         public int syllables;
+        public String section = ""; // verse, chorus and so on, from the lyrics' [Section] tag
     }
 
     private static class LyricSection {
@@ -86,6 +87,7 @@ public class Karaoke {
             }
             Line l = new Line();
             l.text = r;
+            l.section = cur.type;
             l.syllables = syllables(r);
             cur.lines.add(l);
         }
