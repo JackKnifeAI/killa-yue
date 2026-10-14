@@ -14,7 +14,11 @@ import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.InputStream;
+import java.util.ArrayList;
 
 /**
  * The app's look. A skin is a folder of artwork under assets/skins/ plus a palette and a
@@ -44,7 +48,47 @@ public class Skin {
     static String id(Context c) {
         String want = c.getSharedPreferences("cfg", 0).getString("skin", IDS[0]);
         for (int i = 0; i < IDS.length; i++) if (IDS[i].equals(want)) return want;
+        if (SkinPack.installed(c, want)) return want;
         return IDS[0];
+    }
+
+    /** The built-in skins, then the installed community ones. */
+    static ArrayList<String> ids(Context c) {
+        ArrayList<String> out = new ArrayList<String>(java.util.Arrays.asList(IDS));
+        out.addAll(SkinPack.ids(c));
+        return out;
+    }
+
+    static ArrayList<String> names(Context c) {
+        ArrayList<String> out = new ArrayList<String>(java.util.Arrays.asList(NAMES));
+        ArrayList<String> more = SkinPack.ids(c);
+        for (int i = 0; i < more.size(); i++) out.add(SkinPack.name(c, more.get(i)));
+        return out;
+    }
+
+    /** The built-in skin with this id, or the first one. */
+    static String builtin(String id) {
+        for (int i = 0; i < IDS.length; i++) if (IDS[i].equals(id)) return id;
+        return IDS[0];
+    }
+
+    static String builtinName(String id) {
+        for (int i = 0; i < IDS.length; i++) if (IDS[i].equals(id)) return NAMES[i];
+        return NAMES[0];
+    }
+
+    /**
+     * The built-in skin a skin is based on: itself, or for a community skin the one it names
+     * as its base, whose dialog colours and share page it borrows.
+     */
+    static String base(Context c, String id) {
+        if (!SkinPack.installed(c, id)) return builtin(id);
+        JSONObject j = SkinPack.info(c, id);
+        return builtin(j == null ? "" : j.optString("base"));
+    }
+
+    static int themeFor(Context c, String id) {
+        return themeFor(base(c, id));
     }
 
     static int themeFor(String id) {
@@ -94,24 +138,47 @@ public class Skin {
         return (alpha << 24) | (ACCENT & 0xFFFFFF);
     }
 
-    /** Just the palette, for places that draw no artwork (the home-screen widget). */
+    /** Just the palette, for places that draw no artwork (the home-screen widget). Community skins included. */
     static synchronized void colours(Context c) {
-        if (loaded == null) palette(id(c));
+        if (loaded != null) return;
+        String id = id(c);
+        try {
+            JSONObject pack = SkinPack.installed(c, id) ? SkinPack.info(c, id) : null;
+            palette(pack == null ? id : base(c, id));
+            if (pack != null) community(pack);
+        } catch (Exception e) {
+            palette(IDS[0]);
+        }
+    }
+
+    /** Makes the next load read the skin again, after it was installed anew. */
+    static synchronized void forget() {
+        loaded = null;
     }
 
     static synchronized void load(Context c) {
         String id = id(c);
         if (id.equals(loaded)) return;
         try {
-            palette(id);
+            JSONObject pack = SkinPack.installed(c, id) ? SkinPack.info(c, id) : null;
+            if (SkinPack.installed(c, id) && pack == null) throw new Exception("skin.json is unreadable");
+            palette(pack == null ? id : base(c, id));
+            if (pack != null) community(pack);
             action = bitmap(c, id, "btnA", 1);
             nav = bitmap(c, id, "btnB", 1);
             staff = bitmap(c, id, "staff", 1);
             dial = bitmap(c, id, "dial", 1);
             round = bitmap(c, id, "round", 1);
             for (int i = 0; i < notes.length; i++) notes[i] = bitmap(c, id, "note" + (i + 1), 1);
-            tileBg = "gold".equals(id);
+            tileBg = pack != null ? pack.optBoolean("tiledBackground", false) : "gold".equals(id);
             bg = bitmap(c, id, tileBg ? "bg" : "wall", tileBg ? 2 : 1);
+            if (pack != null && pack.optJSONArray("staff") == null) {
+                // no measurements given: the base skin's, scaled to this staff picture
+                float[] m = STAFF.clone();
+                float sx = staff.getWidth() / m[0], sy = staff.getHeight() / m[1];
+                for (int i = 0; i < m.length; i++) m[i] *= i == 0 || i == 2 || i == 3 || (i >= 4 && i <= 5) || (i >= 8 && i <= 9) ? sx : sy;
+                STAFF = m;
+            }
             if (text == null) {
                 script = Typeface.createFromAsset(c.getAssets(), "fonts/KillaGel-BoldScript.ttf");
                 text = Typeface.createFromAsset(c.getAssets(), "fonts/KillaMeridian-Text.ttf");
@@ -178,13 +245,41 @@ public class Skin {
         }
     }
 
+    /** A community skin's colours over its base skin's, and its staff measurements if it gives them. */
+    private static void community(JSONObject j) throws Exception {
+        JSONObject cs = j.optJSONObject("colors");
+        ACCENT = SkinPack.colour(cs, "accent", ACCENT);
+        HI = SkinPack.colour(cs, "hi", HI);
+        LO = SkinPack.colour(cs, "lo", LO);
+        GLOW = SkinPack.colour(cs, "glow", 0xFF000000 | GLOW) & 0xFFFFFF; // glow carries no opacity of its own
+        TEXT = SkinPack.colour(cs, "text", TEXT);
+        DIM = SkinPack.colour(cs, "dim", DIM);
+        FAINT = SkinPack.colour(cs, "faint", FAINT);
+        EDGE = SkinPack.colour(cs, "edge", EDGE);
+        OFF = SkinPack.colour(cs, "off", OFF);
+        DECK = SkinPack.colour(cs, "deck", DECK);
+        CARD = SkinPack.colour(cs, "card", CARD);
+        PILL = SkinPack.colour(cs, "pill", PILL);
+        SCRIPT_TITLES = j.optBoolean("scriptTitles", false);
+        JSONArray st = j.optJSONArray("staff");
+        if (st != null && st.length() == 15) {
+            float[] m = new float[15];
+            for (int i = 0; i < 15; i++) m[i] = (float) st.getDouble(i);
+            STAFF = m;
+        }
+    }
+
     private static Bitmap bitmap(Context c, String id, String name, int sample) throws Exception {
         // wallpapers are photographs, so they are stored as JPEG; everything else needs transparency
-        InputStream in = c.getAssets().open("skins/" + id + "/" + name + ("wall".equals(name) ? ".jpg" : ".png"));
+        String file = name + ("wall".equals(name) ? ".jpg" : ".png");
+        InputStream in = SkinPack.installed(c, id) ? new java.io.FileInputStream(new java.io.File(SkinPack.dir(c, id), file))
+                : c.getAssets().open("skins/" + id + "/" + file);
         try {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inSampleSize = sample;
-            return BitmapFactory.decodeStream(in, null, o);
+            Bitmap b = BitmapFactory.decodeStream(in, null, o);
+            if (b == null) throw new Exception(file + " is not a picture"); // a broken skin falls back to the built-in one
+            return b;
         } finally {
             in.close();
         }
