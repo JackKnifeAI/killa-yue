@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<script src="abcjs-basic-min.js"></script>
+</head><body><div id="paper"></div>
+<script>
+// Lays a prepared score out with abcjs and hands the SVG to the app (Engrave.java). Any warning means
+// abcjs did not understand part of the score, and the app reports it instead of printing a wrong sheet.
+function engrave(abc, staffwidth) {
+  try {
+    var tunes = ABCJS.renderAbc("paper", abc, { staffwidth: staffwidth, add_classes: true,
+      paddingtop: 0, paddingbottom: 0, paddingleft: 0, paddingright: 0 });
+    var warnings = (tunes[0] && tunes[0].warnings) || [];
+    if (warnings.length) {
+      Killa.fail(warnings.map(function (w) { return String(w).replace(/<[^>]+>/g, ""); }).join("\n"));
+      return;
+    }
+    var svg = document.querySelector("#paper svg");
+    if (!svg) { Killa.fail("abcjs drew nothing"); return; }
+    Killa.svg(svg.outerHTML);
+  } catch (e) {
+    Killa.fail(String(e));
+  }
+}
+</script></body></html>

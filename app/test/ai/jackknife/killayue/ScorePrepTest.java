@@ -36,7 +36,7 @@ public class ScorePrepTest {
                 + "V: Vocal clef=treble name=\"Vocal\" snm=\"Vocal\"\n"
                 + "V: Ins clef=treble name=\"Instrument\" snm=\"Inst.\"\n"
                 + "K:Em\n"
-                + "V: Vocal\n\"^Intro\"z32|z32|\"^Chorus\"\"Em\"B8 A8 G8 E8|z32|\n"
+                + "V: Vocal\n[P:Intro]z32|z32|[P:Chorus]\"Em\"B8 A8 G8 E8|z32|\n"
                 + "V: Ins\nz32|z32|e32|e32|\n";
         same("a full score: rests spelled out, sections labelled, bars reflowed", want, ScorePrep.prepare(song, "Cut the Line", "Killa YuE · key of Em"));
 

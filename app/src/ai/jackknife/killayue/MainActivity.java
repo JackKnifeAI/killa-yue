@@ -2503,6 +2503,29 @@ public class MainActivity extends Activity {
         }
         toast("Writing the sheet music...");
         final String title = m.optString("_title", "Untitled");
+        final Abc.Score sc;
+        try {
+            sc = Abc.parse(abc);
+        } catch (Exception e) {
+            alert("Could not read the score", String.valueOf(e.getMessage()));
+            return;
+        }
+        String style = m.optString("style").trim();
+        if (style.length() > 60) style = style.substring(0, 60) + "\u2026";
+        String sub = "Killa YuE  \u00b7  key of " + sc.key + (style.length() > 0 ? "  \u00b7  " + style : "");
+        // abcjs lays the music out in a hidden WebView; the pages are drawn here, as a vector PDF
+        Engrave.run(this, ScorePrep.prepare(abc, title, sub), new Engrave.Done() {
+            public void failed(String why) {
+                alert("Could not write the sheet music", why);
+            }
+
+            public void laidOut(String svg) {
+                writeScore(abc, sc, title, svg);
+            }
+        });
+    }
+
+    void writeScore(final String abc, final Abc.Score sc, final String title, final String svg) {
         new Thread(new Runnable() {
             public void run() {
                 String err = null;
@@ -2510,12 +2533,7 @@ public class MainActivity extends Activity {
                 final String name = Albums.safeName(title);
                 try {
                     if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
-                    Abc.Score sc = Abc.parse(abc);
-                    String style = m.optString("style").trim();
-                    if (style.length() > 60) style = style.substring(0, 60) + "\u2026";
-                    String sub = "Killa YuE  \u00b7  \u2669 = " + sc.bpm + "  \u00b7  key of " + sc.key
-                            + (style.length() > 0 ? "  \u00b7  " + style : "");
-                    SheetMusic.write(sc, title, sub, new File(dir, name + ".pdf"));
+                    ScorePages.writePdf(SvgScore.parse(svg), "Killa YuE", new File(dir, name + ".pdf"));
                     MidiFile.write(sc, title, new File(dir, name + ".mid"));
                     Store.write(new File(dir, name + ".abc"), abc.getBytes("UTF-8"));
                 } catch (Exception e) {

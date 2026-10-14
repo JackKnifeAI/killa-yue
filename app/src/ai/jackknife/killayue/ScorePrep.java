@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
  * Makes a song's ABC score ready for engraving with abcjs without changing a single note:
  * beams regrouped by beat (the song model writes no spaces, so abcjs would beam whole bars),
  * multi-bar rests spelled out when there are several staves (so all staves keep matching bar lines),
- * section comments turned into labels, bars reflowed into evenly filled lines, a title and readable
+ * section comments turned into part labels, bars reflowed into evenly filled lines, a title and readable
  * part names. It knows the slice of ABC the song model writes; a line with anything else in it is
  * left as written, and a score it cannot follow keeps its own line breaks.
  */
@@ -242,7 +242,7 @@ public class ScorePrep {
         Voice top = voices.values().iterator().next();
         for (Integer at : labels.keySet()) {
             int b = at.intValue();
-            if (b < top.bars.size()) top.bars.set(b, "\"^" + labels.get(at) + "\"" + top.bars.get(b));
+            if (b < top.bars.size()) top.bars.set(b, "[P:" + labels.get(at) + "]" + top.bars.get(b)); // abcjs prints parts in a row of their own
         }
 
         StringBuilder out = new StringBuilder();
