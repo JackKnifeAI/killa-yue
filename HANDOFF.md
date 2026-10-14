@@ -4,7 +4,9 @@ Written 13 October 2026, at the end of the session that built the app on the pho
 
 ## State
 
-- Public: https://github.com/JackKnifeAI/killa-yue, releases v1.0.0 and v1.1.0 (13 October 2026, versionCode 5, APK SHA-256 90b340e2…ab31). Everything on `main` is pushed. Bump versionCode and versionName before the next release.
+- Public: https://github.com/JackKnifeAI/killa-yue, releases v1.0.0, v1.1.0 and v1.2.0 (13 October 2026; 1.2.0 is versionCode 6, APK SHA-256 2eed44c2…185a). Everything on `main` is pushed. Bump versionCode and versionName before the next release.
+- The launch video (60 s walkthrough, posted by Alexander on 13 October 2026) ends on a QR code to releases/latest, so every new release is what viewers download.
+- Not yet tested on a phone: lyric videos (released as experimental) and the receiving side of model sharing (needs two phones).
 - The 1.1.0 release build is installed on the phone (Galaxy S25 Ultra, SM-S938W).
 - Builds now happen on ops, not the phone: `~/killa-yue` (app, `app/local.env` points at the natives in `~/killa-yue-vendor/gentle` and the key in `~/.keys/killa-yue`), natives with the Android NDK from `~/src/killa` (BUILDING.md has the commands). The phone only runs and tests.
 
