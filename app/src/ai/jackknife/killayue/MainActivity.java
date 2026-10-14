@@ -1891,7 +1891,7 @@ public class MainActivity extends Activity {
                 } else if ("Make it a ringtone".equals(pick)) {
                     Ringtones.ask(MainActivity.this, m);
                 } else if ("Sheet music and MIDI".equals(pick)) {
-                    exportScore(m);
+                    sheetMusic(m);
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
@@ -2546,38 +2546,186 @@ public class MainActivity extends Activity {
                             alert("Could not write the sheet music", ferr);
                             return;
                         }
-                        new Lux.Builder(MainActivity.this).setTitle("Sheet music ready")
-                                .setMessage("Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the sheet music\n" + name
-                                        + ".mid, MIDI with the vocal, instrument and chord tracks\n" + name + ".abc, the score itself")
-                                .setPositiveButton("Share", new DialogInterface.OnClickListener() {
-                                    public void onClick(DialogInterface x, int w) {
-                                        ArrayList<Uri> uris = new ArrayList<Uri>();
-                                        uris.add(TrackProvider.uri(name + ".pdf"));
-                                        uris.add(TrackProvider.uri(name + ".mid"));
-                                        uris.add(TrackProvider.uri(name + ".abc"));
-                                        Intent s = new Intent(Intent.ACTION_SEND_MULTIPLE);
-                                        s.setType("*/*");
-                                        s.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
-                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                        startActivity(Intent.createChooser(s, "Share the sheet music"));
-                                    }
-                                })
-                                .setNeutralButton("Open", new DialogInterface.OnClickListener() {
-                                    public void onClick(DialogInterface x, int w) {
-                                        Intent s = new Intent(Intent.ACTION_VIEW);
-                                        s.setDataAndType(TrackProvider.uri(name + ".pdf"), "application/pdf");
-                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                        try {
-                                            startActivity(s);
-                                        } catch (Exception e) {
-                                            toast("No PDF viewer found");
-                                        }
-                                    }
-                                }).setNegativeButton("Close", null).show();
+                        scoreReady("Sheet music ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the sheet music\n" + name
+                                + ".mid, MIDI with the vocal, instrument and chord tracks\n" + name + ".abc, the score itself",
+                                new String[] {name + ".pdf", name + ".mid", name + ".abc"});
                     }
                 });
             }
         }, "sheet-music").start();
+    }
+
+    /** Saved sheet music: share every file, or open the PDF (the first file). */
+    void scoreReady(String title, String message, final String[] files) {
+        new Lux.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("Share", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface x, int w) {
+                        ArrayList<Uri> uris = new ArrayList<Uri>();
+                        for (String f : files) uris.add(TrackProvider.uri(f));
+                        Intent s = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                        s.setType("*/*");
+                        s.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(s, "Share the sheet music"));
+                    }
+                })
+                .setNeutralButton("Open", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface x, int w) {
+                        Intent s = new Intent(Intent.ACTION_VIEW);
+                        s.setDataAndType(TrackProvider.uri(files[0]), "application/pdf");
+                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        try {
+                            startActivity(s);
+                        } catch (Exception e) {
+                            toast("No PDF viewer found");
+                        }
+                    }
+                }).setNegativeButton("Close", null).show();
+    }
+
+    // ---------- instrument parts ----------
+
+    /** Sheet music: the full score with MIDI, or one line written out for an instrument. */
+    void sheetMusic(final JSONObject m) {
+        if (m.optString("abc").trim().length() == 0) {
+            exportScore(m); // explains that this song has no score
+            return;
+        }
+        new Lux.Builder(this).setTitle("Sheet music")
+                .setItems(new String[] {"Full score, with MIDI", "A part for one instrument"}, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        if (w == 0) exportScore(m);
+                        else pickFamily(m);
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    void pickFamily(final JSONObject m) {
+        final ArrayList<String> groups = new ArrayList<String>();
+        for (Instruments.Instrument i : Instruments.ALL) if (!groups.contains(i.group)) groups.add(i.group);
+        new Lux.Builder(this).setTitle("Which instrument?")
+                .setItems(groups.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        pickInstrument(m, groups.get(w));
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    void pickInstrument(final JSONObject m, String group) {
+        final ArrayList<Instruments.Instrument> list = new ArrayList<Instruments.Instrument>();
+        ArrayList<String> names = new ArrayList<String>();
+        for (Instruments.Instrument i : Instruments.ALL) {
+            if (!i.group.equals(group)) continue;
+            list.add(i);
+            names.add(i.title());
+        }
+        new Lux.Builder(this).setTitle(group)
+                .setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        pickLine(m, list.get(w));
+                    }
+                }).setNegativeButton("Back", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        pickFamily(m);
+                    }
+                }).show();
+    }
+
+    /** The vocal or the instrument melody; asks only when both have notes. */
+    void pickLine(final JSONObject m, final Instruments.Instrument ins) {
+        final String abc = m.optString("abc");
+        final ArrayList<String> voices = new ArrayList<String>();
+        ArrayList<String> labels = new ArrayList<String>();
+        for (String v : new String[] {"Vocal", "Ins"}) {
+            try {
+                if (Transpose.part(abc, v, ins).notes > 0) {
+                    voices.add(v);
+                    labels.add(v.equals("Vocal") ? "The vocal melody" : "The instrument melody");
+                }
+            } catch (Exception e) {
+                // a voice the score does not have
+            }
+        }
+        if (voices.size() == 0) {
+            alert("No notes to write out", "This score has no melody with notes in it.");
+        } else if (voices.size() == 1) {
+            exportPart(m, ins, voices.get(0));
+        } else {
+            new Lux.Builder(this).setTitle(ins.title() + ": which line?")
+                    .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d, int w) {
+                            exportPart(m, ins, voices.get(w));
+                        }
+                    }).setNegativeButton("Cancel", null).show();
+        }
+    }
+
+    void exportPart(JSONObject m, final Instruments.Instrument ins, final String voice) {
+        final String title = m.optString("_title", "Untitled");
+        final Transpose.Part p;
+        try {
+            p = Transpose.part(m.optString("abc"), voice, ins);
+        } catch (Exception e) {
+            alert("Could not write the part", String.valueOf(e.getMessage()));
+            return;
+        }
+        String line = voice.equals("Vocal") ? "vocal melody" : "instrument melody";
+        String concert = keyName(abcKey(m.optString("abc")));
+        StringBuilder sub = new StringBuilder(ins.title() + "  \u00b7  " + line + "  \u00b7  key of " + keyName(p.key));
+        if (ins.semitones % 12 != 0) sub.append(" (sounds in ").append(concert).append(")");
+        if (p.octaves != 0) sub.append("  \u00b7  written ").append(Math.abs(p.octaves) == 1 ? "an octave" : Math.abs(p.octaves) + " octaves")
+                .append(p.octaves < 0 ? " lower" : " higher").append(" to fit");
+        toast("Writing the " + ins.name + " part...");
+        Engrave.run(this, ScorePrep.prepare(p.abc, title, sub.toString()), new Engrave.Done() {
+            public void failed(String why) {
+                alert("Could not write the part", why);
+            }
+
+            public void laidOut(final String svg) {
+                new Thread(new Runnable() {
+                    public void run() {
+                        String err = null;
+                        final String name = Albums.safeName(title + " - " + ins.name + (voice.equals("Vocal") ? "" : " (instrument)"));
+                        try {
+                            File dir = scoreDir();
+                            if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
+                            ScorePages.writePdf(SvgScore.parse(svg), "Killa YuE", new File(dir, name + ".pdf"));
+                            Store.write(new File(dir, name + ".abc"), p.abc.getBytes("UTF-8"));
+                        } catch (Exception e) {
+                            err = String.valueOf(e.getMessage());
+                        }
+                        final String ferr = err;
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (ferr != null) {
+                                    alert("Could not write the part", ferr);
+                                    return;
+                                }
+                                String msg = "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the " + ins.title() + " part\n"
+                                        + name + ".abc, the part as a score";
+                                if (p.outOfRange > 0) msg += "\n\n" + p.outOfRange + " of its " + p.notes + " notes are outside the "
+                                        + ins.name.toLowerCase() + "'s usual range. They are printed exactly as the song has them.";
+                                scoreReady("Part ready", msg, new String[] {name + ".pdf", name + ".abc"});
+                            }
+                        });
+                    }
+                }, "part").start();
+            }
+        });
+    }
+
+    /** The key from a score's K: line, e.g. "Em". */
+    static String abcKey(String abc) {
+        for (String row : abc.split("\n")) if (row.startsWith("K:")) return row.substring(2).trim();
+        return "C";
+    }
+
+    /** "C#m" as a reader says it: C\u266f minor. */
+    static String keyName(String key) {
+        java.util.regex.Matcher k = java.util.regex.Pattern.compile("^([A-G])([#b]*)\\s*(m(?!aj)(?:in(?:or)?)?)?").matcher(key);
+        if (!k.find()) return key;
+        String acc = k.group(2).replace("#", "\u266f").replace("b", "\u266d");
+        return k.group(1) + acc + (k.group(3) != null ? " minor" : " major");
     }
 
     void makeLyricVideo(final JSONObject m) {

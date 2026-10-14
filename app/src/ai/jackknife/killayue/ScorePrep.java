@@ -18,7 +18,7 @@ public class ScorePrep {
     static final int LINE_WIDTH = 700;              // the abcjs staff width lines are filled to
     static final int BAR_BASE = 36, PER_EVENT = 18; // estimated bar width: a base plus each note or rest
 
-    private static final int NAME = 1, NOTE = 2, REST = 3, MULTI = 4, TIE = 5, BAR = 6, SPACE = 7;
+    static final int NAME = 1, NOTE = 2, REST = 3, MULTI = 4, TIE = 5, BAR = 6, SPACE = 7;
     private static final Pattern TOKEN = Pattern.compile(
             "(\"[^\"]*\")"                                // 1 chord name or annotation
             + "|([\\^_=]*[A-Ga-g][,']*)(\\d*)(/*)(\\d*)"  // 2 note, 3-5 its length
@@ -28,7 +28,7 @@ public class ScorePrep {
             + "|(::|\\[\\||\\|\\]|:?\\|\\|?:?)"           // 12 bar line
             + "|( +)");                                   // 13 spaces
 
-    private static class Tok {
+    static class Tok {
         int kind;
         String text;
         long num = 0, den = 1; // length in units of L
@@ -36,7 +36,7 @@ public class ScorePrep {
     }
 
     /** The line split into tokens, or null when it holds anything this class does not know. */
-    private static ArrayList<Tok> tokens(String line) {
+    static ArrayList<Tok> tokens(String line) {
         ArrayList<Tok> out = new ArrayList<Tok>();
         Matcher m = TOKEN.matcher(line);
         int at = 0;
@@ -222,7 +222,8 @@ public class ScorePrep {
                     }
                     continue;
                 }
-                bar.append(t.text);
+                // a one-bar multi-bar rest is printed as a whole-bar rest; abcjs would draw a thick bar with a 1 over it
+                bar.append(t.kind == MULTI && t.bars == 1 ? fullBar : t.text);
                 if (t.kind == NOTE || t.kind == REST || t.kind == MULTI) events++;
                 if (t.kind == BAR) {
                     voice.bars.add(rebeam(bar.toString(), meterNum, meterDen, unitNum, unitDen));

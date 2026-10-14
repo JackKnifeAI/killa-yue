@@ -67,6 +67,10 @@ public class ScorePrepTest {
         String single = "X:1\nT:\nM:4/4\nL:1/32\nV: Ins\nK:C\nV: Ins\nZ4|e32|\n";
         same("one voice keeps its multi-bar rest", "X:1\nT:t\nM:4/4\nL:1/32\nV: Ins\nK:C\nV: Ins\nZ4|e32|\n", ScorePrep.prepare(single, "t", ""));
 
+        String one = "X:1\nT:\nM:4/4\nL:1/32\nV: P\nK:C\nV: P\nZ|Z1|Z3|e32|\n";
+        same("one voice: a one-bar rest is a whole rest, longer ones stay multi-bar rests",
+                "X:1\nT:t\nM:4/4\nL:1/32\nV: P\nK:C\nV: P\nz32|z32|Z3|e32|\n", ScorePrep.prepare(one, "t", ""));
+
         System.out.println("ScorePrepTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
