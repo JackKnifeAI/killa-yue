@@ -16,7 +16,7 @@ import org.json.JSONObject;
  * Call on the main thread; the answer comes on the main thread, once.
  */
 class Engrave {
-    static final int STAFF_WIDTH = ScorePrep.LINE_WIDTH; // the width ScorePrep fills lines to
+    static final int STAFF_WIDTH = 760; // ScorePrep fills lines to 700, so a dense line still fits
 
     interface Done {
         void laidOut(String svg);

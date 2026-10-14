@@ -19,7 +19,7 @@ class ScorePages {
 
     /** Writes the PDF and returns how many pages it has. */
     static int writePdf(SvgScore s, String footer, File out) throws Exception {
-        float k = (PAGE_W - 2 * MARGIN) / s.width;
+        float k = (PAGE_W - 2 * MARGIN) / drawnWidth(s);
         float[][] lines = lineSpans(s);
         float[] top = topSpan(s);
         int[][] pages = SvgScore.paginate(top, lines, (PAGE_H - 2 * MARGIN - FOOT) / k);
@@ -117,6 +117,13 @@ class ScorePages {
             k += 1 + SvgScore.args(op);
         }
         return p;
+    }
+
+    /** The width of what is drawn: abcjs lets a line too dense for its staff width run past it. */
+    static float drawnWidth(SvgScore s) {
+        float w = s.width;
+        for (SvgScore.Item i : s.items) if (i.box != null) w = Math.max(w, i.box[2]);
+        return w;
     }
 
     /** Each line of music's top and bottom; a line abcjs left empty takes its neighbour's. */
