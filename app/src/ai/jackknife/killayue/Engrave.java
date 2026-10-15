@@ -19,7 +19,8 @@ class Engrave {
     static final int STAFF_WIDTH = 760; // ScorePrep fills lines to 700, so a dense line still fits
 
     interface Done {
-        void laidOut(String svg);
+        /** lineStarts: when each line of music starts in abcjs's playback, as {"line": ms}. */
+        void laidOut(String svg, String lineStarts);
 
         void failed(String why);
     }
@@ -64,6 +65,13 @@ class Engrave {
             this.done = done;
         }
 
+        private volatile String starts = "{}";
+
+        @JavascriptInterface
+        public void starts(String json) {
+            starts = json;
+        }
+
         @JavascriptInterface
         public void svg(String markup) {
             finish(markup, null);
@@ -81,7 +89,7 @@ class Engrave {
                     over = true;
                     root.removeView(web);
                     web.destroy();
-                    if (svg != null) done.laidOut(svg);
+                    if (svg != null) done.laidOut(svg, starts);
                     else done.failed(why);
                 }
             });
