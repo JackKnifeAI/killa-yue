@@ -22,7 +22,7 @@ import java.util.Arrays;
  * folder is deleted.
  */
 public class Resume {
-    /** Render chunk in frames (25 a second): one minute per GPU pass keeps the phone usable. */
+    /** Render chunk in frames (25 a second), when short passes are on: one minute per GPU pass. */
     static final int CHUNK = 1500;
 
     static File root(Context c) {
@@ -36,7 +36,10 @@ public class Resume {
             File d = new File(root(c), new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date()));
             d.mkdirs();
             req.put("checkpoint", d.getAbsolutePath());
-            if (c.getSharedPreferences("cfg", 0).getBoolean("short_passes", true) && !req.has("max_chunk")) req.put("max_chunk", CHUNK);
+            // one-minute passes keep the GPU responsive but are heard at every boundary (each chunk is
+            // rendered without its neighbours), so they are off until the engine blends chunk overlaps
+            req.remove("max_chunk"); // a song re-rendered from the library may carry the old setting
+            if (c.getSharedPreferences("cfg", 0).getBoolean("short_passes", false)) req.put("max_chunk", CHUNK);
             JSONObject keep = new JSONObject(req.toString());
             keep.put("_title", title == null ? "" : title);
             keep.put("_album", album == null ? "" : album);
