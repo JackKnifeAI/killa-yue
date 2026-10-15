@@ -1398,6 +1398,8 @@ public class MainActivity extends Activity {
         jobBusy = true;
         jobCancel = false;
         jobError = "";
+        Songwriter.cancel();
+        Songwriter.stopNow(this); // the song engine needs the memory the songwriter's model holds
         jobMsg = msg;
         jobId = null;
         jobStart = System.currentTimeMillis();
