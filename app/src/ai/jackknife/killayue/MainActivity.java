@@ -3079,10 +3079,42 @@ public class MainActivity extends Activity {
         }
         final JSONObject m = playMeta;
         final File mf = metaFile(m);
-        final AlertDialog d = new Lux.Builder(this).setTitle("Listening to the song")
-                .setMessage("The recogniser is listening to “" + m.optString("_title") + "” and timing each line. "
-                        + "A full-length song takes two to three minutes.").setCancelable(false).create();
+        // the recogniser's own progress on a minified staff bar, with an honest time left
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding((int) (20 * dp), (int) (8 * dp), (int) (20 * dp), 0);
+        TextView about = text("The recogniser is listening to \u201c" + m.optString("_title") + "\u201d and timing each line. "
+                + "It works the phone hard, so it may get warm; the bar shows how far it has got.", TEXT, 14);
+        box.addView(about);
+        final StaffProgress bar = new StaffProgress(this, 36);
+        bar.setIndeterminate(true);
+        bar.setMax(100);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.topMargin = (int) (12 * dp);
+        box.addView(bar, blp);
+        final TextView left = text("Starting\u2026", DIM, 13);
+        box.addView(left);
+        final AlertDialog d = new Lux.Builder(this).setTitle("Listening to the song").setView(box).setCancelable(false).create();
         d.show();
+        final boolean[] heard = {false};  // the recogniser has started reporting, in this sync
+        ui.post(new Runnable() {
+            public void run() {
+                if (!d.isShowing()) return;
+                int pc = LyricSync.progress;
+                if (pc >= 0) {
+                    heard[0] = true;
+                    bar.setIndeterminate(false);
+                    bar.setProgress(pc);
+                    String t = SyncProgress.timeLeft(pc, System.currentTimeMillis() - LyricSync.listeningSince);
+                    left.setText(pc + "%" + (t.length() > 0 ? "  \u00b7  " + t : ""));
+                } else {
+                    left.setText(heard[0] ? "Matching the words to the lyrics\u2026" : "Starting\u2026");
+                }
+                bar.invalidate();
+                ui.postDelayed(this, 250);
+            }
+        });
         final Context app = getApplicationContext();
         new Thread(new Runnable() {
             public void run() {
