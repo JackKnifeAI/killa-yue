@@ -49,6 +49,9 @@ void Engine::apply(const Message& m) {
             pos_ = m.frame;
             if (cur_) for (auto& s : cur_->tracks) s.source->seek(m.frame);
             break;
+        case Msg::Offline:
+            if (cur_) for (auto& s : cur_->tracks) s.source->setOffline(m.value != 0.f);
+            break;
         case Msg::Swap: break;  // handled by the caller
     }
 }
@@ -104,8 +107,6 @@ bool Engine::waitSourcesReady(int ms) {
     return ok;
 }
 
-void Engine::setOffline(bool on) {
-    if (cur_) for (auto& s : cur_->tracks) s.source->setOffline(on);
-}
+bool Engine::setOffline(bool on) { return post({Msg::Offline, 0, on ? 1.f : 0.f, 0, nullptr}); }
 
 }  // namespace studio

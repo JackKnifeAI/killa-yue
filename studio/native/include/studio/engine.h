@@ -34,7 +34,7 @@ struct Session {
     std::vector<TrackSlot> tracks;
 };
 
-enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap };
+enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline };
 
 struct Message {
     Msg kind;
@@ -63,9 +63,11 @@ public:
     Session* takeRetired();                   // UI thread: a session the engine no longer uses, or nullptr
     Status status() const;
 
-    // Off-line use only, while process() is not running on another thread (export).
+    // Queues Msg::Offline: from that point in the queue on, sources wait for the disk instead of starving
+    // (export only). Being a queued edit, it reaches the sessions swapped in before it.
+    bool setOffline(bool on);
+    // Off-line use only, while process() is not running on another thread.
     bool waitSourcesReady(int ms);
-    void setOffline(bool on);
     int latency() const { return limiter_.latency(); }
 
 private:
