@@ -30,9 +30,9 @@ public class Skin {
     static final String[] NAMES = {"Killa Gold", "Neon District", "Foundry"};
 
     // palette of the loaded skin
-    static int ACCENT, HI, LO, GLOW, TEXT, DIM, FAINT, EDGE, OFF, DECK, CARD, PILL;
+    public static int ACCENT, HI, LO, GLOW, TEXT, DIM, FAINT, EDGE, OFF, DECK, CARD, PILL;
     /** Titles and main buttons use the gel script; other skins set them in the text face, in capitals. */
-    static boolean SCRIPT_TITLES;
+    public static boolean SCRIPT_TITLES;
     /**
      * Staff image measurements in its own pixels: width, height, left cap, right cap,
      * channel left, right, top, bottom, where notes enter and leave, then the five line centres.
@@ -45,7 +45,7 @@ public class Skin {
     private static final Bitmap[] notes = new Bitmap[6];
     private static Typeface script, text;
 
-    static String id(Context c) {
+    public static String id(Context c) {
         String want = c.getSharedPreferences("cfg", 0).getString("skin", IDS[0]);
         for (int i = 0; i < IDS.length; i++) if (IDS[i].equals(want)) return want;
         if (SkinPack.installed(c, want)) return want;
@@ -81,13 +81,13 @@ public class Skin {
      * The built-in skin a skin is based on: itself, or for a community skin the one it names
      * as its base, whose dialog colours and share page it borrows.
      */
-    static String base(Context c, String id) {
+    public static String base(Context c, String id) {
         if (!SkinPack.installed(c, id)) return builtin(id);
         JSONObject j = SkinPack.info(c, id);
         return builtin(j == null ? "" : j.optString("base"));
     }
 
-    static int themeFor(Context c, String id) {
+    public static int themeFor(Context c, String id) {
         return themeFor(base(c, id));
     }
 
@@ -124,17 +124,17 @@ public class Skin {
     private static final float[] STAFF_FOUNDRY = {1030, 164, 136, 100, 66, 972, 20, 141, 140, 958, 33.5f, 52f, 71f, 89.5f, 108f};
 
     /** The glow colour of the skin at the given opacity (0 to 255). */
-    static int glow(int alpha) {
+    public static int glow(int alpha) {
         return (alpha << 24) | GLOW;
     }
 
     /** The highlight colour of the skin at the given opacity. */
-    static int hi(int alpha) {
+    public static int hi(int alpha) {
         return (alpha << 24) | (HI & 0xFFFFFF);
     }
 
     /** The accent colour of the skin at the given opacity. */
-    static int accent(int alpha) {
+    public static int accent(int alpha) {
         return (alpha << 24) | (ACCENT & 0xFFFFFF);
     }
 
@@ -156,7 +156,7 @@ public class Skin {
         loaded = null;
     }
 
-    static synchronized void load(Context c) {
+    public static synchronized void load(Context c) {
         String id = id(c);
         if (id.equals(loaded)) return;
         try {
@@ -208,7 +208,7 @@ public class Skin {
     }
 
     /** The page background: tiled black leather for the gold skin, a darkened wallpaper for the others. */
-    static Drawable background(Context c) {
+    public static Drawable background(Context c) {
         if (tileBg) {
             BitmapDrawable d = new BitmapDrawable(c.getResources(), bg);
             d.setTileModeXY(Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
@@ -292,38 +292,38 @@ public class Skin {
         }
     }
 
-    static Bitmap round() {
+    public static Bitmap round() {
         return round;
     }
 
-    static Bitmap dial() {
+    public static Bitmap dial() {
         return dial;
     }
 
-    static Bitmap staff() {
+    public static Bitmap staff() {
         return staff;
     }
 
-    static Bitmap note(int i) {
+    public static Bitmap note(int i) {
         return notes[i % notes.length];
     }
 
     /** The face for titles and main buttons. */
-    static Typeface script() {
+    public static Typeface script() {
         return SCRIPT_TITLES ? script : text;
     }
 
-    static Typeface text() {
+    public static Typeface text() {
         return text;
     }
 
     /** A button plate stretched to any width: the skin's main button, or its quieter sibling. */
-    static class Plate extends Drawable {
+    public static class Plate extends Drawable {
         private final boolean gold;
         private final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
         private boolean pressed;
 
-        Plate(boolean gold) {
+        public Plate(boolean gold) {
             this.gold = gold;
         }
 

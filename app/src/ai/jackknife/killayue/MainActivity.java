@@ -144,60 +144,29 @@ public class MainActivity extends Activity {
     String pickedName = "audio";
 
     int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+        return Ui.dp(this, v);
     }
 
-    // ---------- small view builders ----------
+    // ---------- small view builders (the shared ones live in Ui, so every screen wears the same dress) ----------
 
     GradientDrawable box(int color, int radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(radius));
-        return g;
+        return Ui.box(this, color, radius);
     }
 
     GradientDrawable glass(int edge) {
-        GradientDrawable g = box(CARD, 12);
-        g.setStroke(dp(2), edge);
-        return g;
+        return Ui.glass(this, edge);
     }
 
     TextView label(String s) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextColor(DIM);
-        t.setTextSize(13);
-        t.setTypeface(Skin.text(), Typeface.BOLD);
-        t.setShadowLayer(4, 0, 1, 0x99000000);
-        t.setPadding(0, dp(16), 0, dp(5));
-        return t;
+        return Ui.label(this, s);
     }
 
     TextView text(String s, int color, int size) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextColor(color);
-        t.setTextSize(size);
-        return t;
+        return Ui.text(this, s, color, size);
     }
 
     EditText edit(String hint, int minLines) {
-        EditText e = new EditText(this);
-        e.setHint(hint);
-        e.setHintTextColor(Skin.FAINT);
-        e.setTextColor(TEXT);
-        e.setTextSize(15);
-        e.setBackground(glass(EDGE));
-        e.setPadding(dp(12), dp(10), dp(12), dp(10));
-        e.setGravity(Gravity.TOP | Gravity.START);
-        if (minLines > 1) {
-            e.setMinLines(minLines);
-            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                    | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        } else {
-            e.setSingleLine(true);
-        }
-        return e;
+        return Ui.edit(this, hint, minLines);
     }
 
     EditText numEdit(String hint) {
@@ -207,79 +176,27 @@ public class MainActivity extends Activity {
     }
 
     Button button(String s, boolean primary) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextColor(Color.WHITE);
-        b.setShadowLayer(5, 0, 2, 0xCC000000);
-        b.setStateListAnimator(null);
-        if (primary) {
-            b.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
-            b.setTextSize(Skin.SCRIPT_TITLES ? 24 : 18);
-            if (!Skin.SCRIPT_TITLES) {
-                b.setAllCaps(true);
-                b.setLetterSpacing(0.1f);
-            }
-            b.setTextColor(Skin.ACCENT);
-            b.setBackground(new Skin.Plate(true));
-            b.setPadding(dp(30), 0, dp(30), dp(2));
-            b.setMinHeight(dp(64));
-            b.setMinimumHeight(dp(64));
-        } else {
-            b.setTypeface(Skin.text(), Typeface.BOLD);
-            b.setTextSize(15);
-            b.setTextColor(Skin.TEXT);
-            b.setBackground(new Skin.Plate(false));
-            b.setPadding(dp(18), 0, dp(18), dp(1));
-            b.setMinHeight(dp(50));
-            b.setMinimumHeight(dp(50));
-        }
-        return b;
+        return Ui.button(this, s, primary);
     }
 
     Button chip(String s) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextColor(Skin.ACCENT);
-        b.setTextSize(13);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setStateListAnimator(null);
-        GradientDrawable pill = box(Skin.PILL, 18);
-        pill.setStroke(dp(1), EDGE);
-        b.setBackground(pill);
-        b.setMinHeight(dp(36));
-        b.setMinimumHeight(dp(36));
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setPadding(dp(14), 0, dp(14), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(36));
-        lp.rightMargin = dp(8);
-        b.setLayoutParams(lp);
-        return b;
+        return Ui.chip(this, s);
     }
 
     LinearLayout column() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        return l;
+        return Ui.column(this);
     }
 
     LinearLayout row() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.HORIZONTAL);
-        l.setGravity(Gravity.CENTER_VERTICAL);
-        return l;
+        return Ui.row(this);
     }
 
     LinearLayout.LayoutParams weight() {
-        return new LinearLayout.LayoutParams(0, -2, 1f);
+        return Ui.weight();
     }
 
     LinearLayout.LayoutParams gap(int top) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(top);
-        return lp;
+        return Ui.gap(this, top);
     }
 
     Spinner spinner(String[] items) {
@@ -316,22 +233,7 @@ public class MainActivity extends Activity {
     }
 
     HorizontalScrollView chipRow(String[] names, final Runnable[] actions) {
-        HorizontalScrollView h = new HorizontalScrollView(this);
-        h.setHorizontalScrollBarEnabled(false);
-        LinearLayout l = row();
-        for (int i = 0; i < names.length; i++) {
-            Button c = chip(names[i]);
-            final Runnable r = actions[i];
-            c.setOnClickListener(new View.OnClickListener() {
-                public void onClick(View v) {
-                    r.run();
-                }
-            });
-            l.addView(c);
-        }
-        h.addView(l);
-        h.setPadding(0, dp(8), 0, 0);
-        return h;
+        return Ui.chipRow(this, names, actions);
     }
 
     View labelled(String name, View field) {

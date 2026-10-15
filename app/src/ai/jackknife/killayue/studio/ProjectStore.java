@@ -25,6 +25,7 @@ public final class ProjectStore {
         public Project project;
         public boolean fromBackup;   // not from project.json
         public String problem;       // why project.json was not used, or null
+        public String originalText;  // the file's text as saved, before any upgrade: what its history was fingerprinted on
     }
 
     private ProjectStore() {
@@ -50,8 +51,16 @@ public final class ProjectStore {
      * values would be worse than starting over.
      */
     public static LoadedHistory loadHistory(File dir, Project p) {
+        return loadHistory(dir, p, null);
+    }
+
+    /**
+     * The same for a project that was upgraded as it loaded: asSaved (Loaded.originalText) is the text its history
+     * was fingerprinted on, before the upgrade.
+     */
+    public static LoadedHistory loadHistory(File dir, Project p, String asSaved) {
         LoadedHistory l = new LoadedHistory();
-        String want = fingerprint(p), why = "there is no saved history";
+        String want = asSaved != null ? fingerprintOf(asSaved) : fingerprint(p), why = "there is no saved history";
         for (String name : new String[] {HISTORY, HISTORY + ".tmp", HISTORY + ".bak"}) {
             File f = new File(dir, name);
             if (!f.isFile()) continue;
@@ -78,8 +87,12 @@ public final class ProjectStore {
     }
 
     static String fingerprint(Project p) {
+        return fingerprintOf(p.toText());
+    }
+
+    static String fingerprintOf(String projectText) {
         try {
-            byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(p.toText().getBytes("UTF-8"));
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(projectText.getBytes("UTF-8"));
             StringBuilder b = new StringBuilder();
             for (byte x : d) b.append(String.format("%02x", x & 0xff));
             return b.toString();
@@ -130,7 +143,9 @@ public final class ProjectStore {
                 why = "it is missing";
             } else {
                 try {
-                    l.project = Project.fromText(read(f));
+                    String text = read(f);
+                    l.project = Project.fromText(text);
+                    l.originalText = text;
                     l.fromBackup = !name.equals(MAIN);
                     l.problem = mainProblem;
                     return l;

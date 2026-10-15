@@ -33,6 +33,7 @@ public final class History {
     private final ArrayList<Step> steps = new ArrayList<Step>();  // by id
     private Step current;
     private int changes;
+    private Object gesture;  // the drag the current step came from, while it lasts
 
     public History(Project p) {
         project = p;
@@ -45,6 +46,7 @@ public final class History {
     }
 
     public void run(Edit e) {
+        gesture = null;
         e.apply(project);
         Step s = new Step(steps.size(), current.id, e, System.currentTimeMillis());
         steps.add(s);
@@ -54,7 +56,23 @@ public final class History {
         changes++;
     }
 
+    /**
+     * A continuous gesture, such as a fader drag: its first move is a step, and every later move of the same
+     * gesture changes that step in place, so the whole drag is one undo step. A new gesture, another control,
+     * a step that already has branches, or any other change in between starts a new step.
+     */
+    public void drag(Edit e, Object gesture) {
+        if (gesture != null && gesture == this.gesture && current.edit != null && current.children.isEmpty()
+                && current.edit.merge(e, project)) {
+            changes++;
+            return;
+        }
+        run(e);
+        this.gesture = gesture;
+    }
+
     public boolean undo() {
+        gesture = null;
         if (current.parent < 0) return false;
         current.edit.revert(project);
         Step back = steps.get(current.parent);
@@ -77,6 +95,7 @@ public final class History {
     }
 
     private boolean enter(Step s) {
+        gesture = null;
         s.edit.apply(project);
         current.lastChild = s;
         current = s;

@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
 
     public int version = VERSION;
     public String name;
@@ -20,6 +20,9 @@ public final class Project {
     public int nextId = 1;
     public float masterDb;
     public final ArrayList<Track> tracks = new ArrayList<Track>();
+    public String sourceSong, sourceTitle;  // the library song it was made from (its meta file name), or null
+    public long loopStart, loopEnd;         // the loop region in frames; loopOn plays it round
+    public boolean loopOn;
 
     public Project(String name, int rate) {
         this.name = name;
@@ -34,6 +37,7 @@ public final class Project {
         Track t = new Track();
         t.id = newId("t");
         t.name = trackName;
+        t.color = Track.PALETTE[tracks.size() % Track.PALETTE.length];
         tracks.add(t);
         return t;
     }
@@ -69,6 +73,8 @@ public final class Project {
     /** Throws IllegalArgumentException, in words a reader can act on, for anything a project must never hold. */
     public void validate() {
         if (version != VERSION) throw new IllegalArgumentException("This project was made by a newer version of the app (format " + version + ").");
+        if (loopStart < 0 || loopEnd < loopStart || (loopOn && loopEnd == loopStart))
+            throw new IllegalArgumentException("The loop region " + loopStart + " to " + loopEnd + " is not possible.");
         if (rate < 8000 || rate > 384000) throw new IllegalArgumentException("The project's sample rate " + rate + " is not possible.");
         if (name == null) throw new IllegalArgumentException("The project has no name.");
         finite("master level", masterDb);
@@ -117,6 +123,11 @@ public final class Project {
         p.put("rate", Integer.valueOf(rate));
         p.put("nextId", Integer.valueOf(nextId));
         p.put("masterDb", Float.valueOf(masterDb));
+        if (sourceSong != null) p.put("sourceSong", sourceSong);
+        if (sourceTitle != null) p.put("sourceTitle", sourceTitle);
+        p.put("loopStart", Long.valueOf(loopStart));
+        p.put("loopEnd", Long.valueOf(loopEnd));
+        p.put("loopOn", Boolean.valueOf(loopOn));
         ArrayList<Object> ts = new ArrayList<Object>();
         for (Track t : tracks) ts.add(trackJson(t));
         p.put("tracks", ts);
@@ -125,10 +136,19 @@ public final class Project {
 
     public static Project fromJson(Object json) {
         Map<?, ?> p = map(json, "the project");
+        int v = (int) num(p, "version", false);
+        if (v > VERSION) throw new IllegalArgumentException("This project was made by a newer version of the app (format " + v + ").");
+        if (v < 1) throw new IllegalArgumentException("The project file is damaged: format " + v + ".");
+        if (v < VERSION) p = Migrate.toCurrent(p, v);
         Project out = new Project(str(p, "name"), (int) num(p, "rate", false));
         out.version = (int) num(p, "version", false);
         out.nextId = (int) num(p, "nextId", false);
         out.masterDb = (float) num(p, "masterDb", true);
+        if (p.get("sourceSong") != null) out.sourceSong = str(p, "sourceSong");
+        if (p.get("sourceTitle") != null) out.sourceTitle = str(p, "sourceTitle");
+        out.loopStart = (long) num(p, "loopStart", false);
+        out.loopEnd = (long) num(p, "loopEnd", false);
+        out.loopOn = bool(p, "loopOn");
         for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
         out.validate();
         return out;
@@ -143,6 +163,8 @@ public final class Project {
         j.put("pan", Float.valueOf(t.pan));
         j.put("mute", Boolean.valueOf(t.mute));
         j.put("solo", Boolean.valueOf(t.solo));
+        j.put("color", Integer.valueOf(t.color));
+        if (t.role != null) j.put("role", t.role);
         ArrayList<Object> cs = new ArrayList<Object>();
         for (Clip c : t.clips) {
             LinkedHashMap<String, Object> k = new LinkedHashMap<String, Object>();
@@ -167,6 +189,9 @@ public final class Project {
         t.pan = (float) num(tj, "pan", true);
         t.mute = bool(tj, "mute");
         t.solo = bool(tj, "solo");
+        // older saves (format 1, and tracks kept in an old undo history) have no colour or role
+        if (tj.get("color") != null) t.color = (int) num(tj, "color", false);
+        if (tj.get("role") != null) t.role = str(tj, "role");
         for (Object co : list(tj, "clips")) {
             Map<?, ?> cj = map(co, "a clip");
             Clip c = new Clip();

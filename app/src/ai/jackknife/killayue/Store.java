@@ -39,7 +39,7 @@ public class Store {
     private static volatile File sharedRoot;
     private static final java.util.Set<String> made = java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
 
-    static File root(Context c) {
+    public static File root(Context c) {
         File r = sharedRoot;
         if (r != null) return r;
         File f = new File(Environment.getExternalStorageDirectory(), "KillaYuE");
@@ -50,7 +50,7 @@ public class Store {
         return c.getExternalFilesDir(null);
     }
 
-    static File dir(Context c, String name) {
+    public static File dir(Context c, String name) {
         File f = new File(root(c), name);
         if (made.add(f.getPath())) f.mkdirs();
         return f;
@@ -60,7 +60,7 @@ public class Store {
         return dir(c, "models");
     }
 
-    static File library(Context c) {
+    public static File library(Context c) {
         return dir(c, "library");
     }
 
@@ -89,11 +89,11 @@ public class Store {
 
     // ---- downloads ----
 
-    static class Dl {
-        volatile long done, total;
-        volatile String state = "queued"; // queued, downloading, checking, done, failed, cancelled
-        volatile String error = "";
-        volatile boolean cancel;
+    public static class Dl {
+        public volatile long done, total;
+        public volatile String state = "queued"; // queued, downloading, checking, done, failed, cancelled
+        public volatile String error = "";
+        public volatile boolean cancel;
     }
 
     static final HashMap<String, Dl> downloads = new HashMap<String, Dl>();
@@ -157,7 +157,7 @@ public class Store {
         }, "dl-" + name).start();
     }
 
-    static void fetch(String url, File part, Dl d) throws Exception {
+    public static void fetch(String url, File part, Dl d) throws Exception {
         int tries = 0;
         while (true) {
             long have = part.isFile() ? part.length() : 0;
@@ -205,7 +205,7 @@ public class Store {
         }
     }
 
-    static String sha256(File f) throws Exception {
+    public static String sha256(File f) throws Exception {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         FileInputStream in = new FileInputStream(f);
         try {
