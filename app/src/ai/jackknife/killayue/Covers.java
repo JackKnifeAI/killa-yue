@@ -147,7 +147,7 @@ public class Covers {
         return true;
     }
 
-    static File coverFor(Context c, JSONObject meta) {
+    public static File coverFor(Context c, JSONObject meta) {
         String a = meta.optString("_audio");
         int dot = a.lastIndexOf('.');
         return new File(Store.library(c), (dot > 0 ? a.substring(0, dot) : a) + ".cover.jpg");

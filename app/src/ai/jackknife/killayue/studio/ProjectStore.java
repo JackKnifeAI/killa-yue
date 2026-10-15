@@ -40,6 +40,22 @@ public final class ProjectStore {
         write(dir, MAIN, p.toText());
     }
 
+    /**
+     * The project and its undo history as text, made on the thread that edits them, so another thread can write
+     * them (saveSnapshot) without ever reading a project that is changing. Throws if the project is invalid.
+     */
+    public static String[] snapshot(Project p, History h) {
+        p.validate();
+        String text = p.toText();
+        return new String[] {text, Json.write(h.toJson(fingerprintOf(text)))};
+    }
+
+    /** Writes a snapshot: the project first, then its history, each safe against a cut. */
+    public static void saveSnapshot(File dir, String[] snap) throws IOException {
+        write(dir, MAIN, snap[0]);
+        write(dir, HISTORY, snap[1]);
+    }
+
     /** The undo tree beside the project, marked with the project state it belongs to. Save the project first. */
     public static void saveHistory(History h, File dir) throws IOException {
         write(dir, HISTORY, Json.write(h.toJson(fingerprint(h.project()))));

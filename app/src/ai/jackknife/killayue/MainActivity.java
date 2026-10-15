@@ -313,6 +313,21 @@ public class MainActivity extends Activity {
                 }
             });
         }
+        // the Studio has a screen of its own: this tab opens it
+        Button studio = button("Studio", false);
+        studio.setTextSize(14);
+        studio.setBackground(new Skin.Plate(true));
+        studio.setTextColor(Skin.LO);
+        studio.setPadding(dp(12), 0, dp(12), dp(2));
+        LinearLayout.LayoutParams slp = weight();
+        slp.leftMargin = dp(3);
+        slp.rightMargin = dp(3);
+        tabRow.addView(studio, slp);
+        studio.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                ai.jackknife.killayue.studio.ui.StudioActivity.open(MainActivity.this);
+            }
+        });
         root.addView(tabRow);
 
         FrameLayout content = new FrameLayout(this);
@@ -1815,7 +1830,7 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
+            "Open in Studio", "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
             "Share with a QR code", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
@@ -1886,6 +1901,8 @@ public class MainActivity extends Activity {
                     shareSongQr(m);
                 } else if ("Make a lyric video".equals(pick)) {
                     makeLyricVideo(m);
+                } else if ("Open in Studio".equals(pick)) {
+                    ai.jackknife.killayue.studio.ui.StudioActivity.openSong(MainActivity.this, mf);
                 } else if ("Make it a ringtone".equals(pick)) {
                     Ringtones.ask(MainActivity.this, m);
                 } else if ("Sheet music and MIDI".equals(pick)) {

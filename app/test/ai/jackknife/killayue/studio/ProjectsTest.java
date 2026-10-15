@@ -80,6 +80,16 @@ public class ProjectsTest {
         same("compacting frees its bytes", 310L, Projects.compact(one, q, h));
         same("and keeps what undo could bring back", true, new File(one, "audio/take1.wav").isFile());
 
+        // a snapshot (made on the UI thread) saved by the autosave thread loads back with its history
+        String[] snap = ProjectStore.snapshot(q, h);
+        File three = Projects.create(root, "Snap", 48000, null, null, t0 + 3000);
+        ProjectStore.saveSnapshot(three, snap);
+        ProjectStore.Loaded sl = ProjectStore.load(three);
+        same("a saved snapshot is the project", q.toText(), sl.project.toText());
+        ProjectStore.LoadedHistory slh = ProjectStore.loadHistory(three, sl.project, sl.originalText);
+        same("and its history belongs to it", null, slh.problem);
+        same("all of it", h.steps().size(), slh.history.steps().size());
+
         Projects.delete(two);
         same("delete removes the whole project", false, two.exists());
         Projects.delete(root);

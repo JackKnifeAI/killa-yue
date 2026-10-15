@@ -230,7 +230,7 @@ public class Store {
         }
     }
 
-    static byte[] read(File f) throws Exception {
+    public static byte[] read(File f) throws Exception {
         FileInputStream in = new FileInputStream(f);
         try {
             return Api.readAll(in);

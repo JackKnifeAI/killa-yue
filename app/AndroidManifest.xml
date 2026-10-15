@@ -30,6 +30,9 @@
             </intent-filter>
         </activity>
         <!-- sheet music: view, zoom, print and share the exported PDFs -->
+        <!-- the Studio: portrait or landscape; it handles rotation itself, so the sound never restarts -->
+        <activity android:name=".studio.ui.StudioActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"/>
         <activity android:name=".SheetActivity" android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
         <!-- the wake-up song rings here, over the lock screen -->
