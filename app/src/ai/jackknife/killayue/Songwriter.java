@@ -386,7 +386,8 @@ public class Songwriter {
                         start(a, model);
                         status(a, live, "Choosing what to look up…");
                         final StringBuilder plan = new StringBuilder();
-                        chat(PLAN, idea, 120, new Done() {
+                        String today = new java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.US).format(new java.util.Date());
+                        chat(PLAN + " Today is " + today + ": prefer recent coverage when the subject is current.", idea, 120, new Done() {
                             public void text(String all, boolean finished, String error) {
                                 if (finished) plan.append(all);
                             }
@@ -445,6 +446,37 @@ public class Songwriter {
         final EditText q = a.edit("Searches, one per line", 2);
         q.setText(android.text.TextUtils.join("\n", queries));
         f.addView(q, a.gap(8));
+        final ArrayList<String> qs0 = queries;
+        final AlertDialog[] self = new AlertDialog[1];
+        // add a page by address, live or from the Wayback Machine
+        final EditText addr = a.edit("Paste a web address to add it", 1);
+        f.addView(addr, a.gap(8));
+        LinearLayout ar = a.row();
+        android.widget.Button readIt = a.chip("Read it");
+        android.widget.Button older = a.chip("Wayback history");
+        ar.addView(readIt);
+        ar.addView(older);
+        f.addView(ar, a.gap(4));
+        readIt.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                final String u = MainActivity.val(addr);
+                if (!u.startsWith("http")) {
+                    a.toast("Paste a full web address, starting with https://");
+                    return;
+                }
+                addPage(a, self[0], idea, ask, qs0, found, u);
+            }
+        });
+        older.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                final String u = MainActivity.val(addr);
+                if (u.length() < 4) {
+                    a.toast("Paste the address of the page whose history you want");
+                    return;
+                }
+                wayback(a, self[0], idea, ask, qs0, found, u);
+            }
+        });
         for (final Scout.Source s : found) {
             LinearLayout card = a.column();
             card.setBackground(a.glass(MainActivity.EDGE));
@@ -499,7 +531,64 @@ public class Songwriter {
                         + "do not invent facts beyond them, and do not cite the sources in the lyrics:\n\n" + notes);
             }
         });
-        b.show();
+        self[0] = b.show();
+    }
+
+    /** Reads one more page and shows the sources again with it on top. */
+    private static void addPage(final MainActivity a, final AlertDialog current, final String idea, final String ask,
+                                final ArrayList<String> queries, final ArrayList<Scout.Source> found, final String url) {
+        a.toast("Reading the page…");
+        new Thread(new Runnable() {
+            public void run() {
+                final Scout.Source s = Scout.readOne(url, idea, a.cfg.getInt("writer_per_page", 1500));
+                a.ui.post(new Runnable() {
+                    public void run() {
+                        if (s.error != null) {
+                            a.alert("That page could not be read", s.error);
+                            return;
+                        }
+                        found.add(0, s);
+                        if (current != null) current.dismiss();
+                        sources(a, idea, ask, queries, found);
+                    }
+                });
+            }
+        }, "writer-add-page").start();
+    }
+
+    /** The page's saved copies in the Wayback Machine; the chosen one is read and added. */
+    private static void wayback(final MainActivity a, final AlertDialog current, final String idea, final String ask,
+                                final ArrayList<String> queries, final ArrayList<Scout.Source> found, final String url) {
+        a.toast("Asking the Wayback Machine…");
+        new Thread(new Runnable() {
+            public void run() {
+                ArrayList<Scout.Snapshot> list = null;
+                String err = null;
+                try {
+                    list = Scout.snapshots(url);
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final ArrayList<Scout.Snapshot> snaps = list;
+                final String error = err;
+                a.ui.post(new Runnable() {
+                    public void run() {
+                        if (error != null || snaps == null || snaps.isEmpty()) {
+                            a.alert("Wayback Machine", error != null ? error : "It has no saved copies of that page.");
+                            return;
+                        }
+                        String[] names = new String[snaps.size()];
+                        for (int i = 0; i < snaps.size(); i++) names[i] = snaps.get(i).date + "   " + snaps.get(i).url;
+                        new Lux.Builder(a).setTitle("Saved copies, newest first (" + snaps.size() + " changes)")
+                                .setItems(names, new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface d, int w) {
+                                        addPage(a, current, idea, ask, queries, found, snaps.get(w).archived);
+                                    }
+                                }).setNegativeButton("Back", null).show();
+                    }
+                });
+            }
+        }, "writer-wayback").start();
     }
 
     /** The pages the last researched song was written from. */

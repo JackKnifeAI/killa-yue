@@ -19,6 +19,8 @@ public class Scout {
 
     static native String read(String spec);
 
+    static native String history(String spec);
+
     private static volatile Boolean loaded;
 
     static boolean available(Context c) {
@@ -130,6 +132,52 @@ public class Scout {
         for (int i = 0; i < pick.size() && out.size() < pages; i++) {
             Source s = pick.get(i);
             if (s.error == null && s.excerpt != null && s.excerpt.length() > 200) out.add(s);
+        }
+        return out;
+    }
+
+    /** Reads one page (or an archived copy) into a source; error is set when it could not be read. */
+    static Source readOne(String url, String topic, int budget) {
+        Source s = new Source();
+        s.url = url;
+        s.site = "";
+        s.title = url;
+        try {
+            JSONObject r = new JSONObject(read(new JSONObject().put("url", url).put("topic", topic).put("budget", budget).toString()));
+            if (r.has("error")) {
+                s.error = r.optString("error");
+                return s;
+            }
+            s.title = r.optString("title", url);
+            s.site = r.optString("site");
+            s.published = r.optString("published");
+            s.excerpt = r.optString("excerpt");
+            s.chars = r.optInt("chars");
+            if (s.excerpt.length() == 0) s.error = "no text found on the page";
+        } catch (Exception e) {
+            s.error = String.valueOf(e.getMessage());
+        }
+        return s;
+    }
+
+    /** One saved copy in the Wayback Machine. */
+    static class Snapshot {
+        String date, url, archived;
+    }
+
+    /** The Wayback Machine's copies of a page where the content changed, newest first. Throws with a message for the user. */
+    static ArrayList<Snapshot> snapshots(String url) throws Exception {
+        JSONObject r = new JSONObject(history(new JSONObject().put("url", url).put("scope", "page").put("max", 60).toString()));
+        if (r.has("error")) throw new Exception(r.optString("error"));
+        ArrayList<Snapshot> out = new ArrayList<Snapshot>();
+        JSONArray a = r.optJSONArray("snapshots");
+        for (int i = 0; a != null && i < a.length(); i++) {
+            JSONObject o = a.getJSONObject(i);
+            Snapshot s = new Snapshot();
+            s.date = o.optString("date");
+            s.url = o.optString("url");
+            s.archived = o.optString("archived");
+            out.add(s);
         }
         return out;
     }
