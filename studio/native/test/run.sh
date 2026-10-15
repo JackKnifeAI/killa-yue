@@ -18,3 +18,9 @@ for t in test/*_test.cpp; do
         "$OUT/$n-tsan"
     fi
 done
+# the JNI bridge, end to end: libstudio built for this machine, driven from Java (no sanitizers inside a JVM)
+J=$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")
+$CXX -std=c++17 -O1 -g -Wall -Wextra -Werror -Iinclude -I"$J/include" -I"$J/include/linux" -fPIC -shared $SRC jni/jni.cpp -o "$OUT/libstudio.so" -lpthread
+APP=../../app/src/ai/jackknife/killayue/studio
+javac -Xlint:-options --release 8 -d "$OUT/classes" $APP/*.java test/java/*.java
+java --enable-native-access=ALL-UNNAMED -Djava.library.path="$OUT" -cp "$OUT/classes" ai.jackknife.killayue.studio.NativeEngineTest
