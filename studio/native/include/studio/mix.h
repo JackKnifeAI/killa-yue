@@ -21,6 +21,10 @@ struct TrackMix {
 // Adds frames of an interleaved source (t.channels channels) into interleaved stereo out.
 void mixTrack(const TrackMix& t, const float* source, int frames, float* outStereo);
 
+// Adds a source (channels 1 or 2, interleaved) into stereo out with left/right gains gliding linearly from
+// (fromL, fromR) to (toL, toR) across the block; with no change it is exactly mixTrack's arithmetic.
+void mixGliding(const float* source, int channels, int frames, float* outStereo, float fromL, float fromR, float toL, float toR);
+
 // A lookahead peak limiter: the output never exceeds the ceiling, and a signal that stays below it passes
 // unchanged, delayed by latency() frames.
 class Limiter {

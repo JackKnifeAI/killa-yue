@@ -36,6 +36,25 @@ void mixTrack(const TrackMix& t, const float* source, int frames, float* out) {
     }
 }
 
+void mixGliding(const float* source, int channels, int frames, float* out, float fromL, float fromR, float toL, float toR) {
+    if (fromL == toL && fromR == toR) {
+        if (toL == 0.f && toR == 0.f) return;
+        for (int i = 0; i < frames; i++) {
+            const float sl = source[channels == 1 ? i : 2 * i], sr = source[channels == 1 ? i : 2 * i + 1];
+            out[2 * i] += sl * toL;
+            out[2 * i + 1] += sr * toR;
+        }
+        return;
+    }
+    const float dl = (toL - fromL) / frames, dr = (toR - fromR) / frames;
+    for (int i = 0; i < frames; i++) {
+        const float sl = source[channels == 1 ? i : 2 * i], sr = source[channels == 1 ? i : 2 * i + 1];
+        const float gl = i + 1 == frames ? toL : fromL + dl * (i + 1), gr = i + 1 == frames ? toR : fromR + dr * (i + 1);
+        out[2 * i] += sl * gl;
+        out[2 * i + 1] += sr * gr;
+    }
+}
+
 Limiter::Limiter(int rate, float ceilingDb, float lookaheadMs, float releaseMs)
     : look_((int)std::lround(lookaheadMs * rate / 1000.0)),
       ceiling_(dbToGain(ceilingDb)),

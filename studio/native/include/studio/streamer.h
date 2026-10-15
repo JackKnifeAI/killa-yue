@@ -28,6 +28,7 @@ public:
 
     int read(float* out, int frames) override;  // always stereo
     int channels() const override { return 2; }
+    int panChannels() const override { return reader_->channels(); }  // a mono file is panned as mono
     void seek(long projectFrame) override;
     void setOffline(bool on) override { offline_.store(on); }
     bool waitReady(int ms) override;

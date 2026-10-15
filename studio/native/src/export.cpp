@@ -10,6 +10,7 @@ bool exportMix(Engine& e, long frames, const char* path, int rate, std::string& 
     std::unique_ptr<WavWriter> w(WavWriter::create(path, rate, 2, error));
     if (!w) return false;
     e.setOffline(true);
+    e.post({Msg::Reset, 0, 0.f, 0, nullptr});  // never depend on what played before
     e.post({Msg::Seek, 0, 0.f, 0, nullptr});
     e.post({Msg::Play, 0, 0.f, 0, nullptr});
     const int block = 4096;

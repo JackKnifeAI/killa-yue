@@ -38,6 +38,20 @@ int main() {
     }
     CHECK(exact, "every frame is the right file frame, with silence around the clip");
     CHECK(s.starved() == 0, "a disk that keeps up never starves");
+    {   // seeking to where a track already is (inside its clip) costs nothing
+        Streamer same(&file, 0, 0, 480000, 1 << 14);
+        same.startThread();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::vector<float> o(2 * 512);
+        for (int k = 0; k < 20; k++) {
+            same.read(o.data(), 512);
+            std::this_thread::sleep_for(std::chrono::microseconds(2667));
+        }
+        same.seek(20 * 512);
+        same.read(o.data(), 512);
+        CHECK(same.starved() == 0 && o[0] == (float)(20 * 512), "seeking to where a track already is costs nothing");
+        same.stopThread();
+    }
 
     file.delayUs = 200000; // a disk that stalls for 0.2 s
     s.seek(50000);

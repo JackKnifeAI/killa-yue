@@ -1,4 +1,4 @@
-// export_test.cpp
+// export_test.cpp — THREADED
 #include "studio/engine.h"
 #include "studio/export.h"
 #include "studio/streamer.h"
@@ -23,6 +23,20 @@ int main() {
     Streamer s(r, 0, 0, rate);
     s.startThread();
     Engine e(rate, 4096);
+    {   // play something loud first: the export must not depend on what played before it
+        struct Loud : Source {
+            int read(float* out, int frames) override { for (int i = 0; i < 2 * frames; i++) out[i] = 3.f; return frames; }
+            int channels() const override { return 2; }
+            void seek(long) override {}
+        } loud;
+        e.post({Msg::Swap, 0, 0, 0, new Session{rate, {{&loud, 0.f, 0.f, false, false}}}});
+        e.post({Msg::Play, 0, 0, 0, nullptr});
+        std::vector<float> o(2 * 4096);
+        for (int k = 0; k < 6; k++) e.process(o.data(), 4096);
+        e.post({Msg::Stop, 0, 0, 0, nullptr});
+        e.process(o.data(), 4096);
+        delete e.takeRetired();
+    }
     e.post({Msg::Swap, 0, 0, 0, new Session{rate, {{&s, -6.0206f, 0.f, false, false}}}});
     const char* out = "/tmp/studio_export_mix.wav";
     CHECK(exportMix(e, rate, out, rate, err), "export");
@@ -36,6 +50,7 @@ int main() {
     CHECK(worst < 1e-6f, "the export is the stem at -6 dB, not delayed, sample for sample");
     delete m;
     delete r;
+    delete e.takeRetired();
     delete e.takeRetired();
     std::remove(stem);
     std::remove(out);

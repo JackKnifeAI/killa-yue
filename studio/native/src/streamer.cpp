@@ -31,6 +31,7 @@ long Streamer::overlap(long from, long to) const {
 }
 
 void Streamer::seek(long projectFrame) {
+    if (projectFrame == pos_) return;  // already there: nothing to refill
     pos_ = projectFrame;
     seekTo_.store(projectFrame, std::memory_order_relaxed);
     wanted_ = generation_.fetch_add(1, std::memory_order_acq_rel) + 1;

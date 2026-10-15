@@ -14,6 +14,8 @@ struct Source {
     // Fills frames of interleaved audio (channels() channels); returns the frames that had audio, the rest are zeros.
     virtual int read(float* out, int frames) = 0;
     virtual int channels() const = 0;
+    // Channels of the material itself, for the pan law (a mono file read out as two channels is still mono).
+    virtual int panChannels() const { return channels(); }
     // Called on the engine's thread; must not block.
     virtual void seek(long frame) = 0;
     // Off-line only (export): read may wait for data instead of starving.
@@ -27,6 +29,7 @@ struct TrackSlot {
     Source* source;
     float gainDb, pan;
     bool mute, solo;
+    float appliedL = -1.f, appliedR = -1.f;  // the gains last used (the engine's own; -1 until first played)
 };
 
 struct Session {
@@ -34,7 +37,7 @@ struct Session {
     std::vector<TrackSlot> tracks;
 };
 
-enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline };
+enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset };
 
 struct Message {
     Msg kind;
@@ -58,7 +61,8 @@ public:
     Engine(int rate, int maxFrames);
     ~Engine();  // frees the current session and any retired ones not yet taken; sources are not owned
 
-    bool post(const Message& m);              // UI thread
+    // UI thread. Reset makes the limiter as new (exports post it so they never depend on what played before).
+    bool post(const Message& m);
     void process(float* outStereo, int frames);  // audio thread
     Session* takeRetired();                   // UI thread: a session the engine no longer uses, or nullptr
     Status status() const;
@@ -73,13 +77,14 @@ public:
 private:
     void apply(const Message& m);
     bool swap(Session* s);
+    void render(float* out, int frames, float& peakL, float& peakR);
 
     Spsc<Message, 256> in_;
     Spsc<Session*, 64> retired_;
     Session* cur_ = nullptr;
     Message pending_{};        // a Swap held over because retired_ was full
     bool hasPending_ = false;
-    int rate_, maxFrames_;
+    int maxFrames_;
     std::vector<float> scratch_;
     Limiter limiter_;
     float master_ = 1.f;

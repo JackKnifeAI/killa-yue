@@ -5,8 +5,7 @@
 
 namespace studio {
 
-Engine::Engine(int rate, int maxFrames)
-    : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate) {}
+Engine::Engine(int rate, int maxFrames) : maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate) {}
 
 Engine::~Engine() {
     delete cur_;
@@ -32,17 +31,20 @@ bool Engine::swap(Session* s) {
     }
     if (cur_ && !retired_.push(cur_)) return false;  // no room to hand the old one back: try next block
     cur_ = s;
+    // its tracks join at the song's position (a source already there ignores the seek)
+    if (cur_) for (auto& t : cur_->tracks) t.source->seek(pos_);
     return true;
 }
 
 void Engine::apply(const Message& m) {
     TrackSlot* t = cur_ && m.track >= 0 && m.track < (int)cur_->tracks.size() ? &cur_->tracks[m.track] : nullptr;
     switch (m.kind) {
-        case Msg::Gain: if (t) t->gainDb = m.value; break;
-        case Msg::Pan: if (t) t->pan = std::max(-1.f, std::min(1.f, m.value)); break;
+        case Msg::Gain: if (t && std::isfinite(m.value)) t->gainDb = m.value; break;
+        case Msg::Pan: if (t && std::isfinite(m.value)) t->pan = std::max(-1.f, std::min(1.f, m.value)); break;
         case Msg::Mute: if (t) t->mute = m.value != 0.f; break;
         case Msg::Solo: if (t) t->solo = m.value != 0.f; break;
-        case Msg::Master: master_ = dbToGain(m.value); break;
+        case Msg::Master: if (std::isfinite(m.value)) master_ = dbToGain(m.value); break;
+        case Msg::Reset: limiter_.reset(); break;
         case Msg::Play: playing_ = true; break;
         case Msg::Stop: playing_ = false; break;
         case Msg::Seek:
@@ -70,35 +72,52 @@ void Engine::process(float* out, int frames) {
             apply(m);
         }
     }
+    // a block bigger than the engine was made for is rendered in pieces
+    float pl = 0.f, pr = 0.f;
+    for (int done = 0; done < frames;) {
+        const int n = std::min(maxFrames_, frames - done);
+        render(out + 2 * done, n, pl, pr);
+        done += n;
+    }
+    peakL_.store(pl, std::memory_order_relaxed);
+    peakR_.store(pr, std::memory_order_relaxed);
+    position_.store(pos_, std::memory_order_relaxed);
+    playingFlag_.store(playing_ ? 1 : 0, std::memory_order_relaxed);
+}
+
+void Engine::render(float* out, int frames, float& pl, float& pr) {
     std::memset(out, 0, sizeof(float) * 2 * (size_t)frames);
-    if (playing_ && cur_ && frames <= maxFrames_) {
+    if (playing_ && cur_) {
         bool anySolo = false;
         for (auto& s : cur_->tracks) anySolo |= s.solo;
         bool short_ = false;
         for (auto& s : cur_->tracks) {
             const int got = s.source->read(scratch_.data(), frames);
             if (got < frames) short_ = true;
-            TrackMix t;
-            t.gain = dbToGain(s.gainDb);
-            t.channels = s.source->channels();
-            panGains(s.pan, t.channels, t.panL, t.panR);
-            t.audible = !s.mute && (!anySolo || s.solo);
-            mixTrack(t, scratch_.data(), frames, out);
+            float l = 0.f, r = 0.f;
+            if (!s.mute && (!anySolo || s.solo)) {
+                panGains(s.pan, s.source->panChannels(), l, r);
+                const float g = dbToGain(s.gainDb);
+                l *= g;
+                r *= g;
+            }
+            if (s.appliedL < 0.f) {  // first time played: start where it should be
+                s.appliedL = l;
+                s.appliedR = r;
+            }
+            mixGliding(scratch_.data(), s.source->channels(), frames, out, s.appliedL, s.appliedR, l, r);
+            s.appliedL = l;
+            s.appliedR = r;
         }
         if (short_) underruns_.fetch_add(1, std::memory_order_relaxed);
         if (master_ != 1.f) for (int i = 0; i < 2 * frames; i++) out[i] *= master_;
     }
     limiter_.process(out, frames);  // also when stopped, so its delay drains without a click
-    float pl = 0.f, pr = 0.f;
     for (int i = 0; i < frames; i++) {
         pl = std::max(pl, std::fabs(out[2 * i]));
         pr = std::max(pr, std::fabs(out[2 * i + 1]));
     }
-    peakL_.store(pl, std::memory_order_relaxed);
-    peakR_.store(pr, std::memory_order_relaxed);
     if (playing_) pos_ += frames;
-    position_.store(pos_, std::memory_order_relaxed);
-    playingFlag_.store(playing_ ? 1 : 0, std::memory_order_relaxed);
 }
 
 bool Engine::waitSourcesReady(int ms) {
