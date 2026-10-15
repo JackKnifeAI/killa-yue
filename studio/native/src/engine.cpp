@@ -68,6 +68,7 @@ void Engine::apply(const Message& m) {
             loopEnd_ = m.end;
             if (cur_) for (auto& s : cur_->tracks) s.source->setLoop(loopStart_, loopEnd_, loopOn_);
             break;
+        case Msg::Limiter: limiterOn_ = m.value != 0.f; break;
         case Msg::Offline:
             if (cur_) for (auto& s : cur_->tracks) s.source->setOffline(m.value != 0.f);
             break;
@@ -159,7 +160,7 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
         if (short_) underruns_.fetch_add(1, std::memory_order_relaxed);
         if (master_ != 1.f) for (int i = 0; i < 2 * frames; i++) out[i] *= master_;
     }
-    limiter_.process(out, frames);  // also when stopped, so its delay drains without a click
+    if (limiterOn_) limiter_.process(out, frames);  // also when stopped, so its delay drains without a click
     for (int i = 0; i < frames; i++) {
         pl = std::max(pl, std::fabs(out[2 * i]));
         pr = std::max(pr, std::fabs(out[2 * i + 1]));

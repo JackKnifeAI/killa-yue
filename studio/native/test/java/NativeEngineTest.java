@@ -143,6 +143,21 @@ public class NativeEngineTest {
         loud.masterDb = 0f;
         e.load(loud, dir);
 
+        // export: the project from the start, through an off-line engine, into a float WAV
+        NativeEngine ex = NativeEngine.offline(48000);
+        Project ep = p.copy();
+        ep.track(tb.id).mute = true;
+        ex.load(ep, dir);
+        File mix = new File(dir, "audio/mix.wav");
+        ex.export(mix, 24000, true);
+        check("an export is as long as asked", ex.exportProgress() == 24000);
+        WavIn wi = WavIn.open(mix);
+        float[] ev = new float[2 * 24000];
+        wi.read(0, ev, 24000);
+        wi.close();
+        near("and holds the mix (the muted track left out)", 0.25, ev[2 * 12000], 1e-4);
+        ex.close();
+
         Project other = new Project("Other rate", 44100);
         why = "";
         try {

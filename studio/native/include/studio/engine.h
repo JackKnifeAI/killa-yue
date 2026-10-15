@@ -40,7 +40,7 @@ struct Session {
     std::vector<TrackSlot> tracks;
 };
 
-enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset, Loop };
+enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset, Loop, Limiter };
 
 struct Message {
     Msg kind;
@@ -79,7 +79,7 @@ public:
     bool setOffline(bool on);
     // Off-line use only, while process() is not running on another thread.
     bool waitSourcesReady(int ms);
-    int latency() const { return limiter_.latency(); }
+    int latency() const { return limiterOn_ ? limiter_.latency() : 0; }
     long position() const { return position_.load(std::memory_order_relaxed); }  // any thread; clears nothing
     // Each track's loudest moment (left, right) since the last call, after its fader and pan; clears them. Any
     // thread. Returns the number of tracks (out holds 2 x max).
@@ -101,6 +101,7 @@ private:
     Limiter limiter_;
     float master_ = 1.f;
     bool playing_ = false;
+    bool limiterOn_ = true;  // Msg::Limiter: off for stems (each track exactly as it sounds before the master)
     long pos_ = 0;
     long loopStart_ = 0, loopEnd_ = 0;
     bool loopOn_ = false;

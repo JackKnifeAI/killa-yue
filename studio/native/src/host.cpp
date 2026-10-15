@@ -1,4 +1,5 @@
 #include "studio/host.h"
+#include "studio/export.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -210,6 +211,21 @@ RoundTrip Host::giveUp(const char* why, std::string& err) {
     cal_.store(kIdle, std::memory_order_release);
     err = calCancel_.load() ? "The measurement was cancelled." : why;
     return {false, 0};
+}
+
+bool Host::exportMix(const char* path, long frames, bool limiter, std::string& err) {
+    if (device_) {
+        err = "an export runs on an off-line Studio, never on the one playing";
+        return false;
+    }
+    reap();
+    flushMaster();
+    exportCancel_.store(false);
+    exportDone_.store(0);
+    ExportControl ctl;
+    ctl.done = &exportDone_;
+    ctl.cancel = &exportCancel_;
+    return studio::exportMix(*engine_, frames, path, err, &ctl, limiter);
 }
 
 RoundTrip Host::measureLatency(int probes, std::string& err) {

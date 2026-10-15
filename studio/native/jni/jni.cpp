@@ -142,6 +142,17 @@ JNIEXPORT jint JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nMeters(JN
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }
 
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExport(JNIEnv* e, jclass, jlong h, jbyteArray path, jlong frames, jboolean limiter) {
+    std::string p((size_t)e->GetArrayLength(path), '\0');
+    e->GetByteArrayRegion(path, 0, (jsize)p.size(), reinterpret_cast<jbyte*>(&p[0]));
+    std::string err;
+    if (!host(h)->exportMix(p.c_str(), (long)frames, limiter != JNI_FALSE, err)) throwIo(e, err);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExportProgress(JNIEnv*, jclass, jlong h) { return host(h)->exportProgress(); }
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExportCancel(JNIEnv*, jclass, jlong h) { host(h)->cancelExport(); }
+
 // ---------- NativeImport ----------
 
 JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nOpen(JNIEnv* e, jclass, jint rateIn, jint ch, jint rateOut, jbyteArray path) {

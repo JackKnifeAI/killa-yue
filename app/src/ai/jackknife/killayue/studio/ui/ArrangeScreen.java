@@ -43,6 +43,7 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         undo = Ui.chip(a, "↶ Undo");
         redo = Ui.chip(a, "Redo ↷");
         Button hist = Ui.chip(a, "History");
+        Button export = Ui.chip(a, "Export");
         time = Ui.text(a, "0:00.0", Skin.TEXT, 15);
         time.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
         time.setPadding(Ui.dp(a, 4), 0, Ui.dp(a, 8), 0);
@@ -50,7 +51,7 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         android.widget.HorizontalScrollView scroller = new android.widget.HorizontalScrollView(a);
         scroller.setHorizontalScrollBarEnabled(false);
         LinearLayout row = Ui.row(a);
-        for (View v : new View[] {start, play, loop, time, undo, redo, hist, health}) row.addView(v);
+        for (View v : new View[] {start, play, loop, time, undo, redo, hist, export, health}) row.addView(v);
         scroller.addView(row);
         bar.addView(scroller);
         view.addView(bar);
@@ -110,6 +111,11 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
                         a.session.redo(w);
                     }
                 }).show();
+            }
+        });
+        export.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                ExportDialog.show(a);
             }
         });
         hist.setOnClickListener(new View.OnClickListener() {

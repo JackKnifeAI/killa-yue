@@ -196,6 +196,25 @@ public final class NativeEngine implements AutoCloseable {
         return s;
     }
 
+    /**
+     * Off-line engines only, on a worker thread: renders the loaded project from the start into a float WAV at the
+     * engine's rate (named only when finished). limiter false bypasses the master limiter (stems).
+     */
+    public void export(File out, long frames, boolean limiter) throws IOException {
+        if (device) throw new IllegalStateException("Exports run on an off-line engine, never on the one playing.");
+        nExport(handle(), out.getPath().getBytes(UTF8), frames, limiter);
+    }
+
+    /** Frames the export has written so far (any thread). */
+    public long exportProgress() {
+        return nExportProgress(handle());
+    }
+
+    /** Stops the export (any thread): it throws, and leaves no file. */
+    public void cancelExport() {
+        nExportCancel(handle());
+    }
+
     /** Off-line only: renders frames of stereo into out (interleaved; out holds at least 2 * frames). */
     public void render(float[] out, int frames) {
         if (device) throw new IllegalStateException("The device renders this engine; render() is for off-line engines.");
@@ -270,4 +289,10 @@ public final class NativeEngine implements AutoCloseable {
     private static native int nMeters(long h, float[] out);
 
     private static native String nLatencyReport(long h);
+
+    private static native void nExport(long h, byte[] path, long frames, boolean limiter) throws IOException;
+
+    private static native long nExportProgress(long h);
+
+    private static native void nExportCancel(long h);
 }

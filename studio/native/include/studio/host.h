@@ -55,6 +55,13 @@ public:
     int sessionsHeld() const { return (int)gens_.size(); }  // the current one plus any not yet let go of
     int filesOpen() const;  // over every session held
 
+    // Off-line hosts only (call it on a worker thread): renders the whole session from frame 0 into a float
+    // WAV. limiter false bypasses the master limiter (stems). exportProgress() is the frames written so far;
+    // cancelExport() stops it, leaving no file.
+    bool exportMix(const char* path, long frames, bool limiter, std::string& err);
+    long exportProgress() const { return exportDone_.load(); }
+    void cancelExport() { exportCancel_.store(true); }
+
     // Audio thread (the device calls these).
     void render(float* out, int frames, long position) override;
     void input(const float* in, int frames, int channels, long position) override;
@@ -109,6 +116,8 @@ private:
     long calOut_ = 0, calIn_ = 0, calEnd_ = 0;
     long calInBase_ = 0, calOutBase_ = 0;  // the streams' positions where the measurement started
     long offlinePos_ = 0;
+    std::atomic<long> exportDone_{0};
+    std::atomic<bool> exportCancel_{false};
     std::string calReport_;
 };
 
