@@ -2,7 +2,9 @@
 // Sixteen stereo tracks played for ten minutes at real-time pace (192-frame blocks), while another thread
 // changes levels, pans, mutes and solos every 5 ms and seeks every 20 s. No underrun is allowed outside the
 // 300 ms after a seek (those are counted and printed), and no block may cost more than 2 ms of the audio
-// thread's CPU time (its budget is 4 ms). Slow: run with STRESS=1 (STRESS_SECONDS to shorten it).
+// thread's CPU time (its budget is 4 ms). Wall time per block and blocks over budget are reported too: a wait
+// inside process() costs no CPU and shows only there (ops is shared with other work, so wall time is printed,
+// not asserted; the phone run in plan 1b asserts it). Slow: run with STRESS=1 (STRESS_SECONDS to shorten it).
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -96,15 +98,19 @@ int main() {
     });
 
     const long blocks = seconds * rate / block;
-    std::vector<float> out(2 * block), cpu(blocks);
-    long bad = 0, afterSeek = 0, prev = 0;
+    std::vector<float> out(2 * block), cpu(blocks), wall(blocks);
+    long bad = 0, afterSeek = 0, prev = 0, late = 0;
+    const double budgetMs = block * 1000.0 / rate;
     auto deadline = std::chrono::steady_clock::now();
     for (long b = 0; b < blocks; b++) {
         deadline += std::chrono::microseconds(block * 1000000L / rate);
         std::this_thread::sleep_until(deadline);
         const double c0 = cpuMs();
+        const auto w0 = std::chrono::steady_clock::now();
         e.process(out.data(), block);
         cpu[b] = (float)(cpuMs() - c0);
+        wall[b] = (float)(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - w0).count());
+        if (wall[b] > budgetMs) late++;  // a wait inside process() shows here, not in CPU time
         const long u = e.status().underruns;
         if (u != prev) (msNow() - lastSeekMs < 300 ? afterSeek : bad) += u - prev;
         prev = u;
@@ -112,10 +118,13 @@ int main() {
     done = true;
     ui.join();
     for (auto& s : streams) s->stopThread();
-    std::vector<float> sorted(cpu);
+    std::vector<float> sorted(cpu), wsorted(wall);
     std::sort(sorted.begin(), sorted.end());
-    std::printf("stress: %ld blocks, slowest %.3f ms CPU, 99th percentile %.3f ms; underruns %ld (and %ld within 300 ms of a seek)\n",
-                blocks, sorted.back(), sorted[(size_t)(blocks * 0.99)], bad, afterSeek);
+    std::sort(wsorted.begin(), wsorted.end());
+    std::printf("stress: %ld blocks; CPU slowest %.3f ms, p99 %.3f; wall slowest %.3f ms, p99 %.3f, %ld over the %.1f ms budget; "
+                "underruns %ld (and %ld within 300 ms of a seek)\n",
+                blocks, sorted.back(), sorted[(size_t)(blocks * 0.99)], wsorted.back(), wsorted[(size_t)(blocks * 0.99)], late, budgetMs, bad,
+                afterSeek);
     CHECK(bad == 0, "no underruns while playing, outside the moment after a seek");
     CHECK(sorted.back() < 2.0f, "no block costs more than 2 ms of the audio thread's time");
     std::remove(stem);
