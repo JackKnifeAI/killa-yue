@@ -33,28 +33,49 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 
 ## 1.3.0 (next)
 
-### More phones
-- **GPU covers**: Stable Diffusion on the GPU for phones without the 8 Elite NPU (already built for Android, needs wiring in).
+### Built, being tested on phones
+- **Automatic lyric sync**: a speech recogniser on the phone listens to the finished song and times every line to when it is actually sung.
+- **GPU covers**: Stable Diffusion on the GPU for phones without the 8 Elite NPU.
+- **Engine in its own app process**, so Android's child-process limits never apply.
+- **Home-screen widget**: now playing, and the song being made.
+- **Ringtones and a wake-up song**: set the chorus as a ringtone, or wake up to a brand-new song the queue made overnight.
+- **Sheet music and MIDI**: engraved sheet music as a vector PDF, plus MIDI for a DAW. Full scores, or a part for any of 38 instruments in its own key and clef, checked note for note.
+- **Community skins**: install from a file, remove, make your own.
+
+### Still to do
+- **Guitar tabs and chord diagrams** for guitar, bass, ukulele, mandolin and banjo.
+- **MusicXML export** for MuseScore, Sibelius, Dorico and Finale.
+- **Showpiece sheet music**: the same notes drawn in your skin's look.
 - **Other Snapdragon phones** first, then other chips through their own drivers or processor mode.
-- **Engine inside the app**: run the engine as a library in its own app process instead of a child process, so Android's child-process limits never apply.
 - **Emulator test pass** on Android 9 to 16 and several screen sizes before each release.
 
 ### Planned features
-- **Automatic lyric sync**: listen to the finished song with a speech recogniser on the phone and time every line to when it is actually sung.
-- **Lyrics assistant on the phone**: ideally on the NPU, which sits idle while the GPU makes the song.
+- **Lyrics and style assistant on the phone**: write lyrics and build style prompts from a song's sound, ideally on the NPU, which sits idle while the GPU makes the song.
 - **Hum a melody**: record a tune and get a song built on it.
 - **Your own voice**: train a voice adapter from your recordings.
-- **Stems**: separate vocals and backing. The engine renders one mix, so this needs a separation model.
-- **Mastering**: loudness, EQ and limiting presets.
-- **Community skins**: install skins from a file or a link.
-- **Home-screen widget.**
 - **Faster rendering**: half-precision rendering and more.
+
+## Studio tab (planned)
+
+Everything an artist does after the song is made, in the same app, offline and free. It is rebuilt for Killa YuE from our earlier Killa Studio work.
+
+- **Stems**: split any song into vocals, drums, bass and the rest with a separation model on the phone's GPU. Every stem becomes an ordinary track you can edit.
+- **Arrange**: audio and instrument tracks; move, trim, split, duplicate and loop clips; crossfades, markers, snap to the beat, and undo.
+- **Record**: sing or play over a song with count-in, click, monitoring, punch in and out, loop takes and latency calibration. Record from the microphone, a USB audio interface, a file, or another app's sound where Android allows it.
+- **Sampler and beats**: sample pads, chop by selection or transient, reverse, pitch and time stretch, envelope and filter; piano roll, drum step sequencer, velocity and swing.
+- **Mixer and effects**: gain, pan, mute, solo, groups, sends, buses and meters; EQ, compression, limiter, delay, reverb, saturation and filter in editable chains, with automation curves. Mastering presets for loudness, EQ and limiting.
+- **Instruments**: a playable two-row keyboard, sampled acoustic instruments streamed from storage, and MIDI keyboards over USB or Bluetooth.
+- **AI voices and beats**: a voice model for spoken and sung lines and a beat model for backing tracks. Each loads only while it is in use.
+- **Export**: the stereo mix, every stem, MIDI and a portable project with its media.
+- **House rules**: recording and playback always come before AI work; one heavy model in memory at a time; projects save themselves and interrupted recordings are recovered; source files are never changed.
+
+## One home for every model (planned)
+
+Today the app downloads models from several different Hugging Face accounts. We will host every model the app uses in JackKnifeAI's own Hugging Face account, each pinned by size and SHA-256 checksum, so no model can change under you or disappear, and the app gets everything from one place. Each model's licence is checked before we host a copy. Anything we may not redistribute stays at its original source, and the app says where it comes from.
 
 ## Ideas being considered
 
 - **Live sheet music**: show the score being written as real notation while the model works.
-- **Sheet music and MIDI export**: the score already keeps vocal and instrument parts separate, so producers can take them into a DAW.
-- **Ringtones and alarms**: pick the chorus and set it as a ringtone. Or wake up to a brand-new song the queue made overnight.
 - **Sing along**: record your voice over a song in the Lyrics tab and save the mix.
 - **Make songs from your computer**: an opt-in mode that lets a laptop on the same Wi-Fi use the phone's engine through a browser, protected by a PIN.
 - **Remix chains**: continue a friend's song from their recipe, then pass it on.
