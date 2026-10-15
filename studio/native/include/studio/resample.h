@@ -26,7 +26,7 @@ public:
 private:
     int produce(float* out, bool flushing);
 
-    int in_, out_, ch_, L_, M_;    // out/in = L/M in lowest terms
+    int ch_, L_, M_;               // out/in = L/M in lowest terms
     double W_;                     // the filter's half-width in input samples
     int span_;                     // input samples one output reads (2W, rounded up)
     int phases_;                   // filter table resolution between input samples

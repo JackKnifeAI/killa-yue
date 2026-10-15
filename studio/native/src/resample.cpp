@@ -32,7 +32,7 @@ const int kMaxExactPhases = 4096;  // ratios with more phases than this use an i
 }  // namespace
 
 Resampler::Resampler(int inRate, int outRate, int channels, int taps)
-    : in_(inRate), out_(outRate), ch_(std::max(1, std::min(channels, 8))), same_(inRate == outRate) {
+    : ch_(std::max(1, std::min(channels, 8))), same_(inRate == outRate) {
     const long g = gcd(outRate, inRate);
     L_ = (int)(outRate / g);
     M_ = (int)(inRate / g);

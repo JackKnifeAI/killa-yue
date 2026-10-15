@@ -9,6 +9,10 @@ CXX=${CXX:-g++}
 # non-PIE: ops runs a hardened kernel that loads PIE programs where the sanitizers keep their shadow memory
 FLAGS="-std=c++17 -O1 -g -Wall -Wextra -Werror -Iinclude -Itest -fno-pie -no-pie"
 SRC=$(ls src/*.cpp 2>/dev/null || true)
+# clang warns about things gcc does not (the Android build uses clang): every source, warnings as errors
+if command -v clang++ >/dev/null; then
+    for f in $SRC; do clang++ -std=c++17 -Wall -Wextra -Werror -Iinclude -fsyntax-only "$f"; done
+fi
 for t in test/*_test.cpp; do
     n=$(basename "$t" .cpp)
     $CXX $FLAGS -fsanitize=address,undefined -fno-sanitize-recover=all "$t" $SRC -o "$OUT/$n" -lpthread
