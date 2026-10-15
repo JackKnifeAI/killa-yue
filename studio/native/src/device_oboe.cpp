@@ -7,6 +7,8 @@ Device* Device::create() { return nullptr; }
 #else
 
 #include <oboe/Oboe.h>
+#include <pthread.h>
+#include <sched.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -87,6 +89,8 @@ public:
         s.slowCallbacks = slow_.load(std::memory_order_relaxed);
         s.callbackMaxMs = maxNs_.load(std::memory_order_relaxed) / 1e6;
         s.callbackAvgMs = n ? totalNs_.load(std::memory_order_relaxed) / 1e6 / (double)n : 0.0;
+        s.callbackPolicy = policy_.load(std::memory_order_relaxed);
+        s.callbackPriority = priority_.load(std::memory_order_relaxed);
         return s;
     }
 
@@ -98,6 +102,14 @@ public:
 
     void callback(const void* in, int nIn, void* out, int nOut) {
         const auto t0 = std::chrono::steady_clock::now();
+        if (policy_.load(std::memory_order_relaxed) < 0) {  // once: is this thread real-time?
+            int pol = 0;
+            sched_param sp{};
+            if (pthread_getschedparam(pthread_self(), &pol, &sp) == 0) {
+                priority_.store(sp.sched_priority, std::memory_order_relaxed);
+                policy_.store(pol, std::memory_order_relaxed);
+            }
+        }
         if (in && nIn > 0 && sink_) sink_->input(static_cast<const float*>(in), nIn, inChannels_);
         if (renderer_) renderer_->render(static_cast<float*>(out), nOut);
         else std::fill(static_cast<float*>(out), static_cast<float*>(out) + 2 * nOut, 0.f);
@@ -266,6 +278,7 @@ private:
     std::atomic<long> lostXruns_{0};
     std::string error_;
     std::atomic<long> callbacks_{0}, slow_{0}, maxNs_{0}, totalNs_{0};
+    std::atomic<int> policy_{-1}, priority_{-1};
 };
 
 oboe::DataCallbackResult Duplex::onBothStreamsReady(const void* in, int nIn, void* out, int nOut) {

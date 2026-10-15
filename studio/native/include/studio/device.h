@@ -25,6 +25,8 @@ struct DeviceStats {
     double callbackMaxMs = 0, callbackAvgMs = 0;
     double outputLatencyMs = -1;  // the device's estimate (-1 when it cannot say)
     int reopened = 0;             // times the stream came back after a route change
+    int callbackPolicy = -1;      // the audio callback thread's scheduling policy (1 = SCHED_FIFO: real time)
+    int callbackPriority = -1;
     std::string error;            // the last thing that went wrong, in words
 };
 

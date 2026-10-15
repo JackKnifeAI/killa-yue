@@ -24,6 +24,7 @@ public final class NativeEngine implements AutoCloseable {
         public boolean running, exclusive;
         public long xruns, callbacks, slowCallbacks;
         public double callbackMaxMs, callbackAvgMs, outputLatencyMs;
+        public int callbackPolicy = -1, callbackPriority = -1;  // 1 = SCHED_FIFO: the callback runs in real time
         public String error;  // the device's last problem, in words, or null
     }
 
@@ -170,6 +171,8 @@ public final class NativeEngine implements AutoCloseable {
         s.callbackMaxMs = v[16];
         s.callbackAvgMs = v[17];
         s.outputLatencyMs = v[18];
+        s.callbackPolicy = (int) v[19];
+        s.callbackPriority = (int) v[20];
         s.error = err;
         return s;
     }

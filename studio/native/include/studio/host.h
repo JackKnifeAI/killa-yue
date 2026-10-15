@@ -48,6 +48,7 @@ public:
     Status status();  // also frees the tracks the engine has let go of
     DeviceStats deviceStats();
     int sessionsHeld() const { return (int)gens_.size(); }  // the current one plus any not yet let go of
+    int filesOpen() const;  // over every session held
 
     // Audio thread (the device calls these; offline, call render() yourself).
     void render(float* out, int frames) override;

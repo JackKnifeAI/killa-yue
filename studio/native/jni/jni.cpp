@@ -89,7 +89,8 @@ JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nStatus
     const jdouble v[] = {(double)s.position, (double)s.underruns, (double)s.refused, (double)s.playing, s.peakL, s.peakR,
                          (double)d.rate, (double)d.burst, (double)d.bufferFrames, (double)d.inputChannels, (double)d.reopened,
                          d.running ? 1.0 : 0.0, d.exclusive ? 1.0 : 0.0, (double)d.xruns, (double)d.callbacks,
-                         (double)d.slowCallbacks, d.callbackMaxMs, d.callbackAvgMs, d.outputLatencyMs};
+                         (double)d.slowCallbacks, d.callbackMaxMs, d.callbackAvgMs, d.outputLatencyMs,
+                         (double)d.callbackPolicy, (double)d.callbackPriority};
     const jsize n = (jsize)(sizeof v / sizeof v[0]);
     if (e->GetArrayLength(out) >= n) e->SetDoubleArrayRegion(out, 0, n, v);
     return d.error.empty() ? nullptr : e->NewStringUTF(d.error.c_str());

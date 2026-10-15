@@ -13,11 +13,28 @@ STRIP=${STRIP:-llvm-strip}
 DX=${DX:-dalvik-exchange}
 
 rm -rf out && mkdir -p out/gen out/classes out/apk/lib/arm64-v8a
+MANIFEST=AndroidManifest.xml
+JAVA_DIRS="src out/gen"
+LINK_EXTRA=""
+# STUDIO_TEST=1: a test build, never a release. Adds the Studio's test screen (test-src/) and the microphone
+# permission it needs, and labels the version "-studiotest".
+if [ -n "$STUDIO_TEST" ]; then
+    python3 - <<'PY'
+import re
+m = open('AndroidManifest.xml').read()
+m = m.replace('<application ', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application ', 1)
+m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/>\n    </application>', 1)
+open('out/AndroidManifest.xml', 'w').write(m)
+PY
+    MANIFEST=out/AndroidManifest.xml
+    JAVA_DIRS="$JAVA_DIRS test-src"
+    LINK_EXTRA="--replace-version --version-name $(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml)-studiotest"
+fi
 aapt2 compile --dir res -o out/res.zip
-aapt2 link -o out/base.apk -I "$ANDROID_JAR" -A assets --manifest AndroidManifest.xml --java out/gen \
-    --min-sdk-version 28 --target-sdk-version 28 out/res.zip
+aapt2 link -o out/base.apk -I "$ANDROID_JAR" -A assets --manifest $MANIFEST --java out/gen \
+    --min-sdk-version 28 --target-sdk-version 28 $LINK_EXTRA out/res.zip
 # Java 8 bytecode and no lambdas, so the classic dx tool can convert it
-javac -nowarn --release 8 -cp "$ANDROID_JAR" -d out/classes $(find src out/gen -name '*.java') 2>&1 | grep -v '^warning: \[options\]' || true
+javac -nowarn --release 8 -cp "$ANDROID_JAR" -d out/classes $(find $JAVA_DIRS -name '*.java') 2>&1 | grep -v '^warning: \[options\]' || true
 [ -f out/classes/ai/jackknife/killayue/MainActivity.class ]
 (cd out && $DX --dex --min-sdk-version=26 --output=apk/classes.dex classes)
 
@@ -56,6 +73,11 @@ fi
 if [ -n "$SD_BIN" ]; then
     cp "$SD_BIN" out/apk/lib/arm64-v8a/libsdgpu.so
     $STRIP out/apk/lib/arm64-v8a/libsdgpu.so 2>/dev/null || true
+fi
+# The Studio's audio engine: studio/native built with the NDK and Oboe (see BUILDING.md).
+if [ -n "$STUDIO_LIB" ]; then
+    cp "$STUDIO_LIB" out/apk/lib/arm64-v8a/libstudio.so
+    $STRIP out/apk/lib/arm64-v8a/libstudio.so 2>/dev/null || true
 fi
 if [ -n "$NPU_DIR" ]; then
     cp "$NPU_DIR/sdnpu" out/apk/lib/arm64-v8a/libsdnpu.so

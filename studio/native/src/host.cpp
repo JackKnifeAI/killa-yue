@@ -1,6 +1,7 @@
 #include "studio/host.h"
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <thread>
 
 namespace studio {
@@ -36,21 +37,27 @@ bool Host::load(const std::vector<TrackSpec>& tracks, std::string& err) {
     reap();
     Generation g;
     std::unique_ptr<Session> session(new Session{rate_, {}});
+    // one reader per file, shared by every clip of it (a loop opens its file once): only the disk thread reads
+    std::map<std::string, WavReader*> open;
     for (const auto& t : tracks) {
         std::vector<ClipRef> clips;
         for (const auto& c : t.clips) {
-            std::string why;
-            std::unique_ptr<WavReader> r(WavReader::open(c.file.c_str(), why));
+            WavReader*& r = open[c.file];
             if (!r) {
-                err = c.file + ": " + why;
-                return false;
+                std::string why;
+                std::unique_ptr<WavReader> fresh(WavReader::open(c.file.c_str(), why));
+                if (!fresh) {
+                    err = c.file + ": " + why;
+                    return false;
+                }
+                if (fresh->rate() != rate_) {
+                    err = c.file + " is at " + std::to_string(fresh->rate()) + " Hz; the Studio runs at " + std::to_string(rate_) + " Hz.";
+                    return false;
+                }
+                r = fresh.get();
+                g.readers.push_back(std::move(fresh));
             }
-            if (r->rate() != rate_) {
-                err = c.file + " is at " + std::to_string(r->rate()) + " Hz; the Studio runs at " + std::to_string(rate_) + " Hz.";
-                return false;
-            }
-            clips.push_back({r.get(), c.start, c.offset, c.length, c.gainDb});
-            g.readers.push_back(std::move(r));
+            clips.push_back({r, c.start, c.offset, c.length, c.gainDb});
         }
         g.streams.emplace_back(new Streamer(clips));
         session->tracks.push_back({g.streams.back().get(), t.gainDb, t.pan, t.mute, t.solo});
@@ -65,6 +72,12 @@ bool Host::load(const std::vector<TrackSpec>& tracks, std::string& err) {
     session.release();  // the engine has it now
     gens_.push_back(std::move(g));
     return true;
+}
+
+int Host::filesOpen() const {
+    size_t n = 0;
+    for (const auto& g : gens_) n += g.readers.size();
+    return (int)n;
 }
 
 void Host::reap() {

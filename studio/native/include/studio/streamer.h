@@ -28,7 +28,8 @@ struct ClipRef {
 class Streamer : public Source {
 public:
     // A track: its clips are mixed into one ring by the feeding thread (where clips overlap, both are heard),
-    // so the audio thread reads one ring however many clips there are. Every clip needs a reader of its own.
+    // so the audio thread reads one ring however many clips there are. Clips may share a reader as long as one
+    // thread reads them all (one Disk feeds them, as in the Studio).
     explicit Streamer(const std::vector<ClipRef>& clips, int ringFrames = 1 << 17);
     // A track of one clip: file frames from fileOffset, starting at project frame clipStart, for length frames.
     Streamer(Reader* r, long clipStart, long fileOffset, long length, int ringFrames = 1 << 17, float gainDb = 0.f);

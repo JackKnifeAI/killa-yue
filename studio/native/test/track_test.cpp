@@ -56,7 +56,7 @@ int main() {
     CHECK(out[0] == 50000.f + 200.f, "seeking a track seeks every clip on it");
 
     {   // overlapping clips are heard together
-        Ramp x2(10000, 1, 0.f);  // every clip has a reader of its own, as every clip has its own file handle
+        Ramp x2(10000, 1, 0.f);  // a reader of its own here; clips could share one, as one thread reads them all
         Streamer t({{&x2, 0, 0, 1000, 0.f}, {&z, 500, 0, 1000, -6.0206f}}, 4096);
         t.setOffline(true);
         disk.add(&t);

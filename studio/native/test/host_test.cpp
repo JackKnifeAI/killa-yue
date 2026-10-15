@@ -94,9 +94,19 @@ int main() {
         h->status();
         CHECK(h->sessionsHeld() == 1, "the old tracks are freed once the engine lets go of them");
 
+        // a loop: the same file many times on one track opens it once
+        std::vector<ClipSpec> loop;
+        for (int k = 0; k < 200; k++) loop.push_back({quarter, (long)k * rate, 0, rate, 0.f});
+        CHECK(h->load({{0.f, 0.f, false, false, loop}, {0.f, 0.f, false, false, {{half, 0, 0, rate, 0.f}}}}, err), "a 200-clip loop loads");
+        play(*h, 1000);
+        h->status();
+        CHECK(h->filesOpen() == 2, "and its file is opened once, not 200 times");
+        auto l = play(*h, 4000);
+        NEAR(l[3500], 0.75f, 1e-4f, "the loop and the other track both play");
+
         h->post({Msg::Mute, 0, 1.f, 0, nullptr});
         auto d = play(*h, 4000);
-        NEAR(d[3500], 0.f, 1e-6f, "edits reach the engine");
+        NEAR(d[3500], 0.5f, 1e-4f, "edits reach the engine");
         CHECK(h->deviceStats().rate == 0, "a host with no device has no device stats");
         RoundTrip rt = h->measureLatency(5, err);
         CHECK(!rt.ok && !err.empty(), "latency needs a device with a microphone");
