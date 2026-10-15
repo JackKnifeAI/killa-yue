@@ -51,7 +51,9 @@ public class AiHost extends Service {
                         }, "ai-watch");
                         watch.start();
                         try {
-                            stem.split(new File((String) job.get("song")), new File((String) job.get("out")), new File(dir, "work"),
+                            File work = new File(dir, "work");  // the native side writes into it but never makes it
+                            if (!work.isDirectory() && !work.mkdirs()) throw new java.io.IOException("Could not make " + work + ".");
+                            stem.split(new File((String) job.get("song")), new File((String) job.get("out")), work,
                                     job.getInt("rate"));
                         } finally {
                             watch.interrupt();
