@@ -22,24 +22,19 @@ import java.util.Arrays;
  * folder is deleted.
  */
 public class Resume {
-    /** Render chunk in frames (25 a second), when short passes are on: one minute per GPU pass. */
-    static final int CHUNK = 1500;
-
     static File root(Context c) {
         return Store.dir(c, "checkpoints");
     }
 
-    /** Gives a new song its checkpoint folder and its render chunk, and keeps the request there. */
+    /** Gives a new song its checkpoint folder and keeps the request there. */
     static void prepare(Context c, JSONObject req, String title, String album) {
         try {
             if (req.has("checkpoint")) return; // a resumed song keeps its folder
             File d = new File(root(c), new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date()));
             d.mkdirs();
             req.put("checkpoint", d.getAbsolutePath());
-            // one-minute passes keep the GPU responsive but are heard at every boundary (each chunk is
-            // rendered without its neighbours), so they are off until the engine blends chunk overlaps
-            req.remove("max_chunk"); // a song re-rendered from the library may carry the old setting
-            if (c.getSharedPreferences("cfg", 0).getBoolean("short_passes", false)) req.put("max_chunk", CHUNK);
+            // songs always render in one piece: chunked rendering is heard at every boundary
+            req.remove("max_chunk"); // a song re-rendered from the library may carry it from a test build
             JSONObject keep = new JSONObject(req.toString());
             keep.put("_title", title == null ? "" : title);
             keep.put("_album", album == null ? "" : album);
