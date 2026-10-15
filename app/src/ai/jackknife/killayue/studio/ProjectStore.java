@@ -25,7 +25,11 @@ public final class ProjectStore {
     }
 
     public static void save(Project p, File dir) throws IOException {
-        p.validate();
+        try {
+            p.validate();
+        } catch (IllegalArgumentException e) {
+            throw new IOException("Not saved: " + e.getMessage(), e);
+        }
         File tmp = new File(dir, TMP), main = new File(dir, MAIN), bak = new File(dir, BAK);
         FileOutputStream out = new FileOutputStream(tmp);
         try {
@@ -53,8 +57,12 @@ public final class ProjectStore {
                     l.fromBackup = !name.equals(MAIN);
                     l.problem = mainProblem;
                     return l;
-                } catch (IllegalArgumentException e) {
+                } catch (IOException e) {        // unreadable: permissions, a failing card
                     why = e.getMessage();
+                } catch (RuntimeException e) {   // damaged or not a project
+                    why = e.getMessage();
+                } catch (StackOverflowError e) { // never expected (JSON nesting is capped), but never a crash
+                    why = "it is nested too deeply";
                 }
             }
             if (mainProblem == null) mainProblem = "project.json could not be used: " + why;

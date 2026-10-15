@@ -11,8 +11,10 @@ import java.util.Map;
  * key order; arrays as ArrayList; numbers as Double.
  */
 public final class Json {
+    static final int MAX_DEPTH = 512;  // a project is a few levels deep; deeper is damage, never a crash
+
     private final String s;
-    private int i;
+    private int i, depth;
 
     private Json(String s) {
         this.s = s;
@@ -71,12 +73,18 @@ public final class Json {
         throw error("unexpected character '" + c + "'");
     }
 
+    private void deeper() {
+        if (++depth > MAX_DEPTH) throw error("nested more than " + MAX_DEPTH + " deep");
+    }
+
     private LinkedHashMap<String, Object> object() {
+        deeper();
         LinkedHashMap<String, Object> m = new LinkedHashMap<String, Object>();
         i++; // {
         space();
         if (i < s.length() && s.charAt(i) == '}') {
             i++;
+            depth--;
             return m;
         }
         while (true) {
@@ -91,17 +99,22 @@ public final class Json {
             space();
             if (i >= s.length()) throw error("the text ends inside an object");
             char c = s.charAt(i++);
-            if (c == '}') return m;
+            if (c == '}') {
+                depth--;
+                return m;
+            }
             if (c != ',') throw error("',' or '}' was expected");
         }
     }
 
     private ArrayList<Object> array() {
+        deeper();
         ArrayList<Object> a = new ArrayList<Object>();
         i++; // [
         space();
         if (i < s.length() && s.charAt(i) == ']') {
             i++;
+            depth--;
             return a;
         }
         while (true) {
@@ -110,7 +123,10 @@ public final class Json {
             space();
             if (i >= s.length()) throw error("the text ends inside an array");
             char c = s.charAt(i++);
-            if (c == ']') return a;
+            if (c == ']') {
+                depth--;
+                return a;
+            }
             if (c != ',') throw error("',' or ']' was expected");
         }
     }

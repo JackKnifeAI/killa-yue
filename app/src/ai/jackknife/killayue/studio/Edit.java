@@ -51,7 +51,13 @@ public abstract class Edit {
         }
     }
 
+    static float finiteLevel(float db) {
+        if (Float.isNaN(db) || Float.isInfinite(db)) throw new IllegalArgumentException("A level must be a number of decibels.");
+        return db;
+    }
+
     public static Edit gain(final String trackId, final float db) {
+        finiteLevel(db);
         return new Setting<Float>("Level") {
             Float get(Project p) { return need(p, trackId).gainDb; }
             void set(Project p, Float v) { need(p, trackId).gainDb = v; }
@@ -85,6 +91,7 @@ public abstract class Edit {
     }
 
     public static Edit rename(final String trackId, final String name) {
+        if (name == null) throw new IllegalArgumentException("A track needs a name.");
         return new Setting<String>("Rename") {
             String get(Project p) { return need(p, trackId).name; }
             void set(Project p, String v) { need(p, trackId).name = v; }
@@ -93,6 +100,7 @@ public abstract class Edit {
     }
 
     public static Edit masterGain(final float db) {
+        finiteLevel(db);
         return new Setting<Float>("Master level") {
             Float get(Project p) { return p.masterDb; }
             void set(Project p, Float v) { p.masterDb = v; }
@@ -124,30 +132,26 @@ public abstract class Edit {
     }
 
     /**
-     * Adds a track holding one clip of a whole file at the start. The IDs are taken on the first apply; a redo
-     * puts back the same track. Undo also gives the IDs back, so undoing everything leaves the project exactly
-     * as it was (undo is strictly last in, first out, so no later ID can be in use).
+     * Adds a track holding one clip of a whole file at the start. The IDs are taken on the first apply and never
+     * given back: a redo puts back the same track, and an ID is never handed out twice, so anything outside the
+     * project that keeps an ID (the engine, a stems job) can trust it.
      */
     public static Edit addTrack(final String name, final String file, final long length) {
+        if (name == null || file == null) throw new IllegalArgumentException("A track needs a name and a file.");
         return new Edit() {
             private Track added;
-            private int idsBefore, idsAfter;
 
             void apply(Project p) {
                 if (added == null) {
-                    idsBefore = p.nextId;
                     added = p.addTrack(name);
                     p.addClip(added, file, 0, 0, length);
-                    idsAfter = p.nextId;
                 } else {
                     p.tracks.add(added);
-                    p.nextId = idsAfter;
                 }
             }
 
             void revert(Project p) {
                 p.tracks.remove(added);
-                p.nextId = idsBefore;
             }
 
             public String label() {

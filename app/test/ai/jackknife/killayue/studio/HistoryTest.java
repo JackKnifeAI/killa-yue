@@ -33,7 +33,7 @@ public class HistoryTest {
         same("undo walks back to before the edits", two, p.toText());
         h.undo();
         h.undo();
-        same("all the way back", new Project("Remix", 48000).toText(), p.toText());
+        same("all the way back: no tracks", 0, p.tracks.size());
         same("nothing left to undo", false, h.canUndo());
         h.redo();
         h.redo();
@@ -42,6 +42,27 @@ public class HistoryTest {
         same("a new edit clears redo", false, h.canRedo());
         same("every step is counted for autosave (6 edits, 7 undos, 2 redos)", 15, h.changes());
         same("the undo label says what it undoes", "Pan", h.undoLabel());
+        Project q = new Project("IDs", 48000);
+        History hq = new History(q);
+        hq.run(Edit.addTrack("A", "audio/a.wav", 10));
+        hq.undo();
+        hq.run(Edit.addTrack("B", "audio/b.wav", 10));
+        same("an ID is never handed out twice, even after undo", "t3", q.tracks.get(0).id);
+        boolean refused = false;
+        try {
+            Edit.gain("t3", Float.NEGATIVE_INFINITY);
+        } catch (IllegalArgumentException e) {
+            refused = true;
+        }
+        same("an impossible level is refused when asked for, not when saving later", true, refused);
+        refused = false;
+        try {
+            Edit.rename("t3", null);
+        } catch (IllegalArgumentException e) {
+            refused = true;
+        }
+        same("a missing name is refused", true, refused);
+
         System.out.println("HistoryTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

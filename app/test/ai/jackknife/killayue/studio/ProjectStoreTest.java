@@ -49,6 +49,31 @@ public class ProjectStoreTest {
             threw = true;
         }
         same("nothing usable: a clear error, not a crash", true, threw);
+        File dir2 = Files.createTempDirectory("studio").toFile();
+        Project good = new Project("Good", 48000);
+        good.addTrack("Vocals");
+        ProjectStore.save(good, dir2);
+        ProjectStore.save(good, dir2);
+        File main = new File(dir2, "project.json");
+        main.setReadable(false);
+        ProjectStore.Loaded unreadable = ProjectStore.load(dir2);
+        same("a project.json that cannot be read: the backup loads", "Good", unreadable.project.name);
+        main.setReadable(true);
+        StringBuilder deep = new StringBuilder();
+        for (int i = 0; i < 100000; i++) deep.append('[');
+        write(main, deep.toString());
+        ProjectStore.Loaded nested = ProjectStore.load(dir2);
+        same("absurdly nested JSON: the backup loads, no crash", true, nested.fromBackup);
+        Project broken = new Project("Bad", 48000);
+        broken.addTrack("X").gainDb = Float.NaN;
+        threw = false;
+        try {
+            ProjectStore.save(broken, dir2);
+        } catch (java.io.IOException e) {
+            threw = true;
+        }
+        same("saving a project that cannot be valid is an IOException, as save promises", true, threw);
+
         System.out.println("ProjectStoreTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
