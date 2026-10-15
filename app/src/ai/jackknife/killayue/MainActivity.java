@@ -101,6 +101,7 @@ public class MainActivity extends Activity {
     // one job at a time, shared across activity restarts
     static volatile boolean jobBusy;
     static volatile String jobId, jobMsg = "", jobError = "";
+    static volatile String runningCheckpoint = ""; // the checkpoint folder of the song being made
     static volatile boolean jobCancel, engineHealthy;
     static volatile long jobStart;
     static MainActivity inst;
@@ -604,7 +605,7 @@ public class MainActivity extends Activity {
         });
         c.addView(banner, gap(8));
 
-        c.addView(chipRow(new String[] {"Undo", "Redo", "Clear style and lyrics"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Undo", "Redo", "Clear style and lyrics", "Resume a song"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     undo();
@@ -624,6 +625,11 @@ public class MainActivity extends Activity {
                     lyrics.setText("");
                     settle();
                     toast("Cleared. Undo brings it back.");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    resumeMenu();
                 }
             },
         }));
@@ -1177,15 +1183,20 @@ public class MainActivity extends Activity {
     void startSong(final JSONObject req, String title, final boolean fromQueue) {
         final Context app = getApplicationContext();
         pendingTitle = title;
+        // a checkpoint folder: the song can carry on from where it stops (Resume)
+        Resume.prepare(app, req, title, pendingAlbum);
         startJob("Starting", new Task() {
             public void run() throws Exception {
                 ensureEngine(app);
                 jobMsg = "Queued";
+                runningCheckpoint = req.optString("checkpoint");
                 String id = Api.synth(req);
                 waitJob(id);
                 jobMsg = "Saving";
                 int n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
                 if (n == 0) throw new Exception("The engine finished but returned no audio.");
+                Resume.finished(req);
+                runningCheckpoint = "";
             }
 
             public void done() {
@@ -1439,12 +1450,80 @@ public class MainActivity extends Activity {
                     a.ui.post(new Runnable() {
                         public void run() {
                             if (ferr == null) t.done();
-                            else if (!"Cancelled".equals(ferr)) a.alert("That did not work", ferr);
+                            else if (!"Cancelled".equals(ferr)) a.failed(ferr);
                         }
                     });
                 }
             }
         }, "job").start();
+    }
+
+    /** A song that failed: offer to carry on from its checkpoint when something was saved. */
+    void failed(String err) {
+        final String cp = runningCheckpoint;
+        runningCheckpoint = "";
+        Resume.Unfinished found = null;
+        if (cp.length() > 0) {
+            for (Resume.Unfinished u : Resume.list(this, "")) if (u.dir.getAbsolutePath().equals(cp)) found = u;
+        }
+        if (found == null || !found.resumable()) {
+            alert("That did not work", err);
+            return;
+        }
+        final Resume.Unfinished u = found;
+        new Lux.Builder(this).setTitle("That did not work")
+                .setMessage(err + "\n\nWhat was made so far is saved (" + u.describe().replaceFirst("^.*?·  ", "")
+                        + "). Resume carries on from there.")
+                .setPositiveButton("Resume", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        resume(u);
+                    }
+                }).setNegativeButton("Later", null).show();
+    }
+
+    void resume(Resume.Unfinished u) {
+        try {
+            pendingAlbum = u.request.optString("_album");
+            startSong(Resume.request(u), u.title, false);
+        } catch (Exception e) {
+            alert("Could not resume", String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Songs that stopped part way: carry one on, or let it go. */
+    void resumeMenu() {
+        final ArrayList<Resume.Unfinished> list = Resume.list(this, jobBusy ? runningCheckpoint : "");
+        if (list.isEmpty()) {
+            toast("No unfinished songs");
+            return;
+        }
+        String[] names = new String[list.size()];
+        for (int i = 0; i < list.size(); i++) names[i] = list.get(i).describe();
+        new Lux.Builder(this).setTitle("Unfinished songs").setItems(names, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, final int w) {
+                final Resume.Unfinished u = list.get(w);
+                AlertDialog.Builder b = new Lux.Builder(MainActivity.this).setTitle(u.title.length() > 0 ? u.title : "Untitled")
+                        .setMessage(u.describe().replaceFirst("^.*?·  ", ""))
+                        .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d2, int w2) {
+                                Resume.delete(u.dir);
+                                toast("Deleted");
+                            }
+                        }).setNegativeButton("Back", null);
+                if (u.resumable()) {
+                    b.setPositiveButton("Resume", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d2, int w2) {
+                            if (jobBusy) {
+                                toast("The engine is busy with another job");
+                                return;
+                            }
+                            resume(u);
+                        }
+                    });
+                }
+                b.show();
+            }
+        }).setNegativeButton("Close", null).show();
     }
 
     void cancelJob() {
