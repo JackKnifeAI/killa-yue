@@ -674,6 +674,29 @@ public class MainActivity extends Activity {
         }
         c.addView(chipRow(SECTIONS, la));
         c.addView(savedRow("lyrics", "lyrics", lyrics));
+        // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter)
+        c.addView(chipRow(new String[] {"Write with AI", "Rewrite style", "Rewrite lyrics", "Songwriter model"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    Songwriter.write(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.rewrite(MainActivity.this, "style");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.rewrite(MainActivity.this, "lyrics");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.pickModel(MainActivity.this);
+                }
+            },
+        }));
 
         lengthLabel = label("Length");
         lengthBar = new SeekBar(this);
@@ -1386,6 +1409,8 @@ public class MainActivity extends Activity {
         jobBusy = true;
         jobCancel = false;
         jobError = "";
+        Songwriter.cancel();
+        Songwriter.stopNow(this); // the song engine needs the memory the songwriter's model holds
         jobMsg = msg;
         jobId = null;
         jobStart = System.currentTimeMillis();

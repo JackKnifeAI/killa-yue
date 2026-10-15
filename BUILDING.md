@@ -52,6 +52,20 @@ llvm-strip libyueengine.so && patchelf --replace-needed libvulkan.so libkvulkan.
 
 Put both in one folder: `ENGINE_LIB_DIR` in `local.env`.
 
+### Write with AI (the songwriter)
+
+`engine/writer` builds llama.cpp's server as `libkillawriter.so`, a JNI library that `WriterHost` runs in the app's `:writer` process. Use llama.cpp (https://github.com/ggml-org/llama.cpp) at commit `a0e6dc7` or later:
+
+```
+cmake -S engine/writer -B build-writer -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a \
+    -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared \
+    -DLLAMA_DIR=/path/to/llama.cpp -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 -DGGML_CCACHE=OFF
+cmake --build build-writer --target killawriter
+```
+
+Set `WRITER_LIB` to `build-writer/libkillawriter.so` (the build script strips it; about 13 MB). It is CPU only and needs nothing beyond `libc++_shared.so`. Models are `.gguf` files in `KillaYuE/writer`; the app offers Gemma 4 E4B abliterated (mradermacher's Q4_K_M) and checks it against its SHA-256.
+
 ### Lyric sync and GPU covers
 
 - whisper.cpp (https://github.com/ggml-org/whisper.cpp): `cmake -S . -B build-android` with the NDK toolchain flags above, `-DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16`, target `whisper-cli`. Set `WHISPER_BIN`.
