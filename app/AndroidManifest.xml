@@ -45,6 +45,7 @@
         <service android:name=".EngineService" android:exported="false"/>
         <!-- the song engine as a library in its own app process (JNI), bound by EngineService -->
         <service android:name=".EngineHost" android:process=":engine" android:exported="false"/>
+        <service android:name=".WriterHost" android:process=":writer" android:exported="false"/>
         <service android:name=".NowPlaying" android:exported="false"/>
         <receiver android:name=".Widget" android:label="Killa YuE" android:exported="true">
             <intent-filter>
