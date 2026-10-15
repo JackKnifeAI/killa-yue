@@ -82,14 +82,21 @@ public final class Project {
                 id(ids, c.id);
                 finite("clip " + c.id + " level", c.gainDb);
                 if (c.start < 0 || c.offset < 0 || c.length < 0) throw new IllegalArgumentException("Clip " + c.id + " has a negative position or length.");
-                if (c.file == null || c.file.length() == 0 || c.file.startsWith("/") || c.file.contains("..") || c.file.contains("\\"))
-                    throw new IllegalArgumentException("Clip " + c.id + " points outside the project folder (" + c.file + ").");
+                if (!insideProject(c.file)) throw new IllegalArgumentException("Clip " + c.id + " points outside the project folder (" + c.file + ").");
             }
         }
+        if (nextId < 1 || nextId > 999999999) throw new IllegalArgumentException("The project's next ID " + nextId + " is out of range.");
         for (String id : ids) {
             int n = Integer.parseInt(id.substring(1));
             if (n >= nextId) throw new IllegalArgumentException("The project's next ID " + nextId + " would repeat " + id + ".");
         }
+    }
+
+    /** A relative path that stays inside the project folder: no leading /, no backslash, no ".." segment. */
+    static boolean insideProject(String path) {
+        if (path == null || path.length() == 0 || path.startsWith("/") || path.contains("\\")) return false;
+        for (String seg : path.split("/")) if (seg.equals("..")) return false;
+        return true;
     }
 
     private static void finite(String what, float v) {

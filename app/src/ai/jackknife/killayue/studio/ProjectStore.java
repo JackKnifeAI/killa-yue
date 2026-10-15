@@ -101,6 +101,23 @@ public final class ProjectStore {
         }
         if (main.exists() && !main.renameTo(bak)) throw new IOException("Could not keep the previous save as " + bak);
         if (!tmp.renameTo(main)) throw new IOException("Could not put the new save in place as " + main);
+        syncFolder(dir);
+    }
+
+    /** Makes the renames themselves durable, where the system allows it (a best effort: the backup covers the rest). */
+    private static void syncFolder(File dir) {
+        try {
+            java.nio.channels.FileChannel ch = java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ);
+            try {
+                ch.force(true);
+            } finally {
+                ch.close();
+            }
+        } catch (IOException e) {
+            // some systems cannot open a folder this way; the saved files and their backup are still whole
+        } catch (RuntimeException e) {
+            // likewise
+        }
     }
 
     public static Loaded load(File dir) throws IOException {

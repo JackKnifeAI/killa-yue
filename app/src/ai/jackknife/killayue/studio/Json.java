@@ -241,6 +241,8 @@ public final class Json {
             else if (c == '\r') b.append("\\r");
             else if (c == '\t') b.append("\\t");
             else if (c < 0x20) b.append(String.format("\\u%04x", (int) c));
+            else if (Character.isHighSurrogate(c) && k + 1 < t.length() && Character.isLowSurrogate(t.charAt(k + 1))) b.append(c).append(t.charAt(++k));
+            else if (Character.isSurrogate(c)) b.append(String.format("\\u%04x", (int) c)); // a lone half: UTF-8 would turn it into ?
             else b.append(c);
         }
         b.append('"');

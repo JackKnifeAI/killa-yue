@@ -74,6 +74,19 @@ public class ProjectStoreTest {
         }
         same("saving a project that cannot be valid is an IOException, as save promises", true, threw);
 
+        // a crash between the two renames: project.json already moved to the backup, the new save still in .tmp
+        File dir3 = Files.createTempDirectory("studio").toFile();
+        Project v1 = new Project("Versions", 48000);
+        ProjectStore.save(v1, dir3);
+        v1.addTrack("Second");
+        ProjectStore.save(v1, dir3);
+        v1.addTrack("Third");
+        String third = v1.toText();
+        write(new File(dir3, "project.json.tmp"), third);
+        new File(dir3, "project.json").renameTo(new File(dir3, "project.json.bak"));
+        ProjectStore.Loaded mid = ProjectStore.load(dir3);
+        same("a save cut between its renames: the newer, whole .tmp loads, not the older backup", third, mid.project.toText());
+
         System.out.println("ProjectStoreTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

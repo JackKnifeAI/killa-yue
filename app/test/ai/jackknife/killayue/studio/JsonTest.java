@@ -47,6 +47,15 @@ public class JsonTest {
         same("control characters are escaped", "\"a\\u0001b\\tc\"", Json.write("a\u0001b\tc"));
         ArrayList<Object> empty = new ArrayList<Object>();
         same("empty array", "[]", Json.write(empty));
+        String lone = "half an emoji \ud83c here";
+        String w = Json.write(lone);
+        same("a lone surrogate is written as an escape, so UTF-8 cannot turn it into ?", true, w.contains("\\ud83c"));
+        try {
+            same("and it reads back exactly, even through UTF-8", lone, Json.parse(new String(w.getBytes("UTF-8"), "UTF-8")));
+        } catch (java.io.UnsupportedEncodingException e) {
+            same("UTF-8", "", e);
+        }
+
         System.out.println("JsonTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

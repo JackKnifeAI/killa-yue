@@ -40,6 +40,13 @@ public class ProjectTest {
         same("a duplicate ID is refused", true, rejects(text.replace("\"c2\"", "\"t1\"")));
         same("a negative clip start is refused", true, rejects(text.replace("\"start\":0", "\"start\":-1")));
         same("an impossible rate is refused", true, rejects(text.replace("48000", "7")));
+        same("three dots inside a file name are fine", false, rejects(text.replace("audio/vocals.wav", "audio/Wait... what.wav")));
+        same("a path segment of .. is refused", true, rejects(text.replace("audio/vocals.wav", "audio/../../x.wav")));
+        Project empty = new Project("Empty", 48000);
+        same("an ID counter of 0 is refused (IDs start at 1)", true, rejects(empty.toText().replace("\"nextId\":1", "\"nextId\":0")));
+        same("an ID counter past nine digits is refused (IDs have at most nine)", true,
+                rejects(empty.toText().replace("\"nextId\":1", "\"nextId\":1000000000")));
+
         System.out.println("ProjectTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
