@@ -619,6 +619,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## abcjs 6.7.1 (sheet music layout), by Paul Rosen and Gregory Dyke
+
+Bundled as `app/assets/abcjs/abcjs-basic-min.js`, run offline inside the app. One change: tablature accepts a
+re-entrant tuning (a string higher than the one above it, as on a ukulele or a 5-string banjo) instead of
+rejecting it; in `tab-notes.js` the "Invalid string Instrument tuning" error became `return []`. That string's
+note list is then empty, and single notes never land on it, because abcjs picks the highest string that
+can play a note.
+
+```
+Copyright (c) 2009-2026 Paul Rosen and Gregory Dyke
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+**This text is from: http://opensource.org/licenses/MIT**
+```
+
 ## Lyric sync model (not included)
 
 On request the app downloads OpenAI's Whisper "small" model in whisper.cpp's format (`ggerganov/whisper.cpp`, `ggml-small-q5_1.bin`), MIT licence. It is not part of this repository or of the APK.

@@ -22,7 +22,8 @@ public class TrackProvider extends ContentProvider {
         // lyric videos live in Movies/Killa YuE, sheet music and MIDI in Documents/Killa YuE; everything else in the library
         File f = name.endsWith(".mp4") ? new File(new File(android.os.Environment.getExternalStoragePublicDirectory(
                 android.os.Environment.DIRECTORY_MOVIES), "Killa YuE"), name)
-                : name.endsWith(".pdf") || name.endsWith(".mid") || name.endsWith(".abc") ? new File(MainActivity.scoreDir(), name)
+                : name.endsWith(".pdf") || name.endsWith(".mid") || name.endsWith(".abc") || name.endsWith(".musicxml")
+                        ? new File(MainActivity.scoreDir(), name)
                 : new File(Store.library(getContext()), name);
         if (!f.isFile()) throw new FileNotFoundException(name);
         return f;
@@ -48,6 +49,7 @@ public class TrackProvider extends ContentProvider {
         if (n.endsWith(".pdf")) return "application/pdf";
         if (n.endsWith(".mid")) return "audio/midi";
         if (n.endsWith(".abc")) return "text/plain";
+        if (n.endsWith(".musicxml")) return "application/vnd.recordare.musicxml+xml";
         return n.endsWith(".wav") ? "audio/wav" : "audio/mpeg";
     }
 

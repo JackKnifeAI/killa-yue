@@ -29,6 +29,9 @@
                 <data android:scheme="killayue" android:host="models"/>
             </intent-filter>
         </activity>
+        <!-- sheet music: view, zoom, print and share the exported PDFs -->
+        <activity android:name=".SheetActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
         <!-- the wake-up song rings here, over the lock screen -->
         <activity android:name=".WakeActivity" android:exported="false" android:screenOrientation="portrait"
             android:launchMode="singleInstance" android:excludeFromRecents="true" android:taskAffinity=""/>

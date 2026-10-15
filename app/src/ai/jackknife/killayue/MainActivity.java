@@ -1891,7 +1891,7 @@ public class MainActivity extends Activity {
                 } else if ("Make it a ringtone".equals(pick)) {
                     Ringtones.ask(MainActivity.this, m);
                 } else if ("Sheet music and MIDI".equals(pick)) {
-                    exportScore(m);
+                    sheetMusic(m);
                 } else if ("Add to an album".equals(pick)) {
                     addToAlbum(mf.getName());
                 } else {
@@ -2503,6 +2503,29 @@ public class MainActivity extends Activity {
         }
         toast("Writing the sheet music...");
         final String title = m.optString("_title", "Untitled");
+        final Abc.Score sc;
+        try {
+            sc = Abc.parse(abc);
+        } catch (Exception e) {
+            alert("Could not read the score", String.valueOf(e.getMessage()));
+            return;
+        }
+        String style = m.optString("style").trim();
+        if (style.length() > 60) style = style.substring(0, 60) + "\u2026";
+        String sub = "Killa YuE  \u00b7  key of " + sc.key + (style.length() > 0 ? "  \u00b7  " + style : "");
+        // abcjs lays the music out in a hidden WebView; the pages are drawn here, as a vector PDF
+        Engrave.run(this, ScorePrep.prepare(abc, title, sub), new Engrave.Done() {
+            public void failed(String why) {
+                alert("Could not write the sheet music", why);
+            }
+
+            public void laidOut(String svg, String lineStarts) {
+                writeScore(abc, sc, title, svg);
+            }
+        });
+    }
+
+    void writeScore(final String abc, final Abc.Score sc, final String title, final String svg) {
         new Thread(new Runnable() {
             public void run() {
                 String err = null;
@@ -2510,17 +2533,13 @@ public class MainActivity extends Activity {
                 final String name = Albums.safeName(title);
                 try {
                     if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
-                    Abc.Score sc = Abc.parse(abc);
-                    String style = m.optString("style").trim();
-                    if (style.length() > 60) style = style.substring(0, 60) + "\u2026";
-                    String sub = "Killa YuE  \u00b7  \u2669 = " + sc.bpm + "  \u00b7  key of " + sc.key
-                            + (style.length() > 0 ? "  \u00b7  " + style : "");
-                    SheetMusic.write(sc, title, sub, new File(dir, name + ".pdf"));
+                    ScorePages.writePdf(SvgScore.parse(svg), "Killa YuE", new File(dir, name + ".pdf"));
                     MidiFile.write(sc, title, new File(dir, name + ".mid"));
                     Store.write(new File(dir, name + ".abc"), abc.getBytes("UTF-8"));
                 } catch (Exception e) {
                     err = String.valueOf(e.getMessage());
                 }
+                final String noXml = err == null ? musicXml(new File(dir, name + ".musicxml"), abc, title, null) : null;
                 final String ferr = err;
                 ui.post(new Runnable() {
                     public void run() {
@@ -2528,38 +2547,322 @@ public class MainActivity extends Activity {
                             alert("Could not write the sheet music", ferr);
                             return;
                         }
-                        new Lux.Builder(MainActivity.this).setTitle("Sheet music ready")
-                                .setMessage("Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the sheet music\n" + name
-                                        + ".mid, MIDI with the vocal, instrument and chord tracks\n" + name + ".abc, the score itself")
-                                .setPositiveButton("Share", new DialogInterface.OnClickListener() {
-                                    public void onClick(DialogInterface x, int w) {
-                                        ArrayList<Uri> uris = new ArrayList<Uri>();
-                                        uris.add(TrackProvider.uri(name + ".pdf"));
-                                        uris.add(TrackProvider.uri(name + ".mid"));
-                                        uris.add(TrackProvider.uri(name + ".abc"));
-                                        Intent s = new Intent(Intent.ACTION_SEND_MULTIPLE);
-                                        s.setType("*/*");
-                                        s.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
-                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                        startActivity(Intent.createChooser(s, "Share the sheet music"));
-                                    }
-                                })
-                                .setNeutralButton("Open", new DialogInterface.OnClickListener() {
-                                    public void onClick(DialogInterface x, int w) {
-                                        Intent s = new Intent(Intent.ACTION_VIEW);
-                                        s.setDataAndType(TrackProvider.uri(name + ".pdf"), "application/pdf");
-                                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                        try {
-                                            startActivity(s);
-                                        } catch (Exception e) {
-                                            toast("No PDF viewer found");
-                                        }
-                                    }
-                                }).setNegativeButton("Close", null).show();
+                        scoreReady("Sheet music ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the sheet music\n" + name
+                                + ".mid, MIDI with the vocal, instrument and chord tracks\n"
+                                + (noXml == null ? name + ".musicxml, for MuseScore, Sibelius, Dorico or Finale\n" : "") + name + ".abc, the score itself"
+                                + (noXml != null ? "\n\nNo MusicXML this time: " + noXml : ""),
+                                noXml == null ? new String[] {name + ".pdf", name + ".mid", name + ".musicxml", name + ".abc"}
+                                        : new String[] {name + ".pdf", name + ".mid", name + ".abc"});
                     }
                 });
             }
         }, "sheet-music").start();
+    }
+
+    /** Saved sheet music: share every file, or open the PDF (the first file). */
+    void scoreReady(String title, String message, final String[] files) {
+        new Lux.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("Open", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface x, int w) {
+                        SheetActivity.open(MainActivity.this, files[0], files);
+                    }
+                })
+                .setNeutralButton("Share", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface x, int w) {
+                        ArrayList<Uri> uris = new ArrayList<Uri>();
+                        for (String f : files) uris.add(TrackProvider.uri(f));
+                        Intent s = new Intent(Intent.ACTION_SEND_MULTIPLE);
+                        s.setType("*/*");
+                        s.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(Intent.createChooser(s, "Share the sheet music"));
+                    }
+                }).setNegativeButton("Close", null).show();
+    }
+
+    // ---------- instrument parts ----------
+
+    /** Sheet music: the full score with MIDI, or one line written out for an instrument. */
+    void sheetMusic(final JSONObject m) {
+        if (m.optString("abc").trim().length() == 0) {
+            exportScore(m); // explains that this song has no score
+            return;
+        }
+        final ArrayList<String> saved = savedSheets(m.optString("_title", "Untitled"));
+        String[] items = saved.isEmpty() ? new String[] {"Full score, with MIDI", "A part for one instrument"}
+                : new String[] {"Full score, with MIDI", "A part for one instrument", "Saved sheet music (" + saved.size() + ")"};
+        new Lux.Builder(this).setTitle("Sheet music")
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        if (w == 0) exportScore(m);
+                        else if (w == 1) pickFamily(m);
+                        else openSaved(saved);
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** The song's sheet music already in Documents/Killa YuE: its full score and its parts, newest first. */
+    static ArrayList<String> savedSheets(String title) {
+        final String base = Albums.safeName(title);
+        File[] all = scoreDir().listFiles();
+        ArrayList<File> mine = new ArrayList<File>();
+        if (all != null) for (File f : all) {
+            String n = f.getName();
+            if (n.endsWith(".pdf") && (n.equals(base + ".pdf") || n.startsWith(base + " - "))) mine.add(f);
+        }
+        java.util.Collections.sort(mine, new java.util.Comparator<File>() {
+            public int compare(File a, File b) {
+                return Long.compare(b.lastModified(), a.lastModified());
+            }
+        });
+        ArrayList<String> names = new ArrayList<String>();
+        for (File f : mine) names.add(f.getName());
+        return names;
+    }
+
+    void openSaved(final ArrayList<String> saved) {
+        String[] labels = new String[saved.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = saved.get(i).replaceAll("\\.pdf$", "");
+        new Lux.Builder(this).setTitle("Saved sheet music").setItems(labels, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                String pdf = saved.get(w), base = pdf.substring(0, pdf.length() - 4);
+                ArrayList<String> share = new ArrayList<String>();
+                share.add(pdf);
+                for (String ext : new String[] {".mid", ".musicxml", ".abc"}) if (new File(scoreDir(), base + ext).isFile()) share.add(base + ext);
+                SheetActivity.open(MainActivity.this, pdf, share.toArray(new String[0]));
+            }
+        }).setNegativeButton("Back", null).show();
+    }
+
+    void pickFamily(final JSONObject m) {
+        final ArrayList<String> groups = new ArrayList<String>();
+        for (Instruments.Instrument i : Instruments.ALL) if (!groups.contains(i.group)) groups.add(i.group);
+        new Lux.Builder(this).setTitle("Which instrument?")
+                .setItems(groups.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        pickInstrument(m, groups.get(w));
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    void pickInstrument(final JSONObject m, String group) {
+        final ArrayList<Instruments.Instrument> list = new ArrayList<Instruments.Instrument>();
+        ArrayList<String> names = new ArrayList<String>();
+        for (Instruments.Instrument i : Instruments.ALL) {
+            if (!i.group.equals(group)) continue;
+            list.add(i);
+            names.add(i.title());
+        }
+        new Lux.Builder(this).setTitle(group)
+                .setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        pickLine(m, list.get(w));
+                    }
+                }).setNegativeButton("Back", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        pickFamily(m);
+                    }
+                }).show();
+    }
+
+    /** The vocal or the instrument melody; asks only when both have notes. */
+    void pickLine(final JSONObject m, final Instruments.Instrument ins) {
+        final String abc = m.optString("abc");
+        final ArrayList<String> voices = new ArrayList<String>();
+        ArrayList<String> labels = new ArrayList<String>();
+        for (String v : new String[] {"Vocal", "Ins"}) {
+            try {
+                if (Transpose.part(abc, v, ins).notes > 0) {
+                    voices.add(v);
+                    labels.add(v.equals("Vocal") ? "The vocal melody" : "The instrument melody");
+                }
+            } catch (Exception e) {
+                // a voice the score does not have
+            }
+        }
+        final boolean chords = ins.playsChords() && voices.contains("Vocal");
+        if (chords) labels.add(0, "Chords to sing along to");
+        if (voices.size() == 0) {
+            alert("No notes to write out", "This score has no melody with notes in it.");
+        } else if (voices.size() == 1 && !chords) {
+            exportPart(m, ins, voices.get(0));
+        } else {
+            new Lux.Builder(this).setTitle(ins.title() + ": which line?")
+                    .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d, int w) {
+                            if (chords && w == 0) exportChords(m, ins);
+                            else exportPart(m, ins, voices.get(chords ? w - 1 : w));
+                        }
+                    }).setNegativeButton("Cancel", null).show();
+        }
+    }
+
+    /** The vocal line as it sounds, its chord names, and under each line the chords' shapes; diagrams on top. */
+    void exportChords(final JSONObject m, final Instruments.Instrument ins) {
+        final String title = m.optString("_title", "Untitled");
+        final Transpose.Part p;
+        try {
+            p = Transpose.part(m.optString("abc"), "Vocal", new Instruments.Instrument("Voices", "vocal", "Vocal", "Voc.", "", 0, 0, "auto", 0, 127));
+        } catch (Exception e) {
+            alert("Could not write the chords", String.valueOf(e.getMessage()));
+            return;
+        }
+        String sub = ins.name + " chords to sing along to  \u00b7  key of " + keyName(p.key) + "  \u00b7  tuning " + Tabs.tuningName(ins);
+        toast("Writing the " + ins.name.toLowerCase() + " chords...");
+        Engrave.run(this, ScorePrep.prepare(p.abc, title, sub), new Engrave.Done() {
+            public void failed(String why) {
+                alert("Could not write the chords", why);
+            }
+
+            public void laidOut(final String svg, final String lineStarts) {
+                new Thread(new Runnable() {
+                    public void run() {
+                        String err = null, words = null;
+                        int count = 0;
+                        final String name = Albums.safeName(title + " - " + ins.name + " chords");
+                        try {
+                            SvgScore s = SvgScore.parse(svg);
+                            count = ChordSheet.add(s, ins).size();
+                            words = lyricsUnder(s, m, lineStarts);
+                            File dir = scoreDir();
+                            if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
+                            ScorePages.writePdf(s, "Killa YuE", new File(dir, name + ".pdf"));
+                            String noXml = musicXml(new File(dir, name + ".musicxml"), p.abc, title, null);
+                            if (noXml != null) throw new Exception(noXml);
+                        } catch (Exception e) {
+                            err = String.valueOf(e.getMessage());
+                        }
+                        final String ferr = err, fwords = words;
+                        final int chords = count;
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (ferr != null) {
+                                    alert("Could not write the chords", ferr);
+                                    return;
+                                }
+                                scoreReady("Chords ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf\n" + name
+                                        + ".musicxml, the vocal line and chord symbols for notation programs\n\nThe vocal line with its "
+                                        + chords + (chords == 1 ? " chord" : " chords") + ", each chord's shape on the " + ins.name.toLowerCase()
+                                        + " tab under it, " + (fwords == null ? "the words under each line, " : "")
+                                        + "and a diagram of every shape at the top." + (fwords != null && fwords.length() > 0 ? "\n\n" + fwords : ""),
+                                        new String[] {name + ".pdf", name + ".musicxml"});
+                            }
+                        });
+                    }
+                }, "chords").start();
+            }
+        });
+    }
+
+    void exportPart(final JSONObject m, final Instruments.Instrument ins, final String voice) {
+        final String title = m.optString("_title", "Untitled");
+        final Transpose.Part p;
+        try {
+            p = Transpose.part(m.optString("abc"), voice, ins);
+        } catch (Exception e) {
+            alert("Could not write the part", String.valueOf(e.getMessage()));
+            return;
+        }
+        String line = voice.equals("Vocal") ? "vocal melody" : "instrument melody";
+        String concert = keyName(abcKey(m.optString("abc")));
+        StringBuilder sub = new StringBuilder(ins.title() + "  \u00b7  " + line + "  \u00b7  key of " + keyName(p.key));
+        if (ins.semitones % 12 != 0) sub.append(" (sounds in ").append(concert).append(")");
+        if (p.octaves != 0) sub.append("  \u00b7  written ").append(Math.abs(p.octaves) == 1 ? "an octave" : Math.abs(p.octaves) + " octaves")
+                .append(p.octaves < 0 ? " lower" : " higher").append(" to fit");
+        if (ins.tab != null) sub.append("  \u00b7  tab for ").append(Tabs.tuningName(ins));
+        toast("Writing the " + ins.name + " part...");
+        Engrave.run(this, ScorePrep.prepare(p.abc, title, sub.toString()), Tabs.option(ins), new Engrave.Done() {
+            public void failed(String why) {
+                alert("Could not write the part", why);
+            }
+
+            public void laidOut(final String svg, final String lineStarts) {
+                new Thread(new Runnable() {
+                    public void run() {
+                        String err = null, words = null;
+                        final String name = Albums.safeName(title + " - " + ins.name + (voice.equals("Vocal") ? "" : " (instrument)"));
+                        try {
+                            File dir = scoreDir();
+                            if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
+                            SvgScore s = SvgScore.parse(svg);
+                            if (voice.equals("Vocal")) words = lyricsUnder(s, m, lineStarts);
+                            ScorePages.writePdf(s, "Killa YuE", new File(dir, name + ".pdf"));
+                            Store.write(new File(dir, name + ".abc"), p.abc.getBytes("UTF-8"));
+                        } catch (Exception e) {
+                            err = String.valueOf(e.getMessage());
+                        }
+                        final String noXml = err == null ? musicXml(new File(scoreDir(), name + ".musicxml"), p.abc, title, ins) : null;
+                        final String ferr = err, fwords = words;
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (ferr != null) {
+                                    alert("Could not write the part", ferr);
+                                    return;
+                                }
+                                String msg = "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the " + ins.title() + " part\n"
+                                        + (noXml == null ? name + ".musicxml, for notation programs\n" : "") + name + ".abc, the part as a score";
+                                if (noXml != null) msg += "\n\nNo MusicXML this time: " + noXml;
+                                if (fwords == null) msg += "\n\nThe words are printed under each line of music.";
+                                else if (fwords.length() > 0) msg += "\n\n" + fwords;
+                                if (p.outOfRange > 0) msg += "\n\n" + p.outOfRange + " of its " + p.notes + " notes are outside the "
+                                        + ins.name.toLowerCase() + "'s usual range. They are printed exactly as the song has them.";
+                                if (p.unplayable > 0) msg += "\n\n" + p.unplayable + (p.unplayable == 1 ? " note is" : " notes are")
+                                        + " lower than the " + ins.name.toLowerCase() + "'s lowest string, so the tab marks "
+                                        + (p.unplayable == 1 ? "it" : "them") + " with a question mark.";
+                                scoreReady("Part ready", msg, noXml == null ? new String[] {name + ".pdf", name + ".musicxml", name + ".abc"}
+                                        : new String[] {name + ".pdf", name + ".abc"});
+                            }
+                        });
+                    }
+                }, "part").start();
+            }
+        });
+    }
+
+    /**
+     * Prints the song's lyric lines under the lines of music they are sung in, from the times lyric sync
+     * (or tap-to-time) saved. Null when printed; otherwise what to tell the reader ("" when the song has no words).
+     */
+    static String lyricsUnder(SvgScore s, JSONObject m, String lineStarts) {
+        String lyrics = m.optString("lyrics");
+        ArrayList<Karaoke.Line> lines = Karaoke.lines(lyrics);
+        if (lines.isEmpty()) return "";
+        JSONArray t = m.optJSONArray("_times");
+        if (t == null || t.length() != lines.size())
+            return "To print the words under each line of music, sync the lyrics first: play the song, then \u201cSync automatically\u201d on the Lyrics tab.";
+        ArrayList<String> texts = new ArrayList<String>();
+        int[] times = new int[lines.size()];
+        for (int i = 0; i < times.length; i++) {
+            texts.add(lines.get(i).text);
+            times[i] = t.optInt(i);
+        }
+        LyricLines.add(s, LyricLines.starts(lineStarts), texts, times);
+        return null;
+    }
+
+    /** Writes the score as MusicXML; null when written, else why not (the file is then not left behind). */
+    static String musicXml(File out, String abc, String title, Instruments.Instrument ins) {
+        try {
+            Store.write(out, MusicXml.write(abc, title, ins).getBytes("UTF-8"));
+            return null;
+        } catch (Exception e) {
+            out.delete();
+            return String.valueOf(e.getMessage());
+        }
+    }
+
+    /** The key from a score's K: line, e.g. "Em". */
+    static String abcKey(String abc) {
+        for (String row : abc.split("\n")) if (row.startsWith("K:")) return row.substring(2).trim();
+        return "C";
+    }
+
+    /** "C#m" as a reader says it: C\u266f minor. */
+    static String keyName(String key) {
+        java.util.regex.Matcher k = java.util.regex.Pattern.compile("^([A-G])([#b]*)\\s*(m(?!aj)(?:in(?:or)?)?)?").matcher(key);
+        if (!k.find()) return key;
+        String acc = k.group(2).replace("#", "\u266f").replace("b", "\u266d");
+        return k.group(1) + acc + (k.group(3) != null ? " minor" : " major");
     }
 
     void makeLyricVideo(final JSONObject m) {
