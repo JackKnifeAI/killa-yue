@@ -67,6 +67,7 @@ final class AiJobs {
             for (String url : f.urls) {  // JackKnifeAI first; the next source if it fails
                 if (cancel.get()) throw new IOException("Cancelled.");
                 final Store.Dl d = new Store.Dl();
+                d.total = f.size;  // fetch stops once the file reaches this size; left at 0 it fetched nothing
                 final long base = before;
                 final AtomicBoolean over = new AtomicBoolean();
                 final AtomicBoolean stop = cancel;
