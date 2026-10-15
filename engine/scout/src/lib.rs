@@ -12,6 +12,8 @@ use std::time::Duration;
 
 const UA: &str = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Mobile Safari/537.36";
 const MAX_PAGE: u64 = 4 << 20;
+// Bing gives a phone a short, script-built results page and no RSS: it is asked as a desktop browser
+const DESKTOP_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0";
 
 fn agent() -> ureq::Agent {
     agent_for(20)
@@ -33,11 +35,37 @@ fn blocked(html: &str) -> bool {
     (l.contains("captcha") || l.contains("unusual traffic") || l.contains("are you a robot")) && html.len() < 60_000
 }
 
-fn body(resp: ureq::Response) -> Result<String, String> {
+fn bytes(resp: ureq::Response) -> Result<Vec<u8>, String> {
     use std::io::Read;
     let mut buf = Vec::new();
     resp.into_reader().take(MAX_PAGE).read_to_end(&mut buf).map_err(|e| e.to_string())?;
-    Ok(String::from_utf8_lossy(&buf).into_owned())
+    Ok(buf)
+}
+
+fn body(resp: ureq::Response) -> Result<String, String> {
+    let ctype = resp.header("content-type").unwrap_or("").to_lowercase();
+    Ok(decode(&bytes(resp)?, &ctype))
+}
+
+/// Text from a page's bytes: UTF-8, unless the server or the page says Latin-1 / Windows-1252, or the bytes
+/// are plainly not UTF-8 (older sites).
+fn decode(b: &[u8], ctype: &str) -> String {
+    let head = String::from_utf8_lossy(&b[..b.len().min(2048)]).to_lowercase();
+    let latin = ["iso-8859-1", "windows-1252", "latin1", "latin-1"];
+    let says_latin = latin.iter().any(|c| ctype.contains(c) || head.contains(&format!("charset={c}")) || head.contains(&format!("charset=\"{c}")));
+    if !says_latin {
+        if let Ok(s) = std::str::from_utf8(b) {
+            return s.to_string();
+        }
+        let lossy = String::from_utf8_lossy(b);
+        if lossy.matches('\u{FFFD}').count() * 200 < lossy.len() {
+            return lossy.into_owned(); // a few broken bytes in otherwise good UTF-8
+        }
+    }
+    // Windows-1252: Latin-1 plus typographic quotes and dashes in 0x80-0x9F
+    const HIGH: [char; 32] = ['€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8d}', 'Ž', '\u{8f}',
+        '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9d}', 'ž', 'Ÿ'];
+    b.iter().map(|&c| if (0x80..0xA0).contains(&c) { HIGH[(c - 0x80) as usize] } else { c as char }).collect()
 }
 
 fn sel(s: &str) -> Selector {
@@ -62,6 +90,7 @@ pub struct Hit {
     pub snippet: String,
     pub engine: &'static str,
     pub rank: usize,
+    pub date: String,
 }
 
 fn duckduckgo(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
@@ -86,7 +115,7 @@ fn duckduckgo(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
             continue; // ads
         }
         let snippet = r.select(&snip).next().map(text_of).unwrap_or_default();
-        out.push(Hit { title: text_of(l), url: href, snippet, engine: "duckduckgo", rank: out.len() });
+        out.push(Hit { title: text_of(l), url: href, snippet, engine: "duckduckgo", rank: out.len(), date: String::new() });
     }
     Ok(out)
 }
@@ -107,7 +136,7 @@ fn mojeek(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
             continue;
         }
         let snippet = r.select(&snip).next().map(text_of).unwrap_or_default();
-        out.push(Hit { title: text_of(l), url: href, snippet, engine: "mojeek", rank: out.len() });
+        out.push(Hit { title: text_of(l), url: href, snippet, engine: "mojeek", rank: out.len(), date: String::new() });
     }
     Ok(out)
 }
@@ -126,6 +155,7 @@ fn marginalia(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
                 snippet: squash(h["description"].as_str().unwrap_or("")),
                 engine: "marginalia",
                 rank: out.len(),
+                date: String::new(),
             });
         }
     }
@@ -154,6 +184,7 @@ fn wikipedia(a: &ureq::Agent, q: &str, lang: &str) -> Result<Vec<Hit>, String> {
             snippet: squash(&snippet.root_element().text().collect::<String>()),
             engine: "wikipedia",
             rank: out.len(),
+            date: String::new(),
         });
     }
     Ok(out)
@@ -177,6 +208,172 @@ fn brave(a: &ureq::Agent, q: &str, key: &str) -> Result<Vec<Hit>, String> {
             snippet: squash(&Html::parse_fragment(h["description"].as_str().unwrap_or("")).root_element().text().collect::<String>()),
             engine: "brave",
             rank: out.len(),
+            date: h["age"].as_str().unwrap_or("").to_string(),
+        });
+    }
+    Ok(out)
+}
+
+/// Bing's web results. Its links may go through a click tracker whose `u=a1<base64>` holds the real address.
+fn bing(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
+    let r = a.get("https://www.bing.com/search").set("User-Agent", DESKTOP_UA).query("q", q).query("setlang", "en").query("cc", "US").call().map_err(|e| e.to_string())?;
+    let page = body(r)?;
+    if blocked(&page) {
+        return Err("blocked (asked for a captcha)".into());
+    }
+    let doc = Html::parse_document(&page);
+    let (res, link, snip) = (sel("li.b_algo"), sel("h2 a"), sel(".b_caption p, p.b_lineclamp2, p.b_lineclamp3, p.b_lineclamp4, .b_algoSlug"));
+    let mut out = Vec::new();
+    for r in doc.select(&res) {
+        let Some(l) = r.select(&link).next() else { continue };
+        let href = unbing(l.value().attr("href").unwrap_or(""));
+        if !href.starts_with("http") {
+            continue;
+        }
+        let snippet = r.select(&snip).next().map(text_of).unwrap_or_default();
+        out.push(Hit { title: text_of(l), url: href, snippet, engine: "bing", rank: out.len(), date: String::new() });
+    }
+    Ok(out)
+}
+
+fn unbing(href: &str) -> String {
+    if let Ok(u) = url::Url::parse(href) {
+        if u.host_str().map(|h| h.ends_with("bing.com")).unwrap_or(false) {
+            for (k, v) in u.query_pairs() {
+                if k == "u" && v.starts_with("a1") {
+                    if let Some(d) = b64url(&v[2..]) {
+                        return d;
+                    }
+                }
+                if k == "url" && v.starts_with("http") {
+                    return v.into_owned();
+                }
+            }
+        }
+    }
+    href.to_string()
+}
+
+fn b64url(s: &str) -> Option<String> {
+    let mut bits = 0u32;
+    let mut n = 0;
+    let mut out = Vec::new();
+    for c in s.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'-' | b'+' => 62,
+            b'_' | b'/' => 63,
+            b'=' => break,
+            _ => return None,
+        } as u32;
+        bits = (bits << 6) | v;
+        n += 6;
+        if n >= 8 {
+            n -= 8;
+            out.push((bits >> n) as u8);
+            bits &= (1 << n) - 1;
+        }
+    }
+    String::from_utf8(out).ok().filter(|u| u.starts_with("http"))
+}
+
+/// Bing News as RSS: fresh headlines with their dates.
+fn bing_news(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
+    let r = a.get("https://www.bing.com/news/search").set("User-Agent", DESKTOP_UA).query("q", q).query("format", "rss").query("setlang", "en").call().map_err(|e| e.to_string())?;
+    let xml = body(r)?;
+    let tag = |item: &str, t: &str| -> String {
+        let (open, close) = (format!("<{t}>"), format!("</{t}>"));
+        item.find(&open)
+            .and_then(|i| item[i + open.len()..].find(&close).map(|j| item[i + open.len()..i + open.len() + j].to_string()))
+            .map(|v| squash(&Html::parse_fragment(&v.replace("<![CDATA[", "").replace("]]>", "")).root_element().text().collect::<String>()))
+            .unwrap_or_default()
+    };
+    let mut out = Vec::new();
+    for item in xml.split("<item>").skip(1) {
+        let link = unbing(&tag(item, "link").replace("&amp;", "&"));
+        if !link.starts_with("http") {
+            continue;
+        }
+        out.push(Hit {
+            title: tag(item, "title"),
+            url: link,
+            snippet: tag(item, "description"),
+            engine: "bing news",
+            rank: out.len(),
+            date: tag(item, "pubDate"),
+        });
+    }
+    Ok(out)
+}
+
+/// GDELT, the open record of the world's news in over a hundred languages: what was published about it, and when.
+fn gdelt(_a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
+    // GDELT is slow to answer and allows one request every five seconds
+    let r = agent_for(14)
+        .get("https://api.gdeltproject.org/api/v2/doc/doc")
+        .query("query", &format!("{q} sourcelang:english"))
+        .query("mode", "artlist")
+        .query("maxrecords", "15")
+        .query("sort", "hybridrel")
+        .query("format", "json")
+        .call()
+        .map_err(|e| match e {
+            ureq::Error::Status(429, _) => "rate limited, try again in a few seconds".to_string(),
+            e => e.to_string(),
+        })?;
+    let text = body(r)?;
+    let v: Value = serde_json::from_str(&text).map_err(|_| squash(&text).chars().take(120).collect::<String>())?;
+    let mut out = Vec::new();
+    for h in v["articles"].as_array().into_iter().flatten() {
+        let seen = h["seendate"].as_str().unwrap_or("");
+        let date = if seen.len() >= 8 { format!("{}-{}-{}", &seen[0..4], &seen[4..6], &seen[6..8]) } else { String::new() };
+        out.push(Hit {
+            title: squash(h["title"].as_str().unwrap_or("")),
+            url: h["url"].as_str().unwrap_or("").to_string(),
+            snippet: format!("{} · {}", h["domain"].as_str().unwrap_or(""), h["sourcecountry"].as_str().unwrap_or("")),
+            engine: "gdelt",
+            rank: out.len(),
+            date,
+        });
+    }
+    Ok(out)
+}
+
+/// The Internet Archive's own collections by keyword: documents, reports, books, and TV news transcripts.
+fn archive(a: &ureq::Agent, q: &str) -> Result<Vec<Hit>, String> {
+    let r = a
+        .get("https://archive.org/advancedsearch.php")
+        .query("q", &format!("({}) AND mediatype:(texts OR movies OR web)", q.split_whitespace().collect::<Vec<_>>().join(" AND ")))
+        .query("fl[]", "identifier")
+        .query("fl[]", "title")
+        .query("fl[]", "description")
+        .query("fl[]", "date")
+        .query("fl[]", "mediatype")
+        .query("rows", "8")
+        .query("output", "json")
+        .call()
+        .map_err(|e| e.to_string())?;
+    let v: Value = serde_json::from_str(&body(r)?).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for d in v["response"]["docs"].as_array().into_iter().flatten() {
+        let id = d["identifier"].as_str().unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let first = |k: &str| match &d[k] {
+            Value::Array(a) => a.first().and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            x => x.as_str().unwrap_or("").to_string(),
+        };
+        let desc = squash(&Html::parse_fragment(&first("description")).root_element().text().collect::<String>());
+        out.push(Hit {
+            title: squash(&first("title")),
+            url: format!("https://archive.org/details/{id}"),
+            snippet: desc.chars().take(300).collect(),
+            engine: "archive",
+            rank: out.len(),
+            date: first("date").chars().take(10).collect(),
         });
     }
     Ok(out)
@@ -210,7 +407,16 @@ pub fn search(spec: &Value) -> Value {
     let key = spec["brave_key"].as_str().unwrap_or("").to_string();
     let mut engines: Vec<String> = match spec["engines"].as_array() {
         Some(a) => a.iter().filter_map(|e| e.as_str().map(String::from)).collect(),
-        None => vec!["duckduckgo".into(), "mojeek".into(), "marginalia".into(), "wikipedia".into()],
+        None => {
+            // "web" for background, "news" for what happened lately, "all" (the default) for both
+            let web = ["duckduckgo", "bing", "mojeek", "marginalia", "wikipedia", "archive"];
+            let news = ["bing news", "gdelt"];
+            match spec["kind"].as_str().unwrap_or("all") {
+                "web" => web.iter().map(|e| e.to_string()).collect(),
+                "news" => news.iter().map(|e| e.to_string()).collect(),
+                _ => web.iter().chain(news.iter()).map(|e| e.to_string()).collect(),
+            }
+        }
     };
     if !key.is_empty() && !engines.iter().any(|e| e == "brave") {
         engines.push("brave".into());
@@ -228,6 +434,10 @@ pub fn search(spec: &Value) -> Value {
                         "marginalia" => marginalia(&a, &q),
                         "wikipedia" => wikipedia(&a, &q, &lang),
                         "brave" => brave(&a, &q, &key),
+                        "bing" => bing(&a, &q),
+                        "bing news" => bing_news(&a, &q),
+                        "gdelt" => gdelt(&a, &q),
+                        "archive" => archive(&a, &q),
                         other => Err(format!("unknown engine {other}")),
                     };
                     (e, r)
@@ -248,8 +458,11 @@ pub fn search(spec: &Value) -> Value {
                     let entry = score.entry(k).or_insert_with(|| (0.0, h.clone(), Vec::new()));
                     entry.0 += 1.0 / (60.0 + h.rank as f64);
                     entry.2.push(h.engine);
-                    if entry.1.snippet.len() < h.snippet.len() {
+                    if entry.1.snippet.len() < h.snippet.len() && h.engine != "gdelt" {
                         entry.1.snippet = h.snippet.clone();
+                    }
+                    if entry.1.date.is_empty() {
+                        entry.1.date = h.date.clone();
                     }
                 }
             }
@@ -258,13 +471,20 @@ pub fn search(spec: &Value) -> Value {
             }
         }
     }
-    let mut merged: Vec<_> = score.into_values().collect();
+    let qwords = words(&q);
+    let mut merged: Vec<_> = score
+        .into_values()
+        .filter(|(_, h, _)| {
+            let hay = format!("{} {} {}", h.title, h.snippet, h.url).to_lowercase();
+            qwords.is_empty() || qwords.iter().any(|w| hay.contains(w.as_str()))
+        })
+        .collect();
     merged.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal));
     let list: Vec<Value> = merged
         .into_iter()
         .take(max)
         .map(|(s, h, by)| {
-            json!({"title": h.title, "url": h.url, "site": site(&h.url), "snippet": h.snippet, "engines": by, "score": (s * 1000.0).round() / 1000.0})
+            json!({"title": h.title, "url": h.url, "site": site(&h.url), "snippet": h.snippet, "date": h.date, "engines": by, "score": (s * 1000.0).round() / 1000.0})
         })
         .collect();
     json!({"query": q, "results": list, "engines": status})
@@ -314,7 +534,7 @@ fn paragraphs(doc: &Html) -> Vec<String> {
             let t = CITE.replace_all(&text_of(p), "").trim().to_string();
             let words = t.split(' ').count();
             let heading = matches!(p.value().name(), "h2" | "h3");
-            if JUNK.is_match(&t) {
+            if JUNK.is_match(&t) || t.contains("____") || t.contains(". . . .") || t.contains("......") {
                 continue;
             }
             if (heading && words >= 2) || words >= 8 {
@@ -435,7 +655,171 @@ pub fn pick(paras: &[String], topic: &str, budget: usize) -> Vec<String> {
     out
 }
 
-/// Fetches a page and returns its article. `spec` is {"url", "topic"?, "budget"?: characters for "excerpt"}.
+/// A page's or a whole site's history in the Wayback Machine: the saved copies where the content changed,
+/// newest first. `spec` is {"url", "scope"?: "page" | "site" | "prefix", "from"?: "2019", "to"?: "2024", "max"?}.
+/// Each snapshot's "archived" address can be given to `read`.
+pub fn history(spec: &Value) -> Value {
+    let u = spec["url"].as_str().unwrap_or("").trim();
+    if u.is_empty() {
+        return json!({"error": "no address"});
+    }
+    let target = u.trim_start_matches("https://").trim_start_matches("http://");
+    let max = spec["max"].as_u64().unwrap_or(40);
+    let a = agent_for(25);
+    let mut req = a
+        .get("https://web.archive.org/cdx/search/cdx")
+        .query("url", target)
+        .query("output", "json")
+        .query("fl", "timestamp,original,statuscode,mimetype,length,digest")
+        .query("collapse", "digest") // only copies whose content differs
+        .query("filter", "statuscode:200")
+        .query("limit", &format!("-{}", max.max(1))); // the newest ones
+    match spec["scope"].as_str().unwrap_or("page") {
+        "site" => req = req.query("matchType", "domain"),
+        "prefix" => req = req.query("matchType", "prefix"),
+        _ => {}
+    }
+    if let Some(f) = spec["from"].as_str() {
+        req = req.query("from", f);
+    }
+    if let Some(t) = spec["to"].as_str() {
+        req = req.query("to", t);
+    }
+    let rows: Value = match req
+        .clone()
+        .call()
+        .or_else(|e| match e {
+            // archive.org asks heavy users to slow down: one polite retry
+            ureq::Error::Status(429, _) => {
+                std::thread::sleep(Duration::from_secs(4));
+                req.call()
+            }
+            e => Err(e),
+        })
+        .map_err(|e| match e {
+            ureq::Error::Status(429, _) => "archive.org is busy (rate limited); try again in a minute".to_string(),
+            e => e.to_string(),
+        }).and_then(body).and_then(|b| serde_json::from_str(&b).map_err(|e| e.to_string())) {
+        Ok(v) => v,
+        Err(e) => return json!({"error": e, "url": u}),
+    };
+    let mut list: Vec<Value> = rows
+        .as_array()
+        .into_iter()
+        .flatten()
+        .skip(1) // the header row
+        .filter_map(|r| {
+            let r = r.as_array()?;
+            let ts = r.first()?.as_str()?;
+            let orig = r.get(1)?.as_str()?;
+            let date = if ts.len() >= 8 { format!("{}-{}-{}", &ts[0..4], &ts[4..6], &ts[6..8]) } else { ts.to_string() };
+            Some(json!({
+                "date": date,
+                "timestamp": ts,
+                "url": orig,
+                "type": r.get(3).and_then(|x| x.as_str()).unwrap_or(""),
+                "bytes": r.get(4).and_then(|x| x.as_str()).unwrap_or(""),
+                "archived": format!("https://web.archive.org/web/{ts}id_/{orig}"),
+            }))
+        })
+        .collect();
+    list.reverse();
+    json!({"url": u, "snapshots": list})
+}
+
+/// What a fetch gave back.
+struct Page {
+    final_url: String,
+    ctype: String,
+    data: Vec<u8>,
+}
+
+fn fetch(u: &str) -> Result<Page, String> {
+    let resp = match agent().get(u).set("Accept", "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.5").call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(code, _)) => return Err(format!("the site answered {code}")),
+        Err(e) => return Err(e.to_string()),
+    };
+    let final_url = resp.get_url().to_string();
+    let ctype = resp.header("content-type").unwrap_or("").to_lowercase();
+    Ok(Page { final_url, ctype, data: bytes(resp)? })
+}
+
+/// The closest copy the Wayback Machine holds, as the original page (no archive toolbar).
+fn wayback(u: &str) -> Option<String> {
+    let r = agent_for(10).get("https://archive.org/wayback/available").query("url", u).call().ok()?;
+    let v: Value = serde_json::from_str(&body(r).ok()?).ok()?;
+    let c = &v["archived_snapshots"]["closest"];
+    if !c["available"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let ts = c["timestamp"].as_str()?;
+    Some(format!("https://web.archive.org/web/{ts}id_/{u}"))
+}
+
+/// PDF text as paragraphs: lines joined back into sentences, page furniture (numbers, short headers) dropped.
+fn pdf_paragraphs(data: &[u8]) -> Result<Vec<String>, String> {
+    let text = std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(data))
+        .map_err(|_| "the PDF could not be read".to_string())?
+        .map_err(|e| format!("the PDF could not be read: {e}"))?;
+    // running headers and footers repeat on every page (with a page number that changes)
+    let norm = |t: &str| t.chars().filter(|c| !c.is_ascii_digit()).collect::<String>().to_lowercase();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for line in text.lines() {
+        let l = squash(line);
+        if !l.is_empty() && l.len() < 140 {
+            *seen.entry(norm(&l)).or_default() += 1;
+        }
+    }
+    let repeated = |l: &str| seen.get(&norm(&squash(l))).copied().unwrap_or(0) >= 3;
+    let text: String = text.lines().filter(|l| !repeated(l)).collect::<Vec<_>>().join("\n");
+    let mut out = Vec::new();
+    for block in text.split("\n\n") {
+        let t = squash(&block.replace("-\n", "").replace('\n', " "));
+        let t = CITE.replace_all(&t, "").trim().to_string();
+        if t.split(' ').count() >= 8 && !JUNK.is_match(&t) && !t.contains("____") && !t.contains(". . . .") && !t.contains("......") {
+            out.push(t);
+        }
+    }
+    Ok(out)
+}
+
+struct Article {
+    title: String,
+    published: String,
+    author: String,
+    description: String,
+    paras: Vec<String>,
+}
+
+fn extract(p: &Page) -> Result<Article, String> {
+    let is_pdf = p.ctype.contains("pdf") || p.data.starts_with(b"%PDF");
+    if is_pdf {
+        let paras = pdf_paragraphs(&p.data)?;
+        let name = p.final_url.rsplit('/').next().unwrap_or("").trim_end_matches(".pdf").replace(['-', '_'], " ");
+        let title = paras.first().map(|f| f.chars().take(120).collect::<String>()).filter(|_| name.len() < 4).unwrap_or(name);
+        return Ok(Article { title, published: String::new(), author: String::new(), description: String::new(), paras });
+    }
+    if !p.ctype.is_empty() && !p.ctype.contains("html") && !p.ctype.contains("xml") && !p.ctype.contains("text") {
+        return Err(format!("not a web page ({})", p.ctype));
+    }
+    let doc = Html::parse_document(&decode(&p.data, &p.ctype));
+    let title = {
+        let t = meta(&doc, &["og:title", "twitter:title"]);
+        if t.is_empty() { doc.select(&sel("title")).next().map(text_of).unwrap_or_default() } else { t }
+    };
+    Ok(Article {
+        title,
+        published: meta(&doc, &["article:published_time", "datePublished", "date", "pubdate", "og:updated_time", "dc.date"]),
+        author: meta(&doc, &["author", "article:author"]),
+        description: meta(&doc, &["og:description", "description"]),
+        paras: paragraphs(&doc),
+    })
+}
+
+/// Fetches a page (web page or PDF) and returns its article. When the live page fails, is blocked or
+/// comes back nearly empty (a paywall, a page built by script), the Wayback Machine's copy is read instead.
+/// `spec` is {"url", "topic"?, "budget"?: characters for "excerpt"}.
 pub fn read(spec: &Value) -> Value {
     let u = spec["url"].as_str().unwrap_or("").trim();
     if !u.starts_with("http://") && !u.starts_with("https://") {
@@ -443,36 +827,42 @@ pub fn read(spec: &Value) -> Value {
     }
     let topic = spec["topic"].as_str().unwrap_or("");
     let budget = spec["budget"].as_u64().unwrap_or(3000) as usize;
-    let resp = match agent().get(u).set("Accept", "text/html,application/xhtml+xml").call() {
-        Ok(r) => r,
-        Err(ureq::Error::Status(code, _)) => return json!({"error": format!("the site answered {code}"), "url": u}),
-        Err(e) => return json!({"error": e.to_string(), "url": u}),
+
+    let live = fetch(u).and_then(|p| extract(&p).map(|a| (p.final_url.clone(), a)));
+    let thin = |a: &Article| a.paras.iter().map(|p| p.len()).sum::<usize>() < 600;
+    let (final_url, art, via) = match live {
+        Ok((f, a)) if !thin(&a) => (f, a, "live"),
+        other => {
+            let why = match &other {
+                Ok(_) => "the page had almost no text".to_string(),
+                Err(e) => e.clone(),
+            };
+            match wayback(u).and_then(|w| fetch(&w).ok()).and_then(|p| extract(&p).ok().map(|a| (p.final_url.clone(), a))) {
+                Some((f, a)) if !thin(&a) => (f, a, "archive.org"),
+                _ => match other {
+                    // a thin live page is still better than nothing: its description at least
+                    Ok((f, mut a)) => {
+                        if a.paras.is_empty() && !a.description.is_empty() {
+                            a.paras.push(a.description.clone());
+                        }
+                        (f, a, "live (little text)")
+                    }
+                    Err(_) => return json!({"error": why, "url": u}),
+                },
+            }
+        }
     };
-    let final_url = resp.get_url().to_string();
-    let ctype = resp.content_type().to_string();
-    if !ctype.contains("html") && !ctype.contains("xml") && !ctype.is_empty() {
-        return json!({"error": format!("not a web page ({ctype})"), "url": u});
-    }
-    let html = match body(resp) {
-        Ok(h) => h,
-        Err(e) => return json!({"error": e, "url": u}),
-    };
-    let doc = Html::parse_document(&html);
-    let title = {
-        let t = meta(&doc, &["og:title", "twitter:title"]);
-        if t.is_empty() { doc.select(&sel("title")).next().map(text_of).unwrap_or_default() } else { t }
-    };
-    let paras = paragraphs(&doc);
-    let text = paras.join("\n\n");
-    let excerpt = pick(&paras, topic, budget).join("\n\n");
+    let text = art.paras.join("\n\n");
+    let excerpt = pick(&art.paras, topic, budget).join("\n\n");
     json!({
         "url": u,
         "final_url": final_url,
-        "site": site(&final_url),
-        "title": title,
-        "published": meta(&doc, &["article:published_time", "datePublished", "date", "pubdate", "og:updated_time"]),
-        "author": meta(&doc, &["author", "article:author"]),
-        "description": meta(&doc, &["og:description", "description"]),
+        "site": site(u),
+        "via": via,
+        "title": art.title,
+        "published": art.published,
+        "author": art.author,
+        "description": art.description,
         "chars": text.len(),
         "text": text,
         "excerpt": excerpt,
@@ -501,6 +891,11 @@ mod android {
     #[unsafe(no_mangle)]
     pub extern "system" fn Java_ai_jackknife_killayue_Scout_search(mut env: JNIEnv, _: JClass, spec: JString) -> jstring {
         call(&mut env, spec, super::search)
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "system" fn Java_ai_jackknife_killayue_Scout_history(mut env: JNIEnv, _: JClass, spec: JString) -> jstring {
+        call(&mut env, spec, super::history)
     }
 
     #[unsafe(no_mangle)]
