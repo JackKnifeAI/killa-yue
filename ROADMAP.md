@@ -31,26 +31,29 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, for TikTok, Reels and Shorts.
 - **Fixes**: the Lyrics tab keeps moving when playback starts with it open; time left sits on its own line.
 
-## 1.3.0 (next)
+## 1.3.0 (released)
 
-### Built, being tested on phones
-- **Automatic lyric sync**: a speech recogniser on the phone listens to the finished song and times every line to when it is actually sung.
+- **Automatic lyric sync**: a speech recogniser on the phone listens to the finished song and times every line to when it is actually sung, with a progress bar and the time left.
+- **Sheet music**: engraved full scores as a vector PDF, or a part for any of 38 instruments in its own key and clef, checked note for note. Tabs for guitar, bass, ukulele, mandolin and banjo; chords to sing along to with chord diagrams and the lyrics under the lines; MusicXML for MuseScore, Sibelius, Dorico and Finale; MIDI for a DAW. Read, print and share them in the app; every sheet is saved with its song.
+- **Write with AI**: a songwriter on the phone (Gemma 4 E4B, abliterated) writes and rewrites lyrics and style prompts, and can look things up on the web first.
+- **Resume a song** that stopped part way (the GPU lost, or the app or engine stopped): it carries on from its last finished render step and sounds the same as an uninterrupted song.
 - **GPU covers**: Stable Diffusion on the GPU for phones without the 8 Elite NPU.
 - **Engine in its own app process**, so Android's child-process limits never apply.
 - **Home-screen widget**: now playing, and the song being made.
 - **Ringtones and a wake-up song**: set the chorus as a ringtone, or wake up to a brand-new song the queue made overnight.
-- **Sheet music and MIDI**: engraved sheet music as a vector PDF, plus MIDI for a DAW. Full scores, or a part for any of 38 instruments in its own key and clef, checked note for note.
-- **Community skins**: install from a file, remove, make your own.
+- **Community skins**: install from a file, remove, make your own. The first is Akai '84 (`skins/akai-84.zip`).
+- **Killa Gold** now wears its leather across the whole screen.
+- **Fixes**: karaoke keeps its place through rests.
 
-### Still to do
-- **Guitar tabs and chord diagrams** for guitar, bass, ukulele, mandolin and banjo.
-- **MusicXML export** for MuseScore, Sibelius, Dorico and Finale.
+## 1.4.0 (next): the Studio, part one, "Remix"
+
+Open any song in the new Studio tab, split it into stems, then mute, solo, level and pan them, with an undo and redo tree that keeps every branch, so you can go back, try something else and still return to what you had. Export the mix and the stems. The Studio's engine and project files are already in the code and tested on the S25.
+
+## Also planned
+
 - **Showpiece sheet music**: the same notes drawn in your skin's look.
 - **Other Snapdragon phones** first, then other chips through their own drivers or processor mode.
 - **Emulator test pass** on Android 9 to 16 and several screen sizes before each release.
-
-### Planned features
-- **Lyrics and style assistant on the phone**: write lyrics and build style prompts from a song's sound, ideally on the NPU, which sits idle while the GPU makes the song.
 - **Hum a melody**: record a tune and get a song built on it.
 - **Your own voice**: train a voice adapter from your recordings.
 - **Faster rendering**: half-precision rendering and more.
@@ -68,6 +71,8 @@ Everything an artist does after the song is made, in the same app, offline and f
 - **AI voices and beats**: a voice model for spoken and sung lines and a beat model for backing tracks. Each loads only while it is in use.
 - **Export**: the stereo mix, every stem, MIDI and a portable project with its media.
 - **House rules**: recording and playback always come before AI work; one heavy model in memory at a time; projects save themselves and interrupted recordings are recovered; source files are never changed.
+
+Built in this order, each part released when it passes its checks on the phone and sounds right: **Remix** (1.4.0); **Play along** (record from the mic, a USB interface or another app, latency calibration, loop takes, editing); **MIDI and instruments**; **sampler, pads and beats**; **effects, automation and mastering**; **AI voices and beats**.
 
 ## One home for every model (planned)
 

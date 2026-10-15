@@ -51,7 +51,8 @@ int main() {
     const int rate = 48000, block = 192, tracks = 16;
     const long seconds = std::getenv("STRESS_SECONDS") ? std::atol(std::getenv("STRESS_SECONDS")) : 600;
     std::string err;
-    const char* stem = "/tmp/studio_stress_stem.wav";
+    const std::string stemPath = tmpPath("studio_stress_stem.wav");
+    const char* stem = stemPath.c_str();
     {
         std::unique_ptr<WavWriter> w(WavWriter::create(stem, rate, 2, err));
         std::vector<float> s(2 * (size_t)rate * 30);

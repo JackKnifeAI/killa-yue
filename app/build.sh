@@ -38,6 +38,15 @@ cp "$DRIVER_DIR/libexpat.so.1" out/apk/lib/arm64-v8a/libkexpat.so
 if [ -n "$ENGINE_LIB_DIR" ]; then
     cp "$ENGINE_LIB_DIR/libyueengine.so" "$ENGINE_LIB_DIR/libkvulkan.so" out/apk/lib/arm64-v8a/
 fi
+# Write with AI: llama.cpp's server as a JNI library for the ":writer" process (engine/writer, see BUILDING.md).
+if [ -n "$WRITER_LIB" ]; then
+    cp "$WRITER_LIB" out/apk/lib/arm64-v8a/libkillawriter.so
+    $STRIP out/apk/lib/arm64-v8a/libkillawriter.so 2>/dev/null || true
+fi
+# Research for the songwriter: engine/scout (Rust), web search and page reading from the phone.
+if [ -n "$SCOUT_LIB" ]; then
+    cp "$SCOUT_LIB" out/apk/lib/arm64-v8a/libkillascout.so
+fi
 # Lyric sync: whisper.cpp's whisper-cli built for Android.
 if [ -n "$WHISPER_BIN" ]; then
     cp "$WHISPER_BIN" out/apk/lib/arm64-v8a/libwhisper.so

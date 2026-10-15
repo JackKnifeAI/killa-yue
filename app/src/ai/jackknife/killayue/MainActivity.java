@@ -76,31 +76,11 @@ public class MainActivity extends Activity {
     static final int[] SEQS = {4096, 8192, 16384, 0};
     static final String[] SEQ_LABELS = {"Short songs (4096)", "Normal (8192)", "Long songs (16384)", "Maximum (uses most memory)"};
 
-    static final String ABOUT = "Songs made entirely on your phone. Nothing you write or generate leaves the device; "
-            + "the only network use is downloading models and adapters you ask for.\n\n"
-            + "Needs a phone with a Qualcomm Adreno GPU, Android 9 or later, about 6 GB of free memory for "
-            + "full-length songs and 4 GB of storage for the model.\n\n"
-            + "App: (c) 2026 JackKnife AI, Apache License 2.0.\n"
-            + "Song model: YuE2 by M-A-P, weights under CC BY-NC 4.0 with the authors' creator permission; "
-            + "downloaded separately, not part of this app. Companies need a licence from the authors for commercial use.\n"
-            + "Engine: yue2.cpp by Serveurperso, MIT. GGML, MIT.\n"
-            + "GPU driver: Mesa Turnip, MIT. Vulkan loader, Apache License 2.0.\n"
-            + "zlib (zlib licence), Zstandard (BSD), Expat (MIT), libc++ (Apache 2.0 with LLVM exception).\n"
-            + "Killa typefaces: SIL Open Font License 1.1.\n"
-            + "Album covers: Qualcomm AI Engine Direct (QNN) runtime, under the Qualcomm AI Hub Model License, included in this app only; "
-            + "QNN API headers (c) 2026 Qualcomm Technologies, Inc., BSD 3-Clause; CLIP tokenizer vocabulary (c) 2021 OpenAI, MIT. "
-            + "QR codes: QR Code generator by Project Nayuki, MIT. "
-            + "GPU covers: stable-diffusion.cpp by leejet, MIT; the GPU cover models (Stable Diffusion 1.5, OpenRAIL-M; LCM LoRA, OpenRAIL++; "
-            + "TAESD, MIT) are downloaded separately. "
-            + "Lyric sync: whisper.cpp by ggml-org, MIT; the Whisper small model (OpenAI, MIT) is downloaded separately. "
-            + "The cover model (Stable Diffusion 1.5 as compiled by Qualcomm) is downloaded separately and is licensed CreativeML OpenRAIL-M.\n"
-            + "Adapters you install belong to their makers and carry their own terms.\n\n"
-            + "Killa YuE is an independent project and is not affiliated with or endorsed by the YuE2 authors.\n"
-            + "Full licence texts are in the source repository: github.com/JackKnifeAI/killa-yue";
 
     // one job at a time, shared across activity restarts
     static volatile boolean jobBusy;
     static volatile String jobId, jobMsg = "", jobError = "";
+    static volatile String runningCheckpoint = ""; // the checkpoint folder of the song being made
     static volatile boolean jobCancel, engineHealthy;
     static volatile long jobStart;
     static MainActivity inst;
@@ -364,6 +344,14 @@ public class MainActivity extends Activity {
         return c;
     }
 
+    String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     void toast(String s) {
         Toast.makeText(this, s, Toast.LENGTH_LONG).show();
     }
@@ -604,7 +592,7 @@ public class MainActivity extends Activity {
         });
         c.addView(banner, gap(8));
 
-        c.addView(chipRow(new String[] {"Undo", "Redo", "Clear style and lyrics"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Undo", "Redo", "Clear style and lyrics", "Resume a song"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     undo();
@@ -624,6 +612,11 @@ public class MainActivity extends Activity {
                     lyrics.setText("");
                     settle();
                     toast("Cleared. Undo brings it back.");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    resumeMenu();
                 }
             },
         }));
@@ -668,6 +661,34 @@ public class MainActivity extends Activity {
         }
         c.addView(chipRow(SECTIONS, la));
         c.addView(savedRow("lyrics", "lyrics", lyrics));
+        // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter)
+        c.addView(chipRow(new String[] {"Write with AI", "Rewrite style", "Rewrite lyrics", "Sources", "Songwriter model"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    Songwriter.write(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.rewrite(MainActivity.this, "style");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.rewrite(MainActivity.this, "lyrics");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.showSources(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.pickModel(MainActivity.this);
+                }
+            },
+        }));
 
         lengthLabel = label("Length");
         lengthBar = new SeekBar(this);
@@ -1149,15 +1170,20 @@ public class MainActivity extends Activity {
     void startSong(final JSONObject req, String title, final boolean fromQueue) {
         final Context app = getApplicationContext();
         pendingTitle = title;
+        // a checkpoint folder: the song can carry on from where it stops (Resume)
+        Resume.prepare(app, req, title, pendingAlbum);
         startJob("Starting", new Task() {
             public void run() throws Exception {
                 ensureEngine(app);
                 jobMsg = "Queued";
+                runningCheckpoint = req.optString("checkpoint");
                 String id = Api.synth(req);
                 waitJob(id);
                 jobMsg = "Saving";
                 int n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
                 if (n == 0) throw new Exception("The engine finished but returned no audio.");
+                Resume.finished(req);
+                runningCheckpoint = "";
             }
 
             public void done() {
@@ -1375,6 +1401,8 @@ public class MainActivity extends Activity {
         jobBusy = true;
         jobCancel = false;
         jobError = "";
+        Songwriter.cancel();
+        Songwriter.stopNow(this); // the song engine needs the memory the songwriter's model holds
         jobMsg = msg;
         jobId = null;
         jobStart = System.currentTimeMillis();
@@ -1409,12 +1437,80 @@ public class MainActivity extends Activity {
                     a.ui.post(new Runnable() {
                         public void run() {
                             if (ferr == null) t.done();
-                            else if (!"Cancelled".equals(ferr)) a.alert("That did not work", ferr);
+                            else if (!"Cancelled".equals(ferr)) a.failed(ferr);
                         }
                     });
                 }
             }
         }, "job").start();
+    }
+
+    /** A song that failed: offer to carry on from its checkpoint when something was saved. */
+    void failed(String err) {
+        final String cp = runningCheckpoint;
+        runningCheckpoint = "";
+        Resume.Unfinished found = null;
+        if (cp.length() > 0) {
+            for (Resume.Unfinished u : Resume.list(this, "")) if (u.dir.getAbsolutePath().equals(cp)) found = u;
+        }
+        if (found == null || !found.resumable()) {
+            alert("That did not work", err);
+            return;
+        }
+        final Resume.Unfinished u = found;
+        new Lux.Builder(this).setTitle("That did not work")
+                .setMessage(err + "\n\nWhat was made so far is saved (" + u.describe().replaceFirst("^.*?·  ", "")
+                        + "). Resume carries on from there.")
+                .setPositiveButton("Resume", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        resume(u);
+                    }
+                }).setNegativeButton("Later", null).show();
+    }
+
+    void resume(Resume.Unfinished u) {
+        try {
+            pendingAlbum = u.request.optString("_album");
+            startSong(Resume.request(u), u.title, false);
+        } catch (Exception e) {
+            alert("Could not resume", String.valueOf(e.getMessage()));
+        }
+    }
+
+    /** Songs that stopped part way: carry one on, or let it go. */
+    void resumeMenu() {
+        final ArrayList<Resume.Unfinished> list = Resume.list(this, jobBusy ? runningCheckpoint : "");
+        if (list.isEmpty()) {
+            toast("No unfinished songs");
+            return;
+        }
+        String[] names = new String[list.size()];
+        for (int i = 0; i < list.size(); i++) names[i] = list.get(i).describe();
+        new Lux.Builder(this).setTitle("Unfinished songs").setItems(names, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, final int w) {
+                final Resume.Unfinished u = list.get(w);
+                AlertDialog.Builder b = new Lux.Builder(MainActivity.this).setTitle(u.title.length() > 0 ? u.title : "Untitled")
+                        .setMessage(u.describe().replaceFirst("^.*?·  ", ""))
+                        .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d2, int w2) {
+                                Resume.delete(u.dir);
+                                toast("Deleted");
+                            }
+                        }).setNegativeButton("Back", null);
+                if (u.resumable()) {
+                    b.setPositiveButton("Resume", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d2, int w2) {
+                            if (jobBusy) {
+                                toast("The engine is busy with another job");
+                                return;
+                            }
+                            resume(u);
+                        }
+                    });
+                }
+                b.show();
+            }
+        }).setNegativeButton("Close", null).show();
     }
 
     void cancelJob() {
@@ -2970,10 +3066,42 @@ public class MainActivity extends Activity {
         }
         final JSONObject m = playMeta;
         final File mf = metaFile(m);
-        final AlertDialog d = new Lux.Builder(this).setTitle("Listening to the song")
-                .setMessage("The recogniser is listening to “" + m.optString("_title") + "” and timing each line. "
-                        + "A full-length song takes two to three minutes.").setCancelable(false).create();
+        // the recogniser's own progress on a minified staff bar, with an honest time left
+        float dp = getResources().getDisplayMetrics().density;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding((int) (20 * dp), (int) (8 * dp), (int) (20 * dp), 0);
+        TextView about = text("The recogniser is listening to \u201c" + m.optString("_title") + "\u201d and timing each line. "
+                + "It works the phone hard, so it may get warm; the bar shows how far it has got.", TEXT, 14);
+        box.addView(about);
+        final StaffProgress bar = new StaffProgress(this, 36);
+        bar.setIndeterminate(true);
+        bar.setMax(100);
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, -2);
+        blp.topMargin = (int) (12 * dp);
+        box.addView(bar, blp);
+        final TextView left = text("Starting\u2026", DIM, 13);
+        box.addView(left);
+        final AlertDialog d = new Lux.Builder(this).setTitle("Listening to the song").setView(box).setCancelable(false).create();
         d.show();
+        final boolean[] heard = {false};  // the recogniser has started reporting, in this sync
+        ui.post(new Runnable() {
+            public void run() {
+                if (!d.isShowing()) return;
+                int pc = LyricSync.progress;
+                if (pc >= 0) {
+                    heard[0] = true;
+                    bar.setIndeterminate(false);
+                    bar.setProgress(pc);
+                    String t = SyncProgress.timeLeft(pc, System.currentTimeMillis() - LyricSync.listeningSince);
+                    left.setText(pc + "%" + (t.length() > 0 ? "  \u00b7  " + t : ""));
+                } else {
+                    left.setText(heard[0] ? "Matching the words to the lyrics\u2026" : "Starting\u2026");
+                }
+                bar.invalidate();
+                ui.postDelayed(this, 250);
+            }
+        });
         final Context app = getApplicationContext();
         new Thread(new Runnable() {
             public void run() {
@@ -3778,7 +3906,7 @@ public class MainActivity extends Activity {
         c.addView(about, gap(18));
         about.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                alert("Killa YuE 1.1", ABOUT);
+                alert(About.title(versionName()), About.TEXT);
             }
         });
 

@@ -1,0 +1,32 @@
+[package]
+name = "killa-scout"
+version = "0.1.0"
+edition = "2024"
+description = "Killa YuE's research tools: web search straight from the phone, page reading, and picking the passages that matter"
+license = "MIT"
+
+[lib]
+name = "killascout"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "scout"
+path = "src/main.rs"
+
+[dependencies]
+ureq = { version = "2.12", default-features = false, features = ["tls", "gzip"] }
+scraper = "0.20"
+serde_json = "1"
+url = "2"
+regex-lite = "0.1"
+pdf-extract = "0.9"
+jni = { version = "0.21", default-features = false, optional = true }
+
+[features]
+android = ["jni"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -4,13 +4,13 @@
 
 Full songs, with vocals, written and rendered entirely on an Android phone.
 
-Killa YuE is a native Android app around [YuE2](https://github.com/multimodal-art-projection/YuE), the open lyrics-to-song model from M-A-P. You type a style and lyrics, the phone's GPU does the rest, and nothing you write or generate leaves the device.
+Killa YuE is a native Android app around [YuE2](https://github.com/multimodal-art-projection/YuE), the open lyrics-to-song model from M-A-P. You type a style and lyrics, the phone's GPU does the rest, and your songs and lyrics stay on the device. (When you ask Write with AI to look something up, it sends the search queries it writes to web search sites; nothing else goes out.)
 
 As far as we could find when we built it (October 2026), this is the first app that runs YuE2 on a phone's GPU.
 
 ## Status
 
-Version 1.2.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+Version 1.3.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
 
 ## Requirements
 
@@ -46,6 +46,14 @@ On first launch, allow storage access, open the **Engine** tab and press **Get**
 - **Copy the models from a friend's phone** instead of downloading 4 GB: each file is checked against its published checksum, and an interrupted copy resumes.
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, ready for TikTok, Reels and Shorts.
 - **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Engine tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
+
+New in 1.3.0:
+
+- **Automatic lyric sync**: a speech recogniser on the phone (whisper.cpp) listens to the finished song and times every line to when it is sung, with a progress bar and the time left.
+- **Sheet music**: an engraved full score as a vector PDF, or a part for any of 38 instruments in its own key and clef; tabs for guitar, bass, ukulele, mandolin and banjo; chords to sing along to with diagrams and the lyrics under the lines; MusicXML and MIDI. Read, print and share them in the app.
+- **Write with AI**: a songwriter that runs on the phone (llama.cpp with Gemma 4 E4B, abliterated, a separate download) writes lyrics and style prompts, and can look things up on the web first.
+- **Resume a song** that stopped part way (the GPU lost, or the app or engine stopped): it carries on from its last finished render step and sounds the same as an uninterrupted song.
+- **GPU covers** for phones without the 8 Elite NPU, a **home-screen widget**, **ringtones and a wake-up song**, and **community skins** (Akai '84 is in `skins/`).
 
 What comes next is in [ROADMAP.md](ROADMAP.md).
 

@@ -28,8 +28,16 @@ public class StaffProgress extends View {
     private int max = 100, progress;
     private float shown; // eased fraction actually drawn
 
+    private int heightDp = 72;
+
     public StaffProgress(Context c) {
         super(c);
+    }
+
+    /** A smaller bar (the whole picture scales with the height), for dialogs: 36 is the minified one. */
+    public StaffProgress(Context c, int heightDp) {
+        super(c);
+        this.heightDp = heightDp;
     }
 
     public void setIndeterminate(boolean on) {
@@ -48,7 +56,7 @@ public class StaffProgress extends View {
     protected void onMeasure(int w, int h) {
         int width = MeasureSpec.getSize(w);
         float dp = getResources().getDisplayMetrics().density;
-        setMeasuredDimension(width, (int) (72 * dp));
+        setMeasuredDimension(width, (int) (heightDp * dp));
     }
 
     @Override

@@ -170,7 +170,10 @@ public class Skin {
             dial = bitmap(c, id, "dial", 1);
             round = bitmap(c, id, "round", 1);
             for (int i = 0; i < notes.length; i++) notes[i] = bitmap(c, id, "note" + (i + 1), 1);
-            tileBg = pack != null ? pack.optBoolean("tiledBackground", false) : "gold".equals(id);
+            // the built-in skins all draw one picture fitted to the screen (Killa Gold's leather used to be
+            // a repeated tile, which showed its edges); a community skin may still ask for a tile
+            tileBg = pack != null && pack.optBoolean("tiledBackground", false);
+            darkPage = pack == null && "gold".equals(id);
             bg = bitmap(c, id, tileBg ? "bg" : "wall", tileBg ? 2 : 1);
             if (pack != null && pack.optJSONArray("staff") == null) {
                 // no measurements given: the base skin's, scaled to this staff picture
@@ -194,6 +197,8 @@ public class Skin {
     }
 
     /** The skin's background art, for panels that draw it themselves (LuxFrame). */
+    private static boolean darkPage; // Killa Gold's leather is darkened on the page, as the tile was
+
     static Bitmap backgroundBitmap() {
         return bg;
     }
@@ -210,13 +215,15 @@ public class Skin {
             d.setColorFilter(0xFF444444, android.graphics.PorterDuff.Mode.MULTIPLY);
             return d;
         }
-        return new Cover(bg);
+        Cover cv = new Cover(bg);
+        if (darkPage) cv.p.setColorFilter(new android.graphics.PorterDuffColorFilter(0xFF444444, android.graphics.PorterDuff.Mode.MULTIPLY));
+        return cv;
     }
 
     /** Draws a bitmap so it fills the view, cropped at the centre, without distortion. */
     private static class Cover extends Drawable {
         private final Bitmap b;
-        private final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
+        final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
 
         Cover(Bitmap b) {
             this.b = b;

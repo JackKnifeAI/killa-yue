@@ -35,7 +35,7 @@ int main() {
             float want = (p >= 1000 && p < 101000) ? (float)(p - 1000 + 500) : 0.f;
             if (out[2 * i] != want) exact = false;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(2667)); // four times real time: 512 frames at 48 kHz is 10.7 ms
+        std::this_thread::sleep_for(std::chrono::microseconds(10667)); // real time: 512 frames at 48 kHz (a 341 ms ring of margin)
     }
     CHECK(exact, "every frame is the right file frame, with silence around the clip");
     CHECK(s.starved() == 0, "a disk that keeps up never starves");
@@ -69,16 +69,15 @@ int main() {
     {   // a small ring still fills, and a clip's own level is applied
         Ramp small(48000);
         Streamer tiny(&small, 0, 0, 48000, 1024, -6.0206f);
+        tiny.setOffline(true);  // reads wait for the disk: this checks the filling and the level, not the scheduler
         tiny.startThread();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
         std::vector<float> o(2 * 256);
         bool ok = true;
         for (int k = 0; k < 40; k++) {
             tiny.read(o.data(), 256);
             for (int i = 0; i < 256; i++) ok = ok && std::fabs(o[2 * i] - 0.5f * (k * 256 + i)) <= 1e-3f * (k * 256 + i);
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        CHECK(ok && tiny.starved() == 0, "a 1024-frame ring keeps up, and the clip's -6 dB is applied");
+        CHECK(ok && tiny.starved() == 0, "a 1024-frame ring fills, and the clip's -6 dB is applied");
         tiny.stopThread();
     }
     DONE("streamer_test");

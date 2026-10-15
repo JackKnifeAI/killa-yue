@@ -23,6 +23,8 @@ public class LyricSync {
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"};
 
     static volatile String state = "";
+    static volatile int progress = -1;          // the recogniser's progress while it listens, 0 to 100; -1 when idle
+    static volatile long listeningSince;        // when it started listening (ms), for the time left
     static volatile boolean busy;
 
     static File dir(Context c) {
@@ -114,13 +116,31 @@ public class LyricSync {
         int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 2));
         ProcessBuilder pb = new ProcessBuilder(lib + "/libwhisper.so", "-m", model(c).getAbsolutePath(),
                 "-f", audio.getAbsolutePath(), "-l", "auto", "-t", String.valueOf(threads),
-                "-ml", "1", "-sow", "-oj", "-of", outBase.getAbsolutePath(), "-np", "--prompt", hint);
+                "-ml", "1", "-sow", "-oj", "-of", outBase.getAbsolutePath(), "-np", "-pp", "--prompt", hint);
         pb.redirectErrorStream(true);
         pb.directory(c.getCacheDir());
         pb.environment().put("LD_LIBRARY_PATH", lib);
         Process p = pb.start();
-        String log = new String(Api.readAll(p.getInputStream()), "UTF-8");
-        int code = p.waitFor();
+        // read as it comes: whisper's progress lines move the bar while it listens
+        StringBuilder log = new StringBuilder();
+        listeningSince = System.currentTimeMillis();
+        progress = 0;
+        int code;
+        try {
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), "UTF-8"));
+            for (String line; (line = r.readLine()) != null; ) {
+                int pc = SyncProgress.percent(line);
+                if (pc >= 0) {
+                    progress = pc;
+                    state = "Syncing lyrics: " + pc + "%";
+                }
+                log.append(line).append('\n');
+                if (log.length() > 8000) log.delete(0, log.length() - 4000);
+            }
+            code = p.waitFor();
+        } finally {
+            progress = -1;
+        }
         EngineService.addLog("[Sync] exit " + code + " " + log.substring(Math.max(0, log.length() - 300)).replace('\n', ' '));
         if (code != 0 || !json.isFile()) throw new Exception("The recogniser could not listen to this song (code " + code + ").");
         JSONObject j = new JSONObject(new String(Store.read(json), "UTF-8"));
