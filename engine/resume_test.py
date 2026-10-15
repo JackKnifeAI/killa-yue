@@ -50,14 +50,19 @@ def digest(path):
 
 base = {"style": "lo-fi hip hop, mellow piano, soft drums, male vocal, 80 bpm",
         "lyrics": "[verse]\nThe phone is warm inside my hand\nThe night is long, the song is planned\n",
-        "duration": 6, "steps": 6, "seed": 7, "lm_seed": 7, "cot": "off", "output_format": "wav16"}
-for d in ("/tmp/cpA", "/tmp/cpB", "/tmp/cpD"):
+        "duration": 6, "steps": 6, "seed": 7, "lm_seed": 7, "cot": "full", "output_format": "wav16"}
+for d in ("/tmp/cpA", "/tmp/cpB", "/tmp/cpD", "/tmp/cpE"):
     shutil.rmtree(d, ignore_errors=True)
 
 print("A (compose + render, saving):", run(dict(base, checkpoint="/tmp/cpA")))
 comp = json.load(open("/tmp/cpA/composed-0.json"))
 print("  composed frames:", comp["frames"], "seed:", comp["seed"])
-replay = dict(base, semantic_tokens=comp["semantic_tokens"], seed=comp["seed"], max_chunk=60)
+print("  score tokens saved:", len(comp.get("abc_tokens", "").split(",")) if comp.get("abc_tokens") else 0)
+exact = dict(base, semantic_tokens=comp["semantic_tokens"], abc=comp["abc"], abc_tokens=comp["abc_tokens"], seed=comp["seed"])
+print("E (replay with the saved score tokens, no chunking):", run(dict(exact, checkpoint="/tmp/cpE")))
+a, e = digest("/tmp/cpA/render-0.bin"), digest("/tmp/cpE/render-0.bin")
+print("original render A:", a, " replayed E:", e, " ->", "IDENTICAL" if a == e and a != "missing" else "DIFFERENT")
+replay = dict(exact, max_chunk=60)
 
 print("D (replay in chunks, uninterrupted):", run(dict(replay, checkpoint="/tmp/cpD")))
 

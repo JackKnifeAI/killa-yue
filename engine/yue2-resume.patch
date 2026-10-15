@@ -51,7 +51,7 @@ index 65067ae..02a17f5 100644
      }
      debug_dump_2d(dbg, "nar_x0", state, T_lat, n->latent_dim);
 diff --git a/src/pipeline.h b/src/pipeline.h
-index f5a2159..1d28b30 100644
+index f5a2159..b5c55e0 100644
 --- a/src/pipeline.h
 +++ b/src/pipeline.h
 @@ -27,7 +27,10 @@
@@ -65,7 +65,7 @@ index f5a2159..1d28b30 100644
  #include <cstring>
  #include <optional>
  #include <string>
-@@ -81,6 +84,148 @@ struct Yue2Song {
+@@ -81,6 +84,174 @@ struct Yue2Song {
  };
  
  // Parses the CSV interchange of a semantic stream
@@ -110,7 +110,12 @@ index f5a2159..1d28b30 100644
 +    return o + "\"";
 +}
 +
-+static void cp_save_composed(const Yue2Request & r, int song, const std::string & score, const Yue2Generation & codes) {
++static void cp_save_composed(const Yue2Request & r, int song, const std::string & score, const std::vector<int> & abc_ids,
++                             const Yue2Generation & codes) {
++    std::string abc_csv;
++    for (size_t k = 0; k < abc_ids.size(); k++) {
++        abc_csv += (k ? "," : "") + std::to_string(abc_ids[k]);
++    }
 +    std::string csv;
 +    for (size_t k = 0; k < codes.tokens.size(); k++) {
 +        if (k) {
@@ -121,7 +126,7 @@ index f5a2159..1d28b30 100644
 +    std::string j = "{\"song\":" + std::to_string(song) + ",\"seed\":" + std::to_string(r.seed) +
 +                    ",\"lm_seed\":" + std::to_string(r.lm_seed + song) + ",\"truncated\":" +
 +                    (codes.truncated ? "true" : "false") + ",\"frames\":" + std::to_string(codes.tokens.size()) +
-+                    ",\"abc\":" + cp_json_string(score) + ",\"semantic_tokens\":" + cp_json_string(csv) + "}\n";
++                    ",\"abc\":" + cp_json_string(score) + ",\"abc_tokens\":" + cp_json_string(abc_csv) + ",\"semantic_tokens\":" + cp_json_string(csv) + "}\n";
 +    std::string path = r.checkpoint + "/composed-" + std::to_string(song) + ".json";
 +    if (cp_write(path, j.data(), j.size())) {
 +        fprintf(stderr, "[Checkpoint] Composition of song %d saved (%zu frames)\n", song, codes.tokens.size());
@@ -185,6 +190,27 @@ index f5a2159..1d28b30 100644
 +    }
 +}
 +
++// token ids of the text vocabulary as CSV (the score), any non-negative value
++static bool cp_parse_ids(const std::string & csv, std::vector<int> * out) {
++    out->clear();
++    const char * p = csv.c_str();
++    while (*p) {
++        if (*p == ',' || *p == ' ') {
++            p++;
++            continue;
++        }
++        char * end   = nullptr;
++        long   value = strtol(p, &end, 10);
++        if (end == p || value < 0) {
++            fprintf(stderr, "[Pipeline] FATAL: bad abc_tokens near \"%.12s\"\n", p);
++            return false;
++        }
++        out->push_back((int) value);
++        p = end;
++    }
++    return !out->empty();
++}
++
 +// loads a saved render that matches this song; returns false when there is none
 +static bool cp_load_render(const Yue2Request & r, int song, std::vector<Yue2Song> * songs, int M, int T_lat, int dim,
 +                           int chunk_size, int * chunk_start, int * steps_done) {
@@ -214,7 +240,24 @@ index f5a2159..1d28b30 100644
  static bool pipeline_parse_tokens(const std::string & csv, std::vector<int> * out) {
      out->clear();
      const char * p = csv.c_str();
-@@ -552,6 +697,15 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+@@ -484,7 +655,15 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+         }
+         lm_hold.emplace(p->store, lm);
+     }
+-    if (has_score && !r.abc.empty()) {
++    if (has_score && !r.abc.empty() && !r.abc_tokens.empty()) {
++        // a resumed render: the score's own token ids, exactly as it was written
++        std::vector<int> ids;
++        if (!cp_parse_ids(r.abc_tokens, &ids)) {
++            return false;
++        }
++        abc_ids.assign(B, ids);
++        scores.assign(B, r.abc);
++    } else if (has_score && !r.abc.empty()) {
+         abc_ids.assign(B, encode(r.abc));
+         scores.assign(B, r.abc);
+     } else if (has_score) {
+@@ -552,6 +731,15 @@ static bool pipeline_generate(Yue2Pipeline *          p,
          }
      }
  
@@ -222,7 +265,7 @@ index f5a2159..1d28b30 100644
 +        mkdir(r.checkpoint.c_str(), 0755);
 +        if (!replay) {
 +            for (int i = 0; i < B; i++) {
-+                cp_save_composed(r, i, scores[i], codes[i]);
++                cp_save_composed(r, i, scores[i], abc_ids[i], codes[i]);
 +            }
 +        }
 +    }
@@ -230,7 +273,7 @@ index f5a2159..1d28b30 100644
      // Acoustic chunks: the context holds the prefix, the codes of the chunk
      // and their latent block twice over, once as tokens and once as frames
      const int context = p->kv.cfg.max_seq_len;
-@@ -568,6 +722,9 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+@@ -568,6 +756,9 @@ static bool pipeline_generate(Yue2Pipeline *          p,
              return false;
          }
          chunk_sizes[i] = (context - (int) prefixes[i].size() - 3) / 2;
@@ -240,7 +283,7 @@ index f5a2159..1d28b30 100644
          if (chunk_sizes[i] < 1) {
              fprintf(stderr, "[Pipeline] FATAL: prefix %zu leaves no acoustic context in %d\n", prefixes[i].size(),
                      context);
-@@ -622,10 +779,19 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+@@ -622,10 +813,19 @@ static bool pipeline_generate(Yue2Pipeline *          p,
          fprintf(stderr, "[NAR] Song %d: %d frames (%.1f s), prefix %d, %d chunk%s of %d, %d variation%s\n", i, T_lat,
                  (float) T_lat / (float) YUE2_FRAME_RATE, prefix_len, chunks, chunks > 1 ? "s" : "", chunk_size, M,
                  M > 1 ? "s" : "");
@@ -260,7 +303,7 @@ index f5a2159..1d28b30 100644
  
              // The chunk sequence is the prefix, the codes of the chunk and the
              // end token. Its head already sits in the set, the whole prefix
-@@ -635,7 +801,10 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+@@ -635,7 +835,10 @@ static bool pipeline_generate(Yue2Pipeline *          p,
              std::vector<int> sequence = prefixes[i];
              sequence.insert(sequence.end(), codes[i].tokens.begin() + start, codes[i].tokens.begin() + start + frames);
              sequence.push_back(YUE2_MUSIC_END);
@@ -272,7 +315,7 @@ index f5a2159..1d28b30 100644
              if (kept < ar_len) {
                  nar_hold.reset();
                  nar                = nullptr;
-@@ -671,7 +840,10 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+@@ -671,7 +874,10 @@ static bool pipeline_generate(Yue2Pipeline *          p,
                         (*songs)[(size_t) i * M + j].latents.data() + (size_t) start * YUE2_LATENT_DIM,
                         span * sizeof(float));
              }
@@ -285,24 +328,28 @@ index f5a2159..1d28b30 100644
              }
              for (int j = 0; j < M; j++) {
 diff --git a/src/request.cpp b/src/request.cpp
-index ad6c564..ed3909c 100644
+index ad6c564..2fbac7b 100644
 --- a/src/request.cpp
 +++ b/src/request.cpp
-@@ -40,6 +40,8 @@ void request_init(Yue2Request * r) {
+@@ -40,6 +40,9 @@ void request_init(Yue2Request * r) {
      r->source_tokens = "";
      r->source_start  = 0.0f;
      r->source_end    = -1.0f;
 +    r->checkpoint    = "";
++    r->abc_tokens    = "";
 +    r->max_chunk     = 0;
  }
  
  static inline std::string yy_str(yyjson_val * v) {
-@@ -175,6 +177,12 @@ static void request_parse_obj(yyjson_val * obj, Yue2Request * r) {
+@@ -175,6 +178,15 @@ static void request_parse_obj(yyjson_val * obj, Yue2Request * r) {
      if ((v = yyjson_obj_get(obj, "source_end")) && yyjson_is_num(v)) {
          r->source_end = (float) yyjson_get_num(v);
      }
 +    if ((v = yyjson_obj_get(obj, "checkpoint")) && yyjson_is_str(v)) {
 +        r->checkpoint = yy_str(v);
++    }
++    if ((v = yyjson_obj_get(obj, "abc_tokens")) && yyjson_is_str(v)) {
++        r->abc_tokens = yy_str(v);
 +    }
 +    if ((v = yyjson_obj_get(obj, "max_chunk")) && yyjson_is_int(v)) {
 +        r->max_chunk = yyjson_get_int(v);
@@ -310,12 +357,15 @@ index ad6c564..ed3909c 100644
      if ((v = yyjson_obj_get(obj, "adapters")) && yyjson_is_arr(v)) {
          size_t       i, n;
          yyjson_val * item;
-@@ -290,6 +298,12 @@ std::string request_to_json(const Yue2Request * r, bool sparse) {
+@@ -290,6 +302,15 @@ std::string request_to_json(const Yue2Request * r, bool sparse) {
      if (!sparse || r->source_end != d.source_end) {
          yyjson_mut_obj_add_real(doc, root, "source_end", r->source_end);
      }
 +    if (!sparse || r->checkpoint != d.checkpoint) {
 +        yyjson_mut_obj_add_strncpy(doc, root, "checkpoint", r->checkpoint.c_str(), r->checkpoint.size());
++    }
++    if (!sparse || r->abc_tokens != d.abc_tokens) {
++        yyjson_mut_obj_add_strncpy(doc, root, "abc_tokens", r->abc_tokens.c_str(), r->abc_tokens.size());
 +    }
 +    if (!sparse || r->max_chunk != d.max_chunk) {
 +        yyjson_mut_obj_add_int(doc, root, "max_chunk", r->max_chunk);
@@ -324,10 +374,10 @@ index ad6c564..ed3909c 100644
          yyjson_mut_val * list = yyjson_mut_arr(doc);
          for (const Yue2Adapter & a : r->adapters) {
 diff --git a/src/request.h b/src/request.h
-index c508f5b..5e51b82 100644
+index c508f5b..577e2a9 100644
 --- a/src/request.h
 +++ b/src/request.h
-@@ -87,6 +87,16 @@ struct Yue2Request {
+@@ -87,6 +87,21 @@ struct Yue2Request {
      std::string source_tokens;  // "" (no continuation)
      float       source_start;   // 0
      float       source_end;     // -1
@@ -337,6 +387,11 @@ index c508f5b..5e51b82 100644
 +    // song that fails or is stopped can carry on where it was (a request with
 +    // the same folder, its seed and the saved stream as semantic_tokens)
 +    std::string checkpoint;  // "" (none)
++
++    // the score as the model's own token ids (CSV), saved with a checkpoint:
++    // a resumed render conditions on exactly the tokens the score was written
++    // in, which the abc text does not always encode back to
++    std::string abc_tokens;  // ""
 +
 +    // the longest stretch rendered in one go, in frames (25 per second). 0 is
 +    // as long as the context allows; shorter chunks keep every GPU pass short
