@@ -1,0 +1,346 @@
+diff --git a/src/nar.h b/src/nar.h
+index 65067ae..02a17f5 100644
+--- a/src/nar.h
++++ b/src/nar.h
+@@ -517,6 +517,9 @@ static void nar_dump_named(const Yue2NAR * n, const DebugDumper * dbg) {
+ // and the latents on exit. The dumper, when enabled, records the first
+ // variation: the noise, the probes of the first evaluation, both velocities
+ // and the state of every step, and the latents.
++// The solver is deterministic, so it can carry on from a saved state:
++// first_step > 0 takes state as the result of that many steps. on_step, when
++// given, sees the state after every step (to save it).
+ static bool nar_solve(Yue2NAR *            n,
+                       const Qw3lmKvCache * kv,
+                       float *              state,
+@@ -526,16 +529,23 @@ static bool nar_solve(Yue2NAR *            n,
+                       int                  kv_set,
+                       int                  steps,
+                       const DebugDumper *  dbg,
+-                      bool (*cancelled)(void *) = nullptr,
+-                      void * cancel_data        = nullptr) {
++                      bool (*cancelled)(void *)                  = nullptr,
++                      void * cancel_data                         = nullptr,
++                      int    first_step                          = 0,
++                      void (*on_step)(void *, int, const float *) = nullptr,
++                      void * step_data                           = nullptr) {
+     size_t             count = (size_t) n->latent_dim * T_lat * M;
+     std::vector<float> first(count), mid(count), second(count);
+     float              dt = 1.0f / (float) steps;
+     char               name[64];
+ 
+-    debug_dump_2d(dbg, "noise", state, T_lat, n->latent_dim);
++    if (first_step <= 0) {
++        debug_dump_2d(dbg, "noise", state, T_lat, n->latent_dim);
++    } else {
++        fprintf(stderr, "[NAR] Resumed after step %d/%d\n", first_step, steps);
++    }
+     Timer solve_timer;
+-    for (int step = 0; step < steps; step++) {
++    for (int step = first_step > 0 ? first_step : 0; step < steps; step++) {
+         Timer step_timer;
+         if (cancelled && cancelled(cancel_data)) {
+             fprintf(stderr, "[NAR] Cancelled at step %d\n", step);
+@@ -565,6 +575,9 @@ static bool nar_solve(Yue2NAR *            n,
+         snprintf(name, sizeof(name), "nar_step%d_xt", step);
+         debug_dump_2d(dbg, name, state, T_lat, n->latent_dim);
+         fprintf(stderr, "[NAR] Step %d/%d, %.0f ms\n", step + 1, steps, step_timer.ms());
++        if (on_step) {
++            on_step(step_data, step + 1, state);
++        }
+         gentle_nar_pause();
+     }
+     debug_dump_2d(dbg, "nar_x0", state, T_lat, n->latent_dim);
+diff --git a/src/pipeline.h b/src/pipeline.h
+index f5a2159..1d28b30 100644
+--- a/src/pipeline.h
++++ b/src/pipeline.h
+@@ -27,7 +27,10 @@
+ #include "vae-enc.h"
+ #include "vae.h"
+ 
++#include <cstdio>
+ #include <cstdlib>
++#include <sys/stat.h>
++#include <unistd.h>
+ #include <cstring>
+ #include <optional>
+ #include <string>
+@@ -81,6 +84,148 @@ struct Yue2Song {
+ };
+ 
+ // Parses the CSV interchange of a semantic stream
++// ---- checkpoints: what a song has made so far, kept so it can carry on ----
++// composed-<song>.json holds the score and the semantic stream (what the AR half
++// wrote) with the seeds; render-<song>.bin holds the render after every ODE step.
++// Files are written beside their place and renamed into it, so a crash never
++// leaves half a file.
++
++static bool cp_write(const std::string & path, const void * data, size_t size) {
++    std::string tmp = path + ".tmp";
++    FILE *      f   = fopen(tmp.c_str(), "wb");
++    if (!f) {
++        return false;
++    }
++    bool ok = fwrite(data, 1, size, f) == size;
++    ok      = fflush(f) == 0 && ok;
++    ok      = fsync(fileno(f)) == 0 && ok;
++    fclose(f);
++    return ok && rename(tmp.c_str(), path.c_str()) == 0;
++}
++
++static std::string cp_json_string(const std::string & s) {
++    std::string o = "\"";
++    for (unsigned char c : s) {
++        switch (c) {
++            case '"': o += "\\\""; break;
++            case '\\': o += "\\\\"; break;
++            case '\n': o += "\\n"; break;
++            case '\r': o += "\\r"; break;
++            case '\t': o += "\\t"; break;
++            default:
++                if (c < 0x20) {
++                    char b[8];
++                    snprintf(b, sizeof(b), "\\u%04x", c);
++                    o += b;
++                } else {
++                    o += (char) c;
++                }
++        }
++    }
++    return o + "\"";
++}
++
++static void cp_save_composed(const Yue2Request & r, int song, const std::string & score, const Yue2Generation & codes) {
++    std::string csv;
++    for (size_t k = 0; k < codes.tokens.size(); k++) {
++        if (k) {
++            csv += ',';
++        }
++        csv += std::to_string(codes.tokens[k] - YUE2_CODEC_OFFSET);
++    }
++    std::string j = "{\"song\":" + std::to_string(song) + ",\"seed\":" + std::to_string(r.seed) +
++                    ",\"lm_seed\":" + std::to_string(r.lm_seed + song) + ",\"truncated\":" +
++                    (codes.truncated ? "true" : "false") + ",\"frames\":" + std::to_string(codes.tokens.size()) +
++                    ",\"abc\":" + cp_json_string(score) + ",\"semantic_tokens\":" + cp_json_string(csv) + "}\n";
++    std::string path = r.checkpoint + "/composed-" + std::to_string(song) + ".json";
++    if (cp_write(path, j.data(), j.size())) {
++        fprintf(stderr, "[Checkpoint] Composition of song %d saved (%zu frames)\n", song, codes.tokens.size());
++    } else {
++        fprintf(stderr, "[Checkpoint] Could not save %s\n", path.c_str());
++    }
++}
++
++// render-<song>.bin: this header, then the latents of all M variations of the
++// song, [M, T_lat, dim]. chunk_start/steps_done say where the render stands:
++// chunks before chunk_start are finished, that chunk has steps_done steps.
++struct CpRenderHeader {
++    char    magic[4];  // "KYR1"
++    int32_t T_lat, M, dim, chunk_size, steps, chunk_start, steps_done;
++    int64_t seed;
++};
++
++struct CpStep {
++    const Yue2Request *       r;
++    std::vector<Yue2Song> *   songs;
++    int                       song, M, T_lat, dim, chunk_size, start, frames, steps;
++    const float *             block;
++};
++
++static void cp_save_render(CpStep * c, int chunk_start, int steps_done) {
++    CpRenderHeader h = {};
++    memcpy(h.magic, "KYR1", 4);
++    h.T_lat       = c->T_lat;
++    h.M           = c->M;
++    h.dim         = c->dim;
++    h.chunk_size  = c->chunk_size;
++    h.steps       = c->steps;
++    h.chunk_start = chunk_start;
++    h.steps_done  = steps_done;
++    h.seed        = c->r->seed;
++    size_t per    = (size_t) c->T_lat * c->dim;
++    std::vector<char> buf(sizeof(h) + per * c->M * sizeof(float));
++    memcpy(buf.data(), &h, sizeof(h));
++    for (int j = 0; j < c->M; j++) {
++        memcpy(buf.data() + sizeof(h) + per * j * sizeof(float), (*c->songs)[(size_t) c->song * c->M + j].latents.data(),
++               per * sizeof(float));
++    }
++    std::string path = c->r->checkpoint + "/render-" + std::to_string(c->song) + ".bin";
++    if (!cp_write(path, buf.data(), buf.size())) {
++        fprintf(stderr, "[Checkpoint] Could not save %s\n", path.c_str());
++    }
++}
++
++// after every ODE step: the chunk's state goes into the song, then to disk
++static void cp_on_step(void * data, int steps_done, const float * state) {
++    CpStep * c    = (CpStep *) data;
++    size_t   span = (size_t) c->frames * c->dim;
++    for (int j = 0; j < c->M; j++) {
++        memcpy((*c->songs)[(size_t) c->song * c->M + j].latents.data() + (size_t) c->start * c->dim, state + span * j,
++               span * sizeof(float));
++    }
++    if (steps_done >= c->steps) {
++        cp_save_render(c, c->start + c->frames, 0);  // the chunk is done: the next one starts fresh
++    } else {
++        cp_save_render(c, c->start, steps_done);
++    }
++}
++
++// loads a saved render that matches this song; returns false when there is none
++static bool cp_load_render(const Yue2Request & r, int song, std::vector<Yue2Song> * songs, int M, int T_lat, int dim,
++                           int chunk_size, int * chunk_start, int * steps_done) {
++    std::string path = r.checkpoint + "/render-" + std::to_string(song) + ".bin";
++    FILE *      f    = fopen(path.c_str(), "rb");
++    if (!f) {
++        return false;
++    }
++    CpRenderHeader h  = {};
++    bool           ok = fread(&h, sizeof(h), 1, f) == 1 && memcmp(h.magic, "KYR1", 4) == 0 && h.T_lat == T_lat &&
++              h.M == M && h.dim == dim && h.chunk_size == chunk_size && h.steps == r.steps && h.seed == r.seed;
++    size_t per = (size_t) T_lat * dim;
++    for (int j = 0; ok && j < M; j++) {
++        ok = fread((*songs)[(size_t) song * M + j].latents.data(), sizeof(float), per, f) == per;
++    }
++    fclose(f);
++    if (!ok) {
++        fprintf(stderr, "[Checkpoint] %s does not match this song, starting the render over\n", path.c_str());
++        return false;
++    }
++    *chunk_start = h.chunk_start;
++    *steps_done  = h.steps_done;
++    fprintf(stderr, "[Checkpoint] Render of song %d resumes at frame %d, step %d\n", song, h.chunk_start, h.steps_done);
++    return true;
++}
++
+ static bool pipeline_parse_tokens(const std::string & csv, std::vector<int> * out) {
+     out->clear();
+     const char * p = csv.c_str();
+@@ -552,6 +697,15 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+         }
+     }
+ 
++    if (!r.checkpoint.empty()) {
++        mkdir(r.checkpoint.c_str(), 0755);
++        if (!replay) {
++            for (int i = 0; i < B; i++) {
++                cp_save_composed(r, i, scores[i], codes[i]);
++            }
++        }
++    }
++
+     // Acoustic chunks: the context holds the prefix, the codes of the chunk
+     // and their latent block twice over, once as tokens and once as frames
+     const int context = p->kv.cfg.max_seq_len;
+@@ -568,6 +722,9 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+             return false;
+         }
+         chunk_sizes[i] = (context - (int) prefixes[i].size() - 3) / 2;
++        if (r.max_chunk > 0 && r.max_chunk < chunk_sizes[i]) {
++            chunk_sizes[i] = r.max_chunk;  // shorter GPU passes, asked for by the caller
++        }
+         if (chunk_sizes[i] < 1) {
+             fprintf(stderr, "[Pipeline] FATAL: prefix %zu leaves no acoustic context in %d\n", prefixes[i].size(),
+                     context);
+@@ -622,10 +779,19 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+         fprintf(stderr, "[NAR] Song %d: %d frames (%.1f s), prefix %d, %d chunk%s of %d, %d variation%s\n", i, T_lat,
+                 (float) T_lat / (float) YUE2_FRAME_RATE, prefix_len, chunks, chunks > 1 ? "s" : "", chunk_size, M,
+                 M > 1 ? "s" : "");
++        int resume_start = 0, resume_steps = 0;
++        if (!r.checkpoint.empty()) {
++            cp_load_render(r, i, songs, M, T_lat, YUE2_LATENT_DIM, chunk_size, &resume_start, &resume_steps);
++        }
++        // the KV set holds this song's prefix once a chunk has forwarded it (or the AR half left it there)
++        bool primed = false;
+         for (int start = 0; start < T_lat; start += chunk_size) {
+             Timer chunk_timer;
+             int   frames = T_lat - start < chunk_size ? T_lat - start : chunk_size;
+             int   ar_len = prefix_len + frames + 1;
++            if (start + frames <= resume_start) {
++                continue;  // rendered before the song stopped
++            }
+ 
+             // The chunk sequence is the prefix, the codes of the chunk and the
+             // end token. Its head already sits in the set, the whole prefix
+@@ -635,7 +801,10 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+             std::vector<int> sequence = prefixes[i];
+             sequence.insert(sequence.end(), codes[i].tokens.begin() + start, codes[i].tokens.begin() + start + frames);
+             sequence.push_back(YUE2_MUSIC_END);
+-            const int kept = start > 0 ? prefix_len : (replay ? 0 : ar_len);
++            // what the set already holds: the AR half's own sequence for the first chunk of a
++            // generated song, the prefix once a chunk has been forwarded, nothing otherwise
++            const int kept = primed ? prefix_len : (start == 0 && !replay ? ar_len : 0);
++            primed         = true;
+             if (kept < ar_len) {
+                 nar_hold.reset();
+                 nar                = nullptr;
+@@ -671,7 +840,10 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+                        (*songs)[(size_t) i * M + j].latents.data() + (size_t) start * YUE2_LATENT_DIM,
+                        span * sizeof(float));
+             }
+-            if (!nar_solve(nar, &p->kv, block.data(), frames, M, ar_len, i, r.steps, dbg, cancelled, cancel_data)) {
++            int     first_step = start == resume_start ? resume_steps : 0;
++            CpStep  cp         = { &r, songs, i, M, T_lat, YUE2_LATENT_DIM, chunk_size, start, frames, r.steps, block.data() };
++            if (!nar_solve(nar, &p->kv, block.data(), frames, M, ar_len, i, r.steps, dbg, cancelled, cancel_data,
++                           first_step, r.checkpoint.empty() ? nullptr : cp_on_step, &cp)) {
+                 return false;
+             }
+             for (int j = 0; j < M; j++) {
+diff --git a/src/request.cpp b/src/request.cpp
+index ad6c564..ed3909c 100644
+--- a/src/request.cpp
++++ b/src/request.cpp
+@@ -40,6 +40,8 @@ void request_init(Yue2Request * r) {
+     r->source_tokens = "";
+     r->source_start  = 0.0f;
+     r->source_end    = -1.0f;
++    r->checkpoint    = "";
++    r->max_chunk     = 0;
+ }
+ 
+ static inline std::string yy_str(yyjson_val * v) {
+@@ -175,6 +177,12 @@ static void request_parse_obj(yyjson_val * obj, Yue2Request * r) {
+     if ((v = yyjson_obj_get(obj, "source_end")) && yyjson_is_num(v)) {
+         r->source_end = (float) yyjson_get_num(v);
+     }
++    if ((v = yyjson_obj_get(obj, "checkpoint")) && yyjson_is_str(v)) {
++        r->checkpoint = yy_str(v);
++    }
++    if ((v = yyjson_obj_get(obj, "max_chunk")) && yyjson_is_int(v)) {
++        r->max_chunk = yyjson_get_int(v);
++    }
+     if ((v = yyjson_obj_get(obj, "adapters")) && yyjson_is_arr(v)) {
+         size_t       i, n;
+         yyjson_val * item;
+@@ -290,6 +298,12 @@ std::string request_to_json(const Yue2Request * r, bool sparse) {
+     if (!sparse || r->source_end != d.source_end) {
+         yyjson_mut_obj_add_real(doc, root, "source_end", r->source_end);
+     }
++    if (!sparse || r->checkpoint != d.checkpoint) {
++        yyjson_mut_obj_add_strncpy(doc, root, "checkpoint", r->checkpoint.c_str(), r->checkpoint.size());
++    }
++    if (!sparse || r->max_chunk != d.max_chunk) {
++        yyjson_mut_obj_add_int(doc, root, "max_chunk", r->max_chunk);
++    }
+     if (!sparse || !r->adapters.empty()) {
+         yyjson_mut_val * list = yyjson_mut_arr(doc);
+         for (const Yue2Adapter & a : r->adapters) {
+diff --git a/src/request.h b/src/request.h
+index c508f5b..5e51b82 100644
+--- a/src/request.h
++++ b/src/request.h
+@@ -87,6 +87,16 @@ struct Yue2Request {
+     std::string source_tokens;  // "" (no continuation)
+     float       source_start;   // 0
+     float       source_end;     // -1
++
++    // a folder where the engine keeps what it has made so far: the composed
++    // stream as soon as it is written, and the render after every step, so a
++    // song that fails or is stopped can carry on where it was (a request with
++    // the same folder, its seed and the saved stream as semantic_tokens)
++    std::string checkpoint;  // "" (none)
++
++    // the longest stretch rendered in one go, in frames (25 per second). 0 is
++    // as long as the context allows; shorter chunks keep every GPU pass short
++    int max_chunk;  // 0
+ };
+ 
+ // fills every field with its default
