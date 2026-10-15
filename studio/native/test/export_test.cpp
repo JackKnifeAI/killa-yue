@@ -39,7 +39,7 @@ int main() {
     }
     e.post({Msg::Swap, 0, 0, 0, new Session{rate, {{&s, -6.0206f, 0.f, false, false}}}});
     const char* out = "/tmp/studio_export_mix.wav";
-    CHECK(exportMix(e, rate, out, rate, err), "export");
+    CHECK(exportMix(e, rate, out, err), "export");
     s.stopThread();
     WavReader* m = WavReader::open(out, err);
     std::vector<float> mix(2 * rate);
@@ -52,6 +52,15 @@ int main() {
     delete r;
     delete e.takeRetired();
     delete e.takeRetired();
+    {   // an engine whose queue is full still exports: the export makes room instead of dropping an order
+        Engine busy(rate, 4096);
+        while (busy.post({Msg::Gain, 0, 0.f, 0, nullptr})) {}
+        std::string why;
+        CHECK(exportMix(busy, 100, out, why), "a full queue is emptied, not an error");
+        WavReader* r2 = WavReader::open(out, why);
+        CHECK(r2 && r2->frames() == 100, "and the export has every frame");
+        delete r2;
+    }
     std::remove(stem);
     std::remove(out);
     DONE("export_test");

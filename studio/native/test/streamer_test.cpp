@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <cmath>
 #include <vector>
 using namespace studio;
 
@@ -65,5 +66,20 @@ int main() {
     s.read(out.data(), 512); // time kept moving during the stall: this block starts at 50000 + 512
     CHECK(out[0] == (float)(50000 + 512 - 1000 + 500), "after the stall it plays in time, from where the song has got to");
     s.stopThread();
+    {   // a small ring still fills, and a clip's own level is applied
+        Ramp small(48000);
+        Streamer tiny(&small, 0, 0, 48000, 1024, -6.0206f);
+        tiny.startThread();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::vector<float> o(2 * 256);
+        bool ok = true;
+        for (int k = 0; k < 40; k++) {
+            tiny.read(o.data(), 256);
+            for (int i = 0; i < 256; i++) ok = ok && std::fabs(o[2 * i] - 0.5f * (k * 256 + i)) <= 1e-3f * (k * 256 + i);
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        CHECK(ok && tiny.starved() == 0, "a 1024-frame ring keeps up, and the clip's -6 dB is applied");
+        tiny.stopThread();
+    }
     DONE("streamer_test");
 }

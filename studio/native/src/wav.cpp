@@ -1,6 +1,7 @@
 #include "studio/wav.h"
 #include <cstdint>
 #include <cstring>
+#include <fcntl.h>
 #include <unistd.h>
 
 namespace studio {
@@ -44,6 +45,9 @@ WavReader* WavReader::open(const char* path, std::string& error) {
             if (size == 0xFFFFFFFFu && dataSize64) size = dataSize64;
             w->dataStart_ = body;
             const int block = w->channels_ * w->bits_ / 8;
+            fseeko(f, 0, SEEK_END);
+            const uint64_t there = (uint64_t)std::max(0L, (long)ftello(f) - body);  // what the file really holds
+            if (size > there) size = there;
             w->frames_ = fmt && block > 0 ? (long)(size / block) : 0;
             data = true;
             break;
@@ -90,8 +94,9 @@ int WavReader::read(long at, float* out, int frames) {
 // header: RIFF(12) + JUNK(8+28, becomes ds64 for RF64) + fmt (8+16) + data(8) = 80 bytes
 static const int kHeader = 80;
 
-WavWriter* WavWriter::create(const char* path, int rate, int channels, std::string& error) {
+WavWriter* WavWriter::create(const char* path, int rate, int channels, std::string& error, unsigned long long rf64Above) {
     WavWriter* w = new WavWriter();
+    w->rf64Above_ = rf64Above;
     w->path_ = path;
     w->channels_ = channels;
     w->f_ = std::fopen((w->path_ + ".part").c_str(), "wb");
@@ -132,7 +137,7 @@ bool WavWriter::finish() {
     // the header is rewritten in place: RIFF sizes, or RF64 with its ds64 where JUNK held the room
     const uint64_t riff = dataBytes_ + kHeader - 8;
     unsigned char top[12], junk[36], data[8];
-    if (riff <= 0xFFFFFFFFull) {
+    if (riff <= rf64Above_) {
         std::memcpy(top, "RIFF", 4);
         put32(top + 4, (uint32_t)riff);
         std::memcpy(junk, "JUNK", 4);
@@ -159,6 +164,15 @@ bool WavWriter::finish() {
     ok = std::fclose(f_) == 0 && ok;
     f_ = nullptr;
     ok = ok && std::rename((path_ + ".part").c_str(), path_.c_str()) == 0;
+    if (ok) {  // make the rename itself durable, where the folder can be opened (a best effort)
+        const size_t slash = path_.rfind('/');
+        const std::string dir = slash == std::string::npos ? "." : slash == 0 ? "/" : path_.substr(0, slash);
+        const int fd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY);
+        if (fd >= 0) {
+            fsync(fd);
+            ::close(fd);
+        }
+    }
     done_ = ok;
     if (!ok) std::remove((path_ + ".part").c_str());
     return ok;

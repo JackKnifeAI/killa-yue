@@ -11,8 +11,9 @@ static long powerOfTwo(long n) {
     return p;
 }
 
-Streamer::Streamer(Reader* r, long clipStart, long fileOffset, long length, int ringFrames)
-    : reader_(r), start_(clipStart), offset_(fileOffset), length_(length), cap_(powerOfTwo(ringFrames)), ring_(2 * cap_, 0.f) {}
+Streamer::Streamer(Reader* r, long clipStart, long fileOffset, long length, int ringFrames, float gainDb)
+    : reader_(r), start_(clipStart), offset_(fileOffset), length_(length), cap_(powerOfTwo(std::max(ringFrames, 64))),
+      gain_(dbToGain(gainDb)), ring_(2 * cap_, 0.f) {}
 
 Streamer::~Streamer() { stopThread(); }
 
@@ -87,7 +88,7 @@ bool Streamer::waitReady(int ms) {
 }
 
 void Streamer::run() {
-    const long kChunk = 4096;
+    const long kChunk = std::min(4096L, cap_ / 2);  // a chunk always fits, whatever the ring's size
     std::vector<float> chunk(2 * kChunk), raw(2 * kChunk);  // reused: nothing is allocated per chunk
     while (!stop_.load(std::memory_order_relaxed)) {
         const long g = generation_.load(std::memory_order_acquire);
@@ -117,6 +118,7 @@ void Streamer::run() {
                 chunk[2 * k] = raw[(size_t)k * ch];
                 chunk[2 * k + 1] = raw[(size_t)k * ch + (ch > 1 ? 1 : 0)];
             }
+            if (gain_ != 1.f) for (int k = 0; k < 2 * got; k++) chunk[k] *= gain_;
         }
         const long m = n;
         if (generation_.load(std::memory_order_acquire) != g) continue;  // a seek arrived meanwhile: drop it

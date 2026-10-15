@@ -50,6 +50,7 @@ struct Message {
 struct Status {
     long position;
     long underruns;
+    long refused;  // sessions refused (more than kMaxTracks tracks)
     int playing;
     float peakL, peakR;
 };
@@ -65,6 +66,8 @@ public:
     bool post(const Message& m);
     void process(float* outStereo, int frames);  // audio thread
     Session* takeRetired();                   // UI thread: a session the engine no longer uses, or nullptr
+    // Peaks are the loudest moment since the last status() call (reading clears them), so a slow screen never
+    // misses one.
     Status status() const;
 
     // Queues Msg::Offline: from that point in the queue on, sources wait for the disk instead of starving
@@ -73,6 +76,7 @@ public:
     // Off-line use only, while process() is not running on another thread.
     bool waitSourcesReady(int ms);
     int latency() const { return limiter_.latency(); }
+    int rate() const { return rate_; }
 
 private:
     void apply(const Message& m);
@@ -84,15 +88,15 @@ private:
     Session* cur_ = nullptr;
     Message pending_{};        // a Swap held over because retired_ was full
     bool hasPending_ = false;
-    int maxFrames_;
+    int rate_, maxFrames_;
     std::vector<float> scratch_;
     Limiter limiter_;
     float master_ = 1.f;
     bool playing_ = false;
     long pos_ = 0;
-    std::atomic<long> position_{0}, underruns_{0};
+    std::atomic<long> position_{0}, underruns_{0}, refused_{0};
     std::atomic<int> playingFlag_{0};
-    std::atomic<float> peakL_{0.f}, peakR_{0.f};
+    mutable std::atomic<float> peakL_{0.f}, peakR_{0.f};
 };
 
 }  // namespace studio

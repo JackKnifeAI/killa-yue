@@ -21,7 +21,7 @@ struct Reader {
 class Streamer : public Source {
 public:
     // The clip plays file frames from fileOffset, starting at project frame clipStart, for length frames.
-    Streamer(Reader* r, long clipStart, long fileOffset, long length, int ringFrames = 1 << 17);
+    Streamer(Reader* r, long clipStart, long fileOffset, long length, int ringFrames = 1 << 17, float gainDb = 0.f);
     ~Streamer() override;
     void startThread();
     void stopThread();
@@ -44,6 +44,7 @@ private:
     Reader* reader_;
     const long start_, offset_, length_;
     const long cap_;                          // ring frames, a power of two
+    const float gain_;                        // the clip's own level, applied on the disk thread
     std::vector<float> ring_;                 // 2 * cap_
     std::atomic<long> written_{0}, read_{0};  // frames ever written / read in the ring
     std::atomic<long> base_{0};               // project frame of ring frame 0 in this generation

@@ -117,5 +117,33 @@ int main() {
         nf.process(o.data(), 256);
         NEAR(o[2 * 200], 0.25, 1e-6, "NaN and infinite levels are ignored");
     }
+    {   // a session still waiting in the queue is freed with the engine (LeakSanitizer checks)
+        Engine gone(48000, 256);
+        Constant a1(0.1f, 100);
+        gone.post({Msg::Swap, 0, 0, 0, new Session{48000, {{&a1, 0.f, 0.f, false, false}}}});
+    }
+    {   // a session with too many tracks is refused, counted, and handed back
+        Engine many(48000, 256);
+        Constant a1(0.1f, 100);
+        auto* huge = new Session{48000, {}};
+        for (int i = 0; i < 65; i++) huge->tracks.push_back({&a1, 0.f, 0.f, false, false});
+        many.post({Msg::Swap, 0, 0, 0, huge});
+        std::vector<float> o(512);
+        many.process(o.data(), 256);
+        Session* back = many.takeRetired();
+        CHECK(back == huge && many.status().refused == 1, "a 65-track session is refused, counted and handed back");
+        delete back;
+    }
+    {   // meters hold the loudest moment until they are read, so a slow screen never misses a peak
+        Engine pk(48000, 256);
+        Constant loud(0.6f, 512), quiet(0.1f, 480000);
+        pk.post({Msg::Swap, 0, 0, 0, new Session{48000, {{&loud, 0.f, 0.f, false, false}, {&quiet, 0.f, 0.f, false, false}}}});
+        pk.post({Msg::Play, 0, 0, 0, nullptr});
+        std::vector<float> o(512);
+        for (int k = 0; k < 6; k++) pk.process(o.data(), 256);
+        NEAR(pk.status().peakL, 0.7, 1e-5, "the meter shows the loudest moment since it was last read");
+        pk.process(o.data(), 256);
+        NEAR(pk.status().peakL, 0.1, 1e-5, "and starts again after it is read");
+    }
     DONE("engine_test");
 }

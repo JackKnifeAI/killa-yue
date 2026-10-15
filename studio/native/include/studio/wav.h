@@ -28,7 +28,7 @@ private:
 
 class WavWriter {
 public:
-    static WavWriter* create(const char* path, int rate, int channels, std::string& error);
+    static WavWriter* create(const char* path, int rate, int channels, std::string& error, unsigned long long rf64Above = 0xFFFFFFFFull);
     ~WavWriter();
     bool write(const float* interleaved, int frames);
     bool finish();  // sizes patched (RF64 past 4 GB), flushed, fsynced, renamed into place
@@ -38,7 +38,7 @@ private:
     FILE* f_ = nullptr;
     std::string path_;
     int channels_ = 0;
-    unsigned long long dataBytes_ = 0;
+    unsigned long long dataBytes_ = 0, rf64Above_ = 0xFFFFFFFFull;
     bool done_ = false;
 };
 

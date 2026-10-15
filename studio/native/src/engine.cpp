@@ -5,13 +5,15 @@
 
 namespace studio {
 
-Engine::Engine(int rate, int maxFrames) : maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate) {}
+Engine::Engine(int rate, int maxFrames) : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate) {}
 
 Engine::~Engine() {
     delete cur_;
     if (hasPending_) delete pending_.session;
     Session* s;
     while (retired_.pop(s)) delete s;
+    Message m;  // sessions still waiting in the queue were never taken over: they are ours to free too
+    while (in_.pop(m)) if (m.kind == Msg::Swap) delete m.session;
 }
 
 bool Engine::post(const Message& m) { return in_.push(m); }
@@ -22,12 +24,14 @@ Session* Engine::takeRetired() {
 }
 
 Status Engine::status() const {
-    return Status{position_.load(), underruns_.load(), playingFlag_.load(), peakL_.load(), peakR_.load()};
+    return Status{position_.load(), underruns_.load(), refused_.load(), playingFlag_.load(), peakL_.exchange(0.f), peakR_.exchange(0.f)};
 }
 
 bool Engine::swap(Session* s) {
-    if (s && (int)s->tracks.size() > kMaxTracks) {  // refused: handed back for freeing
-        return retired_.push(s);
+    if (s && (int)s->tracks.size() > kMaxTracks) {  // refused: counted, and handed back for freeing
+        if (!retired_.push(s)) return false;
+        refused_.fetch_add(1, std::memory_order_relaxed);
+        return true;
     }
     if (cur_ && !retired_.push(cur_)) return false;  // no room to hand the old one back: try next block
     cur_ = s;
@@ -79,8 +83,11 @@ void Engine::process(float* out, int frames) {
         render(out + 2 * done, n, pl, pr);
         done += n;
     }
-    peakL_.store(pl, std::memory_order_relaxed);
-    peakR_.store(pr, std::memory_order_relaxed);
+    // raise the held peaks; the reader takes and clears them (lock-free: a reader only ever lowers them to 0)
+    float held = peakL_.load(std::memory_order_relaxed);
+    while (pl > held && !peakL_.compare_exchange_weak(held, pl, std::memory_order_relaxed)) {}
+    held = peakR_.load(std::memory_order_relaxed);
+    while (pr > held && !peakR_.compare_exchange_weak(held, pr, std::memory_order_relaxed)) {}
     position_.store(pos_, std::memory_order_relaxed);
     playingFlag_.store(playing_ ? 1 : 0, std::memory_order_relaxed);
 }
