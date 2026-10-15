@@ -675,7 +675,7 @@ public class MainActivity extends Activity {
         c.addView(chipRow(SECTIONS, la));
         c.addView(savedRow("lyrics", "lyrics", lyrics));
         // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter)
-        c.addView(chipRow(new String[] {"Write with AI", "Rewrite style", "Rewrite lyrics", "Songwriter model"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Write with AI", "Rewrite style", "Rewrite lyrics", "Sources", "Songwriter model"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     Songwriter.write(MainActivity.this);
@@ -689,6 +689,11 @@ public class MainActivity extends Activity {
             new Runnable() {
                 public void run() {
                     Songwriter.rewrite(MainActivity.this, "lyrics");
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    Songwriter.showSources(MainActivity.this);
                 }
             },
             new Runnable() {

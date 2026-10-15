@@ -43,6 +43,10 @@ if [ -n "$WRITER_LIB" ]; then
     cp "$WRITER_LIB" out/apk/lib/arm64-v8a/libkillawriter.so
     $STRIP out/apk/lib/arm64-v8a/libkillawriter.so 2>/dev/null || true
 fi
+# Research for the songwriter: engine/scout (Rust), web search and page reading from the phone.
+if [ -n "$SCOUT_LIB" ]; then
+    cp "$SCOUT_LIB" out/apk/lib/arm64-v8a/libkillascout.so
+fi
 # Lyric sync: whisper.cpp's whisper-cli built for Android.
 if [ -n "$WHISPER_BIN" ]; then
     cp "$WHISPER_BIN" out/apk/lib/arm64-v8a/libwhisper.so

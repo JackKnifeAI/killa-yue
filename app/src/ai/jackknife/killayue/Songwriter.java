@@ -308,6 +308,11 @@ public class Songwriter {
         f.addView(idea);
         f.addView(feel, a.gap(8));
         f.addView(more, a.gap(8));
+        final android.widget.CheckBox look = new android.widget.CheckBox(a);
+        look.setText("Look it up on the web first");
+        look.setTextColor(MainActivity.TEXT);
+        look.setChecked(a.cfg.getBoolean("writer_research", true));
+        if (Scout.available(a)) f.addView(look, a.gap(8));
         idea.setText(a.cfg.getString("writer_idea", ""));
         feel.setText(a.cfg.getString("writer_feel", ""));
         ScrollView sv = new ScrollView(a);
@@ -320,8 +325,22 @@ public class Songwriter {
                             a.toast("Tell the songwriter what the song is about");
                             return;
                         }
-                        a.cfg.edit().putString("writer_idea", i).putString("writer_feel", MainActivity.val(feel)).apply();
-                        run(a, "Writing your song", SongText.newSong(i, MainActivity.val(feel), MainActivity.val(more)), 4000, new Done() {
+                        boolean research = Scout.available(a) && look.isChecked();
+                        a.cfg.edit().putString("writer_idea", i).putString("writer_feel", MainActivity.val(feel))
+                                .putBoolean("writer_research", look.isChecked()).apply();
+                        final String ask = SongText.newSong(i, MainActivity.val(feel), MainActivity.val(more));
+                        if (research) {
+                            research(a, i, ask, null);
+                            return;
+                        }
+                        writeSong(a, ask);
+                    }
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** Writes a whole song from a request and puts it into the song screen. */
+    static void writeSong(final MainActivity a, String ask) {
+                        run(a, "Writing your song", ask, 4000, new Done() {
                             public void text(String all, boolean finished, String error) {
                                 SongText.Song s = SongText.parse(all);
                                 if (!s.complete) {
@@ -335,8 +354,262 @@ public class Songwriter {
                                 a.toast(counts(a, s.style, s.lyrics));
                             }
                         });
+    }
+
+    // ---------------- research ----------------
+
+    static final String PLAN = "You plan web research for a songwriter. Answer with two or three web search queries, "
+            + "one per line and nothing else, that will find the facts, names, dates, numbers and quotes behind the song's subject.";
+
+    /**
+     * Looks the subject up before writing: the model chooses what to search for (unless queries are given),
+     * the app searches and reads the pages, then the sources screen shows exactly what was found.
+     */
+    static void research(final MainActivity a, final String idea, final String ask, final ArrayList<String> given) {
+        stopped = false;
+        final File model = chosen(a);
+        final TextView live = a.text("Loading " + shortName(model) + "…", MainActivity.TEXT, 14);
+        live.setPadding(a.dp(20), a.dp(8), a.dp(20), a.dp(8));
+        final AlertDialog dlg = new Lux.Builder(a).setTitle("Looking it up").setView(live)
+                .setNegativeButton("Stop", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        cancel();
                     }
-                }).setNegativeButton("Cancel", null).show();
+                }).setCancelable(false).show();
+        new Thread(new Runnable() {
+            public void run() {
+                final ArrayList<String> queries = new ArrayList<String>();
+                try {
+                    if (given != null) {
+                        queries.addAll(given);
+                    } else {
+                        start(a, model);
+                        status(a, live, "Choosing what to look up…");
+                        final StringBuilder plan = new StringBuilder();
+                        String today = new java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.US).format(new java.util.Date());
+                        chat(PLAN + " Today is " + today + ": prefer recent coverage when the subject is current.", idea, 120, new Done() {
+                            public void text(String all, boolean finished, String error) {
+                                if (finished) plan.append(all);
+                            }
+                        });
+                        for (String l : plan.toString().split("\n")) {
+                            String q = l.replaceAll("^[\\s\\d.)*#-]+", "").replace("\"", "").trim();
+                            if (q.length() > 3 && queries.size() < 3) queries.add(q);
+                        }
+                    }
+                    if (queries.isEmpty()) queries.add(idea);
+                    if (stopped) throw new Exception("stopped");
+                    status(a, live, "Searching for:\n• " + android.text.TextUtils.join("\n• ", queries) + "\n\nThen reading the best pages…");
+                    final ArrayList<Scout.Source> found = Scout.research(queries, idea, 6,
+                            a.cfg.getInt("writer_per_page", 1500), a.cfg.getString("brave_key", ""));
+                    a.ui.post(new Runnable() {
+                        public void run() {
+                            dlg.dismiss();
+                            if (stopped) return;
+                            sources(a, idea, ask, queries, found);
+                        }
+                    });
+                } catch (final Exception e) {
+                    a.ui.post(new Runnable() {
+                        public void run() {
+                            dlg.dismiss();
+                            if (!stopped) a.alert("The research stopped", String.valueOf(e.getMessage()));
+                        }
+                    });
+                }
+            }
+        }, "writer-research").start();
+    }
+
+    private static void status(MainActivity a, final TextView t, final String s) {
+        a.ui.post(new Runnable() {
+            public void run() {
+                t.setText(s);
+            }
+        });
+    }
+
+    static ArrayList<Scout.Source> lastSources = new ArrayList<Scout.Source>();
+
+    /**
+     * The pause before writing: every page the songwriter read, with the exact passage it will be given.
+     * Untick a page to leave it out, change the searches and look again, or write from what is ticked.
+     */
+    static void sources(final MainActivity a, final String idea, final String ask, ArrayList<String> queries,
+                        final ArrayList<Scout.Source> found) {
+        LinearLayout f = a.column();
+        f.setPadding(a.dp(16), a.dp(8), a.dp(16), a.dp(8));
+        TextView intro = a.text(found.isEmpty() ? "Nothing readable was found. Change the searches and look again, or write without research."
+                : "This is what the songwriter read. Untick anything wrong or off topic; the song is written from what stays ticked.",
+                MainActivity.DIM, 13);
+        f.addView(intro);
+        final EditText q = a.edit("Searches, one per line", 2);
+        q.setText(android.text.TextUtils.join("\n", queries));
+        f.addView(q, a.gap(8));
+        final ArrayList<String> qs0 = queries;
+        final AlertDialog[] self = new AlertDialog[1];
+        // add a page by address, live or from the Wayback Machine
+        final EditText addr = a.edit("Paste a web address to add it", 1);
+        f.addView(addr, a.gap(8));
+        LinearLayout ar = a.row();
+        android.widget.Button readIt = a.chip("Read it");
+        android.widget.Button older = a.chip("Wayback history");
+        ar.addView(readIt);
+        ar.addView(older);
+        f.addView(ar, a.gap(4));
+        readIt.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                final String u = MainActivity.val(addr);
+                if (!u.startsWith("http")) {
+                    a.toast("Paste a full web address, starting with https://");
+                    return;
+                }
+                addPage(a, self[0], idea, ask, qs0, found, u);
+            }
+        });
+        older.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                final String u = MainActivity.val(addr);
+                if (u.length() < 4) {
+                    a.toast("Paste the address of the page whose history you want");
+                    return;
+                }
+                wayback(a, self[0], idea, ask, qs0, found, u);
+            }
+        });
+        for (final Scout.Source s : found) {
+            LinearLayout card = a.column();
+            card.setBackground(a.glass(MainActivity.EDGE));
+            card.setPadding(a.dp(12), a.dp(8), a.dp(12), a.dp(10));
+            final android.widget.CheckBox keep = new android.widget.CheckBox(a);
+            keep.setText(s.title);
+            keep.setTextColor(MainActivity.TEXT);
+            keep.setTextSize(15);
+            keep.setChecked(s.keep);
+            keep.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(android.widget.CompoundButton b, boolean on) {
+                    s.keep = on;
+                }
+            });
+            card.addView(keep);
+            String when = s.published != null && s.published.length() >= 10 ? " · " + s.published.substring(0, 10) : "";
+            card.addView(a.text(s.site + when, MainActivity.ACCENT, 12));
+            final TextView ex = a.text(s.excerpt.replace("## ", ""), MainActivity.TEXT, 13);
+            ex.setMaxLines(6);
+            ex.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            ex.setPadding(0, a.dp(6), 0, 0);
+            ex.setOnClickListener(new View.OnClickListener() {
+                boolean open;
+
+                public void onClick(View v) {
+                    open = !open;
+                    ex.setMaxLines(open ? Integer.MAX_VALUE : 6);
+                }
+            });
+            card.addView(ex);
+            TextView link = a.text(s.url, Skin.FAINT, 11);
+            link.setTextIsSelectable(true);
+            card.addView(link);
+            f.addView(card, a.gap(10));
+        }
+        ScrollView sv = new ScrollView(a);
+        sv.addView(f);
+        AlertDialog.Builder b = new Lux.Builder(a).setTitle("What the songwriter read").setView(sv)
+                .setNeutralButton("Search again", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        ArrayList<String> qs = new ArrayList<String>();
+                        for (String l : MainActivity.val(q).split("\n")) if (l.trim().length() > 0) qs.add(l.trim());
+                        research(a, idea, ask, qs);
+                    }
+                })
+                .setNegativeButton("Cancel", null);
+        b.setPositiveButton(found.isEmpty() ? "Write without" : "Write with these", new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                lastSources = found;
+                String notes = Scout.notes(found);
+                writeSong(a, notes.length() == 0 ? ask : ask + "\n\nResearch notes. Use these facts accurately (names, numbers, dates); "
+                        + "do not invent facts beyond them, and do not cite the sources in the lyrics:\n\n" + notes);
+            }
+        });
+        self[0] = b.show();
+    }
+
+    /** Reads one more page and shows the sources again with it on top. */
+    private static void addPage(final MainActivity a, final AlertDialog current, final String idea, final String ask,
+                                final ArrayList<String> queries, final ArrayList<Scout.Source> found, final String url) {
+        a.toast("Reading the page…");
+        new Thread(new Runnable() {
+            public void run() {
+                final Scout.Source s = Scout.readOne(url, idea, a.cfg.getInt("writer_per_page", 1500));
+                a.ui.post(new Runnable() {
+                    public void run() {
+                        if (s.error != null) {
+                            a.alert("That page could not be read", s.error);
+                            return;
+                        }
+                        found.add(0, s);
+                        if (current != null) current.dismiss();
+                        sources(a, idea, ask, queries, found);
+                    }
+                });
+            }
+        }, "writer-add-page").start();
+    }
+
+    /** The page's saved copies in the Wayback Machine; the chosen one is read and added. */
+    private static void wayback(final MainActivity a, final AlertDialog current, final String idea, final String ask,
+                                final ArrayList<String> queries, final ArrayList<Scout.Source> found, final String url) {
+        a.toast("Asking the Wayback Machine…");
+        new Thread(new Runnable() {
+            public void run() {
+                ArrayList<Scout.Snapshot> list = null;
+                String err = null;
+                try {
+                    list = Scout.snapshots(url);
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final ArrayList<Scout.Snapshot> snaps = list;
+                final String error = err;
+                a.ui.post(new Runnable() {
+                    public void run() {
+                        if (error != null || snaps == null || snaps.isEmpty()) {
+                            a.alert("Wayback Machine", error != null ? error : "It has no saved copies of that page.");
+                            return;
+                        }
+                        String[] names = new String[snaps.size()];
+                        for (int i = 0; i < snaps.size(); i++) names[i] = snaps.get(i).date + "   " + snaps.get(i).url;
+                        new Lux.Builder(a).setTitle("Saved copies, newest first (" + snaps.size() + " changes)")
+                                .setItems(names, new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface d, int w) {
+                                        addPage(a, current, idea, ask, queries, found, snaps.get(w).archived);
+                                    }
+                                }).setNegativeButton("Back", null).show();
+                    }
+                });
+            }
+        }, "writer-wayback").start();
+    }
+
+    /** The pages the last researched song was written from. */
+    static void showSources(final MainActivity a) {
+        if (lastSources.isEmpty()) {
+            a.toast("No researched song yet in this session");
+            return;
+        }
+        StringBuilder b = new StringBuilder();
+        for (Scout.Source s : lastSources) {
+            if (!s.keep) continue;
+            b.append(s.title).append("\n").append(s.site);
+            if (s.published != null && s.published.length() >= 10) b.append(" · ").append(s.published.substring(0, 10));
+            b.append("\n").append(s.url).append("\n\n");
+        }
+        TextView t = a.text(b.toString().trim(), MainActivity.TEXT, 13);
+        t.setTextIsSelectable(true);
+        t.setPadding(a.dp(20), a.dp(8), a.dp(20), a.dp(8));
+        ScrollView sv = new ScrollView(a);
+        sv.addView(t);
+        new Lux.Builder(a).setTitle("Sources").setView(sv).setPositiveButton("Close", null).show();
     }
 
     /** Rewrites one part ("style" or "lyrics"), with an optional note; the length note is filled in when it is off. */
