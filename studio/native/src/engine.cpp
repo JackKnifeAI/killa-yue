@@ -5,7 +5,9 @@
 
 namespace studio {
 
-Engine::Engine(int rate, int maxFrames) : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate) {}
+Engine::Engine(int rate, int maxFrames) : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate) {
+    for (auto& m : meter_) m.store(0.f, std::memory_order_relaxed);
+}
 
 Engine::~Engine() {
     delete cur_;
@@ -35,8 +37,13 @@ bool Engine::swap(Session* s) {
     }
     if (cur_ && !retired_.push(cur_)) return false;  // no room to hand the old one back: try next block
     cur_ = s;
-    // its tracks join at the song's position (a source already there ignores the seek)
-    if (cur_) for (auto& t : cur_->tracks) t.source->seek(pos_);
+    meterTracks_.store(cur_ ? (int)cur_->tracks.size() : 0, std::memory_order_relaxed);
+    // its tracks join at the song's position, with the loop (a source already there ignores the seek)
+    if (cur_)
+        for (auto& t : cur_->tracks) {
+            t.source->setLoop(loopStart_, loopEnd_, loopOn_);
+            t.source->seek(pos_);
+        }
     return true;
 }
 
@@ -54,6 +61,12 @@ void Engine::apply(const Message& m) {
         case Msg::Seek:
             pos_ = m.frame;
             if (cur_) for (auto& s : cur_->tracks) s.source->seek(m.frame);
+            break;
+        case Msg::Loop:
+            loopOn_ = m.track != 0 && m.end > m.frame && m.frame >= 0;
+            loopStart_ = m.frame;
+            loopEnd_ = m.end;
+            if (cur_) for (auto& s : cur_->tracks) s.source->setLoop(loopStart_, loopEnd_, loopOn_);
             break;
         case Msg::Offline:
             if (cur_) for (auto& s : cur_->tracks) s.source->setOffline(m.value != 0.f);
@@ -79,9 +92,14 @@ void Engine::process(float* out, int frames) {
     // a block bigger than the engine was made for is rendered in pieces
     float pl = 0.f, pr = 0.f;
     for (int done = 0; done < frames;) {
-        const int n = std::min(maxFrames_, frames - done);
+        int n = std::min(maxFrames_, frames - done);
+        // the loop's end falls inside this block: render up to it, then carry on from the loop's start (the
+        // sources wrap by themselves, reading ahead in playing order)
+        const bool wraps = playing_ && loopOn_ && pos_ < loopEnd_;
+        if (wraps && pos_ + n > loopEnd_) n = (int)(loopEnd_ - pos_);
         render(out + 2 * done, n, pl, pr);
         done += n;
+        if (wraps && pos_ == loopEnd_) pos_ = loopStart_;
     }
     // raise the held peaks; the reader takes and clears them (lock-free: a reader only ever lowers them to 0)
     float held = peakL_.load(std::memory_order_relaxed);
@@ -90,6 +108,17 @@ void Engine::process(float* out, int frames) {
     while (pr > held && !peakR_.compare_exchange_weak(held, pr, std::memory_order_relaxed)) {}
     position_.store(pos_, std::memory_order_relaxed);
     playingFlag_.store(playing_ ? 1 : 0, std::memory_order_relaxed);
+}
+
+static void raise(std::atomic<float>& held, float v) {
+    float h = held.load(std::memory_order_relaxed);
+    while (v > h && !held.compare_exchange_weak(h, v, std::memory_order_relaxed)) {}
+}
+
+int Engine::meters(float* out, int max) {
+    const int n = std::min(max, meterTracks_.load(std::memory_order_relaxed));
+    for (int i = 0; i < 2 * n; i++) out[i] = meter_[i].exchange(0.f, std::memory_order_relaxed);
+    return n;
 }
 
 void Engine::render(float* out, int frames, float& pl, float& pr) {
@@ -113,6 +142,17 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
                 s.appliedR = r;
             }
             mixGliding(scratch_.data(), s.source->channels(), frames, out, s.appliedL, s.appliedR, l, r);
+            // the track's meter: its loudest sample at the louder of the two gains it glided between
+            const int t = (int)(&s - &cur_->tracks[0]);
+            const float gl = std::max(s.appliedL, l), gr = std::max(s.appliedR, r);
+            float ml = 0.f, mr = 0.f;
+            if (gl > 0.f || gr > 0.f)
+                for (int i = 0; i < frames; i++) {
+                    ml = std::max(ml, std::fabs(scratch_[2 * i]));
+                    mr = std::max(mr, std::fabs(scratch_[2 * i + (s.source->channels() > 1 ? 1 : 0)]));
+                }
+            raise(meter_[2 * t], ml * gl);
+            raise(meter_[2 * t + 1], mr * gr);
             s.appliedL = l;
             s.appliedR = r;
         }

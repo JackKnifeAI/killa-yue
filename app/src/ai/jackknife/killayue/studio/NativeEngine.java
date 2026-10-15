@@ -152,6 +152,21 @@ public final class NativeEngine implements AutoCloseable {
         return post(SEEK, -1, 0, Math.max(0, frame));
     }
 
+    /** Plays [start, end) round and round once the playhead reaches it; off plays straight on. */
+    public boolean loop(long start, long end, boolean on) {
+        return nLoop(handle(), start, end, on);
+    }
+
+    private float[] meterBuf = new float[0];
+
+    /** Each track's loudest moment (left, right) since the last call, after its fader, by track ID; clears them. */
+    public void meters(java.util.Map<String, float[]> out) {
+        if (meterBuf.length < 2 * trackIds.size()) meterBuf = new float[2 * Math.max(16, trackIds.size())];
+        int n = nMeters(handle(), meterBuf);
+        out.clear();
+        for (int i = 0; i < n && i < trackIds.size(); i++) out.put(trackIds.get(i), new float[] {meterBuf[2 * i], meterBuf[2 * i + 1]});
+    }
+
     public Status status() {
         double[] v = new double[22];
         String err = nStatus(handle(), v);
@@ -249,6 +264,10 @@ public final class NativeEngine implements AutoCloseable {
     private static native long nLatency(long h, int probes) throws IOException;
 
     private static native void nCancelLatency(long h);
+
+    private static native boolean nLoop(long h, long start, long end, boolean on);
+
+    private static native int nMeters(long h, float[] out);
 
     private static native String nLatencyReport(long h);
 }

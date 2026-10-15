@@ -22,6 +22,9 @@ struct Source {
     virtual void setOffline(bool) {}
     // Off-line only: waits up to ms for the read-ahead to hold data for the current position.
     virtual bool waitReady(int) { return true; }
+    // Called on the engine's thread; must not block. From the next seek on (or now), play [start, end) round
+    // and round once the playhead reaches it; off (on false) plays straight on.
+    virtual void setLoop(long, long, bool) {}
     virtual ~Source() {}
 };
 
@@ -37,7 +40,7 @@ struct Session {
     std::vector<TrackSlot> tracks;
 };
 
-enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset };
+enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset, Loop };
 
 struct Message {
     Msg kind;
@@ -45,6 +48,7 @@ struct Message {
     float value;
     long frame;
     Session* session;
+    long end = 0;  // Loop: the loop's end (frame is its start, track is 1 for on)
 };
 
 struct Status {
@@ -77,6 +81,9 @@ public:
     bool waitSourcesReady(int ms);
     int latency() const { return limiter_.latency(); }
     long position() const { return position_.load(std::memory_order_relaxed); }  // any thread; clears nothing
+    // Each track's loudest moment (left, right) since the last call, after its fader and pan; clears them. Any
+    // thread. Returns the number of tracks (out holds 2 x max).
+    int meters(float* out, int max);
     int rate() const { return rate_; }
 
 private:
@@ -95,9 +102,13 @@ private:
     float master_ = 1.f;
     bool playing_ = false;
     long pos_ = 0;
+    long loopStart_ = 0, loopEnd_ = 0;
+    bool loopOn_ = false;
     std::atomic<long> position_{0}, underruns_{0}, refused_{0};
     std::atomic<int> playingFlag_{0};
     mutable std::atomic<float> peakL_{0.f}, peakR_{0.f};
+    std::atomic<float> meter_[2 * kMaxTracks];  // per track, raised by the audio thread, cleared by meters()
+    std::atomic<int> meterTracks_{0};
 };
 
 }  // namespace studio

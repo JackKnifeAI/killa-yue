@@ -166,6 +166,18 @@ int main() {
         auto lv = play(*h, 4000);
         NEAR(lv[3500], 0.375f, 1e-3f, "the master level arrived");
 
+        // tracks loaded while a loop plays go round the loop with the rest
+        h->post({Msg::Loop, 1, 0, 1000, nullptr, 5000});
+        h->post({Msg::Seek, 0, 0, 900, nullptr});
+        play(*h, 6000);
+        CHECK(h->load({{0.f, 0.f, false, false, {{quarter, 0, 0, rate, 0.f}}}}, err), "new tracks load inside a loop");
+        auto lp = play(*h, 12000);
+        CHECK(h->status().position >= 1000 && h->status().position < 5000, "and the playhead stays in the loop");
+        NEAR(lp[11000], 0.125f, 1e-4f, "the new tracks sound inside the loop (the master is still at -6 dB)");
+        h->post({Msg::Loop, 0, 0, 1000, nullptr, 5000});
+        CHECK(h->load({{0.f, 0.f, false, false, loop}, {0.f, 0.f, false, false, {{half, 0, 0, rate, 0.f}}}}, err), "back to two tracks");
+        play(*h, 3000);
+
         h->post({Msg::Mute, 0, 1.f, 0, nullptr});
         auto d = play(*h, 4000);
         NEAR(d[3500], 0.25f, 1e-4f, "edits reach the engine");
@@ -203,6 +215,25 @@ int main() {
         CHECK(gaps == 0, "not one silent frame when the tracks changed");
         CHECK(after == before, "and no underrun");
         h.reset();
+
+        // the same inside a loop: tracks loaded while it goes round join the loop without a gap
+        Pacer* lp = new Pacer;
+        std::unique_ptr<Host> hl(Host::withDevice(lp, false, err));
+        hl->load(spec(0), err);
+        hl->post({Msg::Loop, 1, 0, 4800, nullptr, 14400});  // 0.1 to 0.3 s
+        hl->post({Msg::Play, 0, 0, 0, nullptr});
+        hl->start(err);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        const long lb = hl->status().underruns;
+        CHECK(hl->load(spec(8), err), "eight new tracks load while a loop plays");
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        const long la = hl->status().underruns;
+        lp->close();
+        long lgaps = 0;
+        for (size_t i = (size_t)rate / 5; i < lp->played.size(); i++)
+            if (lp->played[i] < 0.2f) lgaps++;
+        CHECK(lgaps == 0 && la == lb, "inside a loop: not one silent frame, no underrun");
+        hl.reset();
         for (auto& f : files) std::remove(f.c_str());
     }
     {   // the round trip through a loopback 2000 frames long, while a song plays underneath

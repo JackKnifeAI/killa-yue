@@ -51,6 +51,7 @@ public:
     bool post(const Message& m);
     Status status();  // also frees the tracks the engine has let go of
     DeviceStats deviceStats();
+    int meters(float* out, int max) { return engine_->meters(out, max); }  // per track (L, R); clears them
     int sessionsHeld() const { return (int)gens_.size(); }  // the current one plus any not yet let go of
     int filesOpen() const;  // over every session held
 
@@ -89,6 +90,8 @@ private:
     std::unique_ptr<Engine> engine_;
     std::list<Generation> gens_;
     float masterDb_ = 0.f;
+    long loopStart_ = 0, loopEnd_ = 0;  // the loop as last posted, so tracks loaded later read ahead in its order
+    bool loopOn_ = false;
     bool masterPending_ = false;  // a master level that did not fit in the engine's queue yet
     void flushMaster();
 

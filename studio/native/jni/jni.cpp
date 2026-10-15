@@ -1,6 +1,7 @@
 // JNI for ai.jackknife.killayue.studio.NativeEngine: a thin layer over studio::Host, which holds the logic
 // (and its tests).
 #include <jni.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "studio/host.h"
@@ -125,6 +126,18 @@ JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatency(
 
 JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatencyReport(JNIEnv* e, jclass, jlong h) {
     return e->NewStringUTF(host(h)->latencyReport().c_str());  // plain ASCII
+}
+
+JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoop(JNIEnv*, jclass, jlong h, jlong start, jlong end, jboolean on) {
+    return host(h)->post({studio::Msg::Loop, on ? 1 : 0, 0.f, (long)start, nullptr, (long)end}) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nMeters(JNIEnv* e, jclass, jlong h, jfloatArray out) {
+    const int max = std::min(e->GetArrayLength(out) / 2, studio::Engine::kMaxTracks);
+    float m[2 * studio::Engine::kMaxTracks];
+    const int n = host(h)->meters(m, max);
+    e->SetFloatArrayRegion(out, 0, 2 * n, m);
+    return n;
 }
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }

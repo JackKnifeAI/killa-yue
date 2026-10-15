@@ -37,6 +37,13 @@ bool Host::start(std::string& err) { return !device_ || device_->start(err); }
 
 bool Host::post(const Message& m) {
     flushMaster();  // first, so it keeps its place before later edits
+    if (m.kind == Msg::Loop) {
+        if (!engine_->post(m)) return false;
+        loopOn_ = m.track != 0 && m.end > m.frame && m.frame >= 0;
+        loopStart_ = m.frame;
+        loopEnd_ = m.end;
+        return true;
+    }
     if (m.kind == Msg::Master && engine_->post(m)) {
         masterDb_ = m.value;
         masterPending_ = false;
@@ -87,6 +94,7 @@ bool Host::load(const std::vector<TrackSpec>& tracks, float masterDb, std::strin
     const long now = engine_->position();
     std::vector<Streamer*> fresh;
     for (auto& s : g.streams) {
+        s->setLoop(loopStart_, loopEnd_, loopOn_);  // in the loop's playing order, as the engine will play them
         s->seek(now);
         fresh.push_back(s.get());
     }

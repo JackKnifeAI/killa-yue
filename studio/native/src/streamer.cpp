@@ -45,28 +45,62 @@ long Streamer::overlap(long from, long to) const {
     return std::max(0L, std::min(to, clipEnd()) - std::max(from, start_));
 }
 
+long Streamer::audible(const Order& o, long from, long to) const {
+    long n = 0;
+    for (long i = from; i < to;) {
+        const long k = std::min(o.run(i), to - i);
+        const long f = o.at(i);
+        n += overlap(f, f + k);
+        i += k;
+    }
+    return n;
+}
+
+void Streamer::regenerate(long projectFrame) {
+    pos_ = projectFrame;
+    play_ = 0;
+    order_.s0 = projectFrame;
+    order_.ls = loopStart_;
+    order_.le = loopEnd_;
+    order_.on = loopOn_;
+    seekTo_.store(projectFrame, std::memory_order_relaxed);
+    genLoopStart_.store(loopStart_, std::memory_order_relaxed);
+    genLoopEnd_.store(loopEnd_, std::memory_order_relaxed);
+    genLoopOn_.store(loopOn_, std::memory_order_relaxed);
+    wanted_ = generation_.fetch_add(1, std::memory_order_acq_rel) + 1;  // publishes the values above
+}
+
 void Streamer::seek(long projectFrame) {
     if (projectFrame == pos_) return;  // already there: nothing to refill
-    // a little ahead, into what the ring already holds: move on (take() skips to it), keeping the read-ahead
-    if (projectFrame > pos_ && ringGeneration_.load(std::memory_order_acquire) == wanted_ &&
-        projectFrame < base_.load(std::memory_order_relaxed) + written_.load(std::memory_order_acquire)) {
+    // a little ahead, into what the ring already holds (and before any wrap): move on, keeping the read-ahead
+    const long d = projectFrame - pos_;
+    if (d > 0 && d < order_.run(play_) && ringGeneration_.load(std::memory_order_acquire) == wanted_ &&
+        ringStart_.load(std::memory_order_relaxed) + play_ + d < written_.load(std::memory_order_acquire)) {
+        play_ += d;
         pos_ = projectFrame;
         return;
     }
-    pos_ = projectFrame;
-    seekTo_.store(projectFrame, std::memory_order_relaxed);
-    wanted_ = generation_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    regenerate(projectFrame);
 }
 
-// Copies what the ring holds from project frame at (catching up first if time moved on during a stall).
-long Streamer::take(long at, float* out, long frames) {
+void Streamer::setLoop(long start, long end, bool on) {
+    if (on && (end <= start || start < 0)) on = false;
+    if (on == loopOn_ && (!on || (start == loopStart_ && end == loopEnd_))) return;
+    loopStart_ = start;
+    loopEnd_ = end;
+    loopOn_ = on;
+    regenerate(pos_);  // read ahead in the new playing order from where it is now
+}
+
+// Copies what the ring holds from play index `play` (catching up first if time moved on during a stall).
+long Streamer::take(long play, float* out, long frames) {
     if (ringGeneration_.load(std::memory_order_acquire) != wanted_) return 0;
-    const long base = base_.load(std::memory_order_relaxed);
+    const long target = ringStart_.load(std::memory_order_relaxed) + play;
     long r = read_.load(std::memory_order_relaxed);
     const long w = written_.load(std::memory_order_acquire);
-    if (base + r < at) r = std::min(w, r + (at - (base + r)));
+    if (r < target) r = std::min(w, target);
     long n = 0;
-    if (base + r == at) {
+    if (r == target) {
         n = std::min(frames, w - r);
         for (long k = 0; k < n; k++) {
             const long i = (r + k) & (cap_ - 1);
@@ -81,16 +115,17 @@ long Streamer::take(long at, float* out, long frames) {
 
 int Streamer::read(float* out, int frames) {
     std::memset(out, 0, sizeof(float) * 2 * (size_t)frames);
-    long copied = take(pos_, out, frames);
-    // off-line (export) waits for the disk instead of starving, while the clip still has audio to come
-    while (copied < frames && offline_.load(std::memory_order_relaxed) && overlap(pos_ + copied, pos_ + frames) > 0 &&
+    long copied = take(play_, out, frames);
+    // off-line (export) waits for the disk instead of starving, while the clips still have audio to come
+    while (copied < frames && offline_.load(std::memory_order_relaxed) && audible(order_, play_ + copied, play_ + frames) > 0 &&
            fed_.load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::microseconds(200));
-        copied += take(pos_ + copied, out + 2 * copied, frames - copied);
+        copied += take(play_ + copied, out + 2 * copied, frames - copied);
     }
-    const long missing = overlap(pos_ + copied, pos_ + frames);
+    const long missing = audible(order_, play_ + copied, play_ + frames);
     if (missing > 0) starved_.fetch_add(missing, std::memory_order_relaxed);
-    pos_ += frames;
+    play_ += frames;
+    pos_ = order_.at(play_);
     return frames - (int)missing;
 }
 
@@ -100,9 +135,9 @@ bool Streamer::waitReady(int ms, long ahead) {
     const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (std::chrono::steady_clock::now() < until) {
         if (ringGeneration_.load(std::memory_order_acquire) == wanted_) {
-            const long base = base_.load(), w = written_.load(std::memory_order_acquire);
-            const long want = std::min(clipEnd(), pos_ + ahead);
-            if (base + w >= want || pos_ >= clipEnd()) return true;
+            const long have = written_.load(std::memory_order_acquire) - ringStart_.load(std::memory_order_relaxed) - play_;
+            // enough is buffered, or what is buffered reaches past the clips' end (nothing more will come)
+            if (have >= ahead || audible(order_, play_ + std::max(0L, have), play_ + ahead) == 0) return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
@@ -118,19 +153,26 @@ bool Streamer::fill() {
     const long kChunk = (long)chunk_.size() / 2;  // a chunk always fits, whatever the ring's size
     const long g = generation_.load(std::memory_order_acquire);
     if (g != ringGeneration_.load(std::memory_order_relaxed)) {
-        // a seek: empty the ring and refill from the new place (the audio thread is not reading meanwhile)
+        // a seek or a new loop: empty the ring and refill in the new playing order (the audio thread is not
+        // reading meanwhile)
         const long r = read_.load(std::memory_order_acquire);
         written_.store(r, std::memory_order_relaxed);
-        base_.store(seekTo_.load(std::memory_order_relaxed) - r, std::memory_order_relaxed);
+        ringStart_.store(r, std::memory_order_relaxed);
+        fill_.s0 = seekTo_.load(std::memory_order_relaxed);
+        fill_.ls = genLoopStart_.load(std::memory_order_relaxed);
+        fill_.le = genLoopEnd_.load(std::memory_order_relaxed);
+        fill_.on = genLoopOn_.load(std::memory_order_relaxed);
         ringGeneration_.store(g, std::memory_order_release);
         return true;
     }
     const long w = written_.load(std::memory_order_relaxed);
     const long free = cap_ - (w - read_.load(std::memory_order_acquire));
-    const long f = base_.load(std::memory_order_relaxed) + w;  // next project frame to fill
-    if (f >= clipEnd() || free < kChunk) return false;
-    // silence before the first clip and between clips; every clip that overlaps the chunk is mixed in
-    const long n = std::min(kChunk, clipEnd() - f);
+    const long i = w - ringStart_.load(std::memory_order_relaxed);  // play index of the next frame to fill
+    const long f = fill_.at(i);                                     // the project frame it is
+    if (free < kChunk || (!fill_.wraps() && f >= clipEnd())) return false;
+    // silence before the first clip and between clips; every clip that overlaps the chunk is mixed in; a chunk
+    // never crosses the loop's wrap
+    const long n = std::min(std::min(kChunk, fill_.run(i)), fill_.wraps() ? kChunk : clipEnd() - f);
     std::fill(chunk_.begin(), chunk_.begin() + 2 * n, 0.f);
     for (const auto& c : clips_) {
         const long from = std::max(f, c.start), to = std::min(f + n, c.start + c.length);
@@ -145,9 +187,9 @@ bool Streamer::fill() {
     }
     if (generation_.load(std::memory_order_acquire) != g) return true;  // a seek arrived meanwhile: drop it
     for (long k = 0; k < n; k++) {
-        const long i = (w + k) & (cap_ - 1);
-        ring_[2 * i] = chunk_[2 * k];
-        ring_[2 * i + 1] = chunk_[2 * k + 1];
+        const long idx = (w + k) & (cap_ - 1);
+        ring_[2 * idx] = chunk_[2 * k];
+        ring_[2 * idx + 1] = chunk_[2 * k + 1];
     }
     written_.store(w + n, std::memory_order_release);
     return true;

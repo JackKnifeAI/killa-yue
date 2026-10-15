@@ -78,8 +78,24 @@ public class NativeEngineTest {
         out = play(e, 4000);
         near("and levelled by its ID", 0.125, out[3500], 1e-4);
 
+        // loop: the playhead goes round [4800, 14400)
+        e.loop(4800, 14400, true);
+        e.seek(4000);
+        play(e, 30000);
+        long lpos = e.status().position;
+        check("a loop keeps the playhead inside it", lpos >= 4800 && lpos < 14400);
+        e.loop(4800, 14400, false);
+        // meters: each track after its fader, by track ID
+        e.meters(new java.util.HashMap<String, float[]>());  // clear
+        play(e, 2000);
+        java.util.HashMap<String, float[]> m = new java.util.HashMap<String, float[]>();
+        e.meters(m);
+        check("a meter for each track by its ID", m.size() == 2 && m.containsKey(ta.id) && m.containsKey(tb.id));
+        near("the levelled track's meter is after its fader", 0.125, m.get(ta.id)[0], 1e-4);
+        near("the muted track's meter is still", 0.0, m.get(tb.id)[0], 1e-6);
+
         NativeEngine.Status s = e.status();
-        check("status: playing, and the position has moved on", s.playing && s.position >= 12000);
+        check("status: playing, and the position has moved on", s.playing && s.position > 4800);
         check("status: no device stats off-line", s.deviceRate == 0);
 
         boolean threw = false;
