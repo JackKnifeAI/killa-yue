@@ -34,7 +34,7 @@ int main() {
             float want = (p >= 1000 && p < 101000) ? (float)(p - 1000 + 500) : 0.f;
             if (out[2 * i] != want) exact = false;
         }
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
+        std::this_thread::sleep_for(std::chrono::microseconds(2667)); // four times real time: 512 frames at 48 kHz is 10.7 ms
     }
     CHECK(exact, "every frame is the right file frame, with silence around the clip");
     CHECK(s.starved() == 0, "a disk that keeps up never starves");

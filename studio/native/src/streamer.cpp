@@ -86,8 +86,8 @@ bool Streamer::waitReady(int ms) {
 }
 
 void Streamer::run() {
-    std::vector<float> chunk;
     const long kChunk = 4096;
+    std::vector<float> chunk(2 * kChunk), raw(2 * kChunk);  // reused: nothing is allocated per chunk
     while (!stop_.load(std::memory_order_relaxed)) {
         const long g = generation_.load(std::memory_order_acquire);
         if (g != ringGeneration_.load(std::memory_order_relaxed)) {
@@ -107,11 +107,10 @@ void Streamer::run() {
         }
         // silence up to the clip's start, then the clip
         const long n = f < start_ ? std::min(kChunk, start_ - f) : std::min(kChunk, clipEnd() - f);
-        chunk.assign(2 * n, 0.f);
+        std::fill(chunk.begin(), chunk.begin() + 2 * n, 0.f);
         if (f >= start_) {
             const long at = f - start_ + offset_;
             const int ch = reader_->channels();
-            std::vector<float> raw((size_t)n * ch);
             const int got = reader_->read(at, raw.data(), (int)n);
             for (int k = 0; k < got; k++) {
                 chunk[2 * k] = raw[(size_t)k * ch];
