@@ -13,7 +13,10 @@ public class SongText {
     static final int STYLE_CHARS = 1000, LYRICS_CHARS = 5000;
 
     private static final Pattern STYLE = Pattern.compile("<style>\\s*(.*?)\\s*(?:</style>|<lyrics>|$)", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
-    private static final Pattern LYRICS = Pattern.compile("<lyrics>\\s*(.*?)\\s*(?:</lyrics>|$)", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    // to the LAST closing tag (greedy): some models close </lyrics> after every section; with no
+    // closing tag at all, to the end of the answer
+    private static final Pattern LYRICS = Pattern.compile("<lyrics>\\s*(.*)</lyrics>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    private static final Pattern LYRICS_OPEN = Pattern.compile("<lyrics>\\s*(.*)$", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
     // models that ignore the tags tend to write headings instead: "STYLE:", "**Sound description:**", "LYRICS:"
     private static final Pattern STYLE_HEAD = Pattern.compile("^[#*\\s]*(?:style(?: prompt)?|sound(?: description)?)\\s*[:*]+\\**\\s*(.*?)\\s*^[#*\\s]*lyrics\\s*[:*]+\\**\\s*(.*)$",
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
@@ -73,6 +76,10 @@ public class SongText {
         Song s = new Song();
         Matcher ms = STYLE.matcher(a), ml = LYRICS.matcher(a);
         boolean hs = ms.find(), hl = ml.find();
+        if (!hl) {
+            ml = LYRICS_OPEN.matcher(a);
+            hl = ml.find();
+        }
         if (hs) s.style = ms.group(1);
         if (hl) s.lyrics = ml.group(1);
         if (!hs || !hl) {
@@ -93,7 +100,12 @@ public class SongText {
     static String parsePart(String part, String answer) {
         String a = THINK.matcher(answer).replaceAll("");
         Matcher m = ("style".equals(part) ? STYLE : LYRICS).matcher(a);
-        String body = m.find() ? m.group(1) : a;
+        boolean found = m.find();
+        if (!found && !"style".equals(part)) {
+            m = LYRICS_OPEN.matcher(a);
+            found = m.find();
+        }
+        String body = found ? m.group(1) : a;
         return "style".equals(part) ? cleanStyle(body) : cleanLyrics(body);
     }
 
