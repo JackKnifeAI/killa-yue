@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")/.."
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
-javac -Xlint:-options --release 8 -d "$T" src/ai/jackknife/killayue/ScorePrep.java src/ai/jackknife/killayue/SvgScore.java src/ai/jackknife/killayue/Instruments.java src/ai/jackknife/killayue/Transpose.java src/ai/jackknife/killayue/Tabs.java test/ai/jackknife/killayue/*Test.java
+javac -Xlint:-options --release 8 -d "$T" src/ai/jackknife/killayue/ScorePrep.java src/ai/jackknife/killayue/SvgScore.java src/ai/jackknife/killayue/Instruments.java src/ai/jackknife/killayue/Transpose.java src/ai/jackknife/killayue/Tabs.java src/ai/jackknife/killayue/SheetLayout.java test/ai/jackknife/killayue/*Test.java
 for t in test/ai/jackknife/killayue/*Test.java; do
     java -cp "$T" "ai.jackknife.killayue.$(basename "$t" .java)"
 done

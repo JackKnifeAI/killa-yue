@@ -2558,7 +2558,12 @@ public class MainActivity extends Activity {
     /** Saved sheet music: share every file, or open the PDF (the first file). */
     void scoreReady(String title, String message, final String[] files) {
         new Lux.Builder(this).setTitle(title).setMessage(message)
-                .setPositiveButton("Share", new DialogInterface.OnClickListener() {
+                .setPositiveButton("Open", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface x, int w) {
+                        SheetActivity.open(MainActivity.this, files[0], files);
+                    }
+                })
+                .setNeutralButton("Share", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface x, int w) {
                         ArrayList<Uri> uris = new ArrayList<Uri>();
                         for (String f : files) uris.add(TrackProvider.uri(f));
@@ -2567,18 +2572,6 @@ public class MainActivity extends Activity {
                         s.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
                         s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                         startActivity(Intent.createChooser(s, "Share the sheet music"));
-                    }
-                })
-                .setNeutralButton("Open", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface x, int w) {
-                        Intent s = new Intent(Intent.ACTION_VIEW);
-                        s.setDataAndType(TrackProvider.uri(files[0]), "application/pdf");
-                        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        try {
-                            startActivity(s);
-                        } catch (Exception e) {
-                            toast("No PDF viewer found");
-                        }
                     }
                 }).setNegativeButton("Close", null).show();
     }
@@ -2591,13 +2584,50 @@ public class MainActivity extends Activity {
             exportScore(m); // explains that this song has no score
             return;
         }
+        final ArrayList<String> saved = savedSheets(m.optString("_title", "Untitled"));
+        String[] items = saved.isEmpty() ? new String[] {"Full score, with MIDI", "A part for one instrument"}
+                : new String[] {"Full score, with MIDI", "A part for one instrument", "Saved sheet music (" + saved.size() + ")"};
         new Lux.Builder(this).setTitle("Sheet music")
-                .setItems(new String[] {"Full score, with MIDI", "A part for one instrument"}, new DialogInterface.OnClickListener() {
+                .setItems(items, new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         if (w == 0) exportScore(m);
-                        else pickFamily(m);
+                        else if (w == 1) pickFamily(m);
+                        else openSaved(saved);
                     }
                 }).setNegativeButton("Cancel", null).show();
+    }
+
+    /** The song's sheet music already in Documents/Killa YuE: its full score and its parts, newest first. */
+    static ArrayList<String> savedSheets(String title) {
+        final String base = Albums.safeName(title);
+        File[] all = scoreDir().listFiles();
+        ArrayList<File> mine = new ArrayList<File>();
+        if (all != null) for (File f : all) {
+            String n = f.getName();
+            if (n.endsWith(".pdf") && (n.equals(base + ".pdf") || n.startsWith(base + " - "))) mine.add(f);
+        }
+        java.util.Collections.sort(mine, new java.util.Comparator<File>() {
+            public int compare(File a, File b) {
+                return Long.compare(b.lastModified(), a.lastModified());
+            }
+        });
+        ArrayList<String> names = new ArrayList<String>();
+        for (File f : mine) names.add(f.getName());
+        return names;
+    }
+
+    void openSaved(final ArrayList<String> saved) {
+        String[] labels = new String[saved.size()];
+        for (int i = 0; i < labels.length; i++) labels[i] = saved.get(i).replaceAll("\\.pdf$", "");
+        new Lux.Builder(this).setTitle("Saved sheet music").setItems(labels, new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                String pdf = saved.get(w), base = pdf.substring(0, pdf.length() - 4);
+                ArrayList<String> share = new ArrayList<String>();
+                share.add(pdf);
+                for (String ext : new String[] {".mid", ".abc"}) if (new File(scoreDir(), base + ext).isFile()) share.add(base + ext);
+                SheetActivity.open(MainActivity.this, pdf, share.toArray(new String[0]));
+            }
+        }).setNegativeButton("Back", null).show();
     }
 
     void pickFamily(final JSONObject m) {
