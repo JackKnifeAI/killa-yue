@@ -27,6 +27,7 @@ class Limiter {
 public:
     explicit Limiter(int rate, float ceilingDb = -0.3f, float lookaheadMs = 1.5f, float releaseMs = 80.f);
     int latency() const { return look_; }
+    void reset();  // forget everything: as new (for an export, so it never depends on what played before)
     void process(float* interleavedStereo, int frames);
 
 private:

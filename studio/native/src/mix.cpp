@@ -44,10 +44,19 @@ Limiter::Limiter(int rate, float ceilingDb, float lookaheadMs, float releaseMs)
       need_(look_ + 1, 1.f),
       mins_(look_ + 1, 1.f) {}
 
+void Limiter::reset() {
+    std::fill(delay_.begin(), delay_.end(), 0.f);
+    std::fill(need_.begin(), need_.end(), 1.f);
+    std::fill(mins_.begin(), mins_.end(), 1.f);
+    g_ = 1.f;
+    n_ = d_ = 0;
+}
+
 void Limiter::process(float* x, int frames) {
     const int w = look_ + 1;
     for (int i = 0; i < frames; i++) {
-        const float l = x[2 * i], r = x[2 * i + 1];
+        // NaN or infinity from anywhere upstream becomes silence: the limiter is the last guard for ears
+        const float l = std::isfinite(x[2 * i]) ? x[2 * i] : 0.f, r = std::isfinite(x[2 * i + 1]) ? x[2 * i + 1] : 0.f;
         const float peak = std::max(std::fabs(l), std::fabs(r));
         need_[n_] = peak > ceiling_ ? ceiling_ / peak : 1.f;
         // the smallest need over the lookahead, then its average over the lookahead: it reaches the
@@ -58,8 +67,13 @@ void Limiter::process(float* x, int frames) {
         float sum = 0.f;
         for (float v : mins_) sum += v;
         const float a = m == 1.f && sum == (float)w ? 1.f : std::min(1.f, sum / w);
-        g_ = a < g_ ? a : g_ + (a - g_) * release_;
-        if (g_ > a) g_ = a;
+        if (a < g_) {
+            g_ = a;
+        } else {
+            const float next = g_ + (a - g_) * release_;
+            // the release ends where float steps stop moving it (about 1e-4 short of unity): finish it there
+            g_ = next == g_ && a == 1.f ? 1.f : std::min(next, a);
+        }
         // out: the frame from look_ frames ago
         float ol = l, orr = r;
         if (look_) {
@@ -71,7 +85,10 @@ void Limiter::process(float* x, int frames) {
         }
         float g = g_;
         const float op = std::max(std::fabs(ol), std::fabs(orr));
-        if (op * g > ceiling_) g = ceiling_ / op;  // rounding guard: a gain, never a clip
+        if (op * g > ceiling_) {  // rounding guard: a gain, never a clip, and exact to the last bit
+            g = ceiling_ / op;
+            while (op * g > ceiling_) g = std::nextafter(g, 0.f);
+        }
         x[2 * i] = ol * g;
         x[2 * i + 1] = orr * g;
         n_ = (n_ + 1) % w;
