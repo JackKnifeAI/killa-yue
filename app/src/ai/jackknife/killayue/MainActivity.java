@@ -76,27 +76,6 @@ public class MainActivity extends Activity {
     static final int[] SEQS = {4096, 8192, 16384, 0};
     static final String[] SEQ_LABELS = {"Short songs (4096)", "Normal (8192)", "Long songs (16384)", "Maximum (uses most memory)"};
 
-    static final String ABOUT = "Songs made entirely on your phone. Nothing you write or generate leaves the device; "
-            + "the only network use is downloading models and adapters you ask for.\n\n"
-            + "Needs a phone with a Qualcomm Adreno GPU, Android 9 or later, about 6 GB of free memory for "
-            + "full-length songs and 4 GB of storage for the model.\n\n"
-            + "App: (c) 2026 JackKnife AI, Apache License 2.0.\n"
-            + "Song model: YuE2 by M-A-P, weights under CC BY-NC 4.0 with the authors' creator permission; "
-            + "downloaded separately, not part of this app. Companies need a licence from the authors for commercial use.\n"
-            + "Engine: yue2.cpp by Serveurperso, MIT. GGML, MIT.\n"
-            + "GPU driver: Mesa Turnip, MIT. Vulkan loader, Apache License 2.0.\n"
-            + "zlib (zlib licence), Zstandard (BSD), Expat (MIT), libc++ (Apache 2.0 with LLVM exception).\n"
-            + "Killa typefaces: SIL Open Font License 1.1.\n"
-            + "Album covers: Qualcomm AI Engine Direct (QNN) runtime, under the Qualcomm AI Hub Model License, included in this app only; "
-            + "QNN API headers (c) 2026 Qualcomm Technologies, Inc., BSD 3-Clause; CLIP tokenizer vocabulary (c) 2021 OpenAI, MIT. "
-            + "QR codes: QR Code generator by Project Nayuki, MIT. "
-            + "GPU covers: stable-diffusion.cpp by leejet, MIT; the GPU cover models (Stable Diffusion 1.5, OpenRAIL-M; LCM LoRA, OpenRAIL++; "
-            + "TAESD, MIT) are downloaded separately. "
-            + "Lyric sync: whisper.cpp by ggml-org, MIT; the Whisper small model (OpenAI, MIT) is downloaded separately. "
-            + "The cover model (Stable Diffusion 1.5 as compiled by Qualcomm) is downloaded separately and is licensed CreativeML OpenRAIL-M.\n"
-            + "Adapters you install belong to their makers and carry their own terms.\n\n"
-            + "Killa YuE is an independent project and is not affiliated with or endorsed by the YuE2 authors.\n"
-            + "Full licence texts are in the source repository: github.com/JackKnifeAI/killa-yue";
 
     // one job at a time, shared across activity restarts
     static volatile boolean jobBusy;
@@ -363,6 +342,14 @@ public class MainActivity extends Activity {
         lp.rightMargin = dp(8);
         c.setLayoutParams(lp);
         return c;
+    }
+
+    String versionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     void toast(String s) {
@@ -3919,7 +3906,7 @@ public class MainActivity extends Activity {
         c.addView(about, gap(18));
         about.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                alert("Killa YuE 1.1", ABOUT);
+                alert(About.title(versionName()), About.TEXT);
             }
         });
 
