@@ -308,7 +308,7 @@ public class SvgScore {
         return out;
     }
 
-    private static float[] box(float[] ops) {
+    static float[] box(float[] ops) {
         float[] b = {Float.MAX_VALUE, Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE};
         for (int i = 0; i < ops.length; ) {
             int n = args(ops[i]);

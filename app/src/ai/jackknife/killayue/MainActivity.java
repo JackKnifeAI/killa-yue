@@ -2676,18 +2676,72 @@ public class MainActivity extends Activity {
                 // a voice the score does not have
             }
         }
+        final boolean chords = ins.playsChords() && voices.contains("Vocal");
+        if (chords) labels.add(0, "Chords to sing along to");
         if (voices.size() == 0) {
             alert("No notes to write out", "This score has no melody with notes in it.");
-        } else if (voices.size() == 1) {
+        } else if (voices.size() == 1 && !chords) {
             exportPart(m, ins, voices.get(0));
         } else {
             new Lux.Builder(this).setTitle(ins.title() + ": which line?")
                     .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
                         public void onClick(DialogInterface d, int w) {
-                            exportPart(m, ins, voices.get(w));
+                            if (chords && w == 0) exportChords(m, ins);
+                            else exportPart(m, ins, voices.get(chords ? w - 1 : w));
                         }
                     }).setNegativeButton("Cancel", null).show();
         }
+    }
+
+    /** The vocal line as it sounds, its chord names, and under each line the chords' shapes; diagrams on top. */
+    void exportChords(JSONObject m, final Instruments.Instrument ins) {
+        final String title = m.optString("_title", "Untitled");
+        final Transpose.Part p;
+        try {
+            p = Transpose.part(m.optString("abc"), "Vocal", new Instruments.Instrument("Voices", "vocal", "Vocal", "Voc.", "", 0, 0, "auto", 0, 127));
+        } catch (Exception e) {
+            alert("Could not write the chords", String.valueOf(e.getMessage()));
+            return;
+        }
+        String sub = ins.name + " chords to sing along to  \u00b7  key of " + keyName(p.key) + "  \u00b7  tuning " + Tabs.tuningName(ins);
+        toast("Writing the " + ins.name.toLowerCase() + " chords...");
+        Engrave.run(this, ScorePrep.prepare(p.abc, title, sub), new Engrave.Done() {
+            public void failed(String why) {
+                alert("Could not write the chords", why);
+            }
+
+            public void laidOut(final String svg) {
+                new Thread(new Runnable() {
+                    public void run() {
+                        String err = null;
+                        int count = 0;
+                        final String name = Albums.safeName(title + " - " + ins.name + " chords");
+                        try {
+                            SvgScore s = SvgScore.parse(svg);
+                            count = ChordSheet.add(s, ins).size();
+                            File dir = scoreDir();
+                            if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
+                            ScorePages.writePdf(s, "Killa YuE", new File(dir, name + ".pdf"));
+                        } catch (Exception e) {
+                            err = String.valueOf(e.getMessage());
+                        }
+                        final String ferr = err;
+                        final int chords = count;
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (ferr != null) {
+                                    alert("Could not write the chords", ferr);
+                                    return;
+                                }
+                                scoreReady("Chords ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf\n\nThe vocal line with its "
+                                        + chords + (chords == 1 ? " chord" : " chords") + ", each chord's shape on the " + ins.name.toLowerCase()
+                                        + " tab under it, and a diagram of every shape at the top.", new String[] {name + ".pdf"});
+                            }
+                        });
+                    }
+                }, "chords").start();
+            }
+        });
     }
 
     void exportPart(JSONObject m, final Instruments.Instrument ins, final String voice) {

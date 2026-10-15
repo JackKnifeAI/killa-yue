@@ -14,6 +14,7 @@ class Instruments {
         final int low, high;        // written range, MIDI note numbers
         String tab;                 // abcjs's tablature for a fretted instrument (its line count), or null
         int[] strings;              // open strings as they sound, MIDI, the tab's bottom line first
+        boolean drone;              // the first string is a short drone (the banjo's fifth), left out of chord shapes
 
         Instrument(String group, String id, String name, String shortName, String keyLabel, int steps, int semitones, String clef, int low, int high) {
             this.group = group;
@@ -41,6 +42,21 @@ class Instruments {
                 low = Math.min(low, strings[i]);
             }
             return low;
+        }
+
+        /** True for an instrument that strums chords (a bass guitar plays single notes). */
+        boolean playsChords() {
+            return strings != null && !id.equals("bass-guitar");
+        }
+
+        /** The strings chord shapes are played on: all of them, less a drone string. */
+        int[] chordStrings() {
+            return drone ? java.util.Arrays.copyOfRange(strings, 1, strings.length) : strings;
+        }
+
+        Instrument drone() {
+            drone = true;
+            return this;
         }
 
         /** A fretted instrument's strings for its tab, as they sound, the tab's bottom line first. */
@@ -93,7 +109,7 @@ class Instruments {
         add("Strings", "bass-guitar", "Bass Guitar", "B. Gtr.", "", 7, 12, "bass", 40, 67).tab("violin", 28, 33, 38, 43);
         add("Strings", "ukulele", "Ukulele", "Uke", "", 0, 0, "treble", 60, 81).tab("mandolin", 67, 60, 64, 69); // high G
         add("Strings", "mandolin", "Mandolin", "Mand.", "", 0, 0, "treble", 55, 88).tab("mandolin", 55, 62, 69, 76);
-        add("Strings", "banjo", "Banjo", "Bjo.", "", 7, 12, "treble-8", 62, 86).tab("fiveString", 67, 50, 55, 59, 62); // short 5th string g
+        add("Strings", "banjo", "Banjo", "Bjo.", "", 7, 12, "treble-8", 62, 86).tab("fiveString", 67, 50, 55, 59, 62).drone(); // short 5th string g
         add("Strings", "harp", "Harp", "Hp.", "", 0, 0, "auto", 24, 103);
 
         add("Keys and mallets", "piano", "Piano", "Pno.", "", 0, 0, "auto", 21, 108);
