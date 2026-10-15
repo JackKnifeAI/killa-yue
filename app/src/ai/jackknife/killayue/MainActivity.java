@@ -2519,7 +2519,7 @@ public class MainActivity extends Activity {
                 alert("Could not write the sheet music", why);
             }
 
-            public void laidOut(String svg) {
+            public void laidOut(String svg, String lineStarts) {
                 writeScore(abc, sc, title, svg);
             }
         });
@@ -2698,7 +2698,7 @@ public class MainActivity extends Activity {
     }
 
     /** The vocal line as it sounds, its chord names, and under each line the chords' shapes; diagrams on top. */
-    void exportChords(JSONObject m, final Instruments.Instrument ins) {
+    void exportChords(final JSONObject m, final Instruments.Instrument ins) {
         final String title = m.optString("_title", "Untitled");
         final Transpose.Part p;
         try {
@@ -2714,15 +2714,16 @@ public class MainActivity extends Activity {
                 alert("Could not write the chords", why);
             }
 
-            public void laidOut(final String svg) {
+            public void laidOut(final String svg, final String lineStarts) {
                 new Thread(new Runnable() {
                     public void run() {
-                        String err = null;
+                        String err = null, words = null;
                         int count = 0;
                         final String name = Albums.safeName(title + " - " + ins.name + " chords");
                         try {
                             SvgScore s = SvgScore.parse(svg);
                             count = ChordSheet.add(s, ins).size();
+                            words = lyricsUnder(s, m, lineStarts);
                             File dir = scoreDir();
                             if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
                             ScorePages.writePdf(s, "Killa YuE", new File(dir, name + ".pdf"));
@@ -2731,7 +2732,7 @@ public class MainActivity extends Activity {
                         } catch (Exception e) {
                             err = String.valueOf(e.getMessage());
                         }
-                        final String ferr = err;
+                        final String ferr = err, fwords = words;
                         final int chords = count;
                         ui.post(new Runnable() {
                             public void run() {
@@ -2742,7 +2743,9 @@ public class MainActivity extends Activity {
                                 scoreReady("Chords ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf\n" + name
                                         + ".musicxml, the vocal line and chord symbols for notation programs\n\nThe vocal line with its "
                                         + chords + (chords == 1 ? " chord" : " chords") + ", each chord's shape on the " + ins.name.toLowerCase()
-                                        + " tab under it, and a diagram of every shape at the top.", new String[] {name + ".pdf", name + ".musicxml"});
+                                        + " tab under it, " + (fwords == null ? "the words under each line, " : "")
+                                        + "and a diagram of every shape at the top." + (fwords != null && fwords.length() > 0 ? "\n\n" + fwords : ""),
+                                        new String[] {name + ".pdf", name + ".musicxml"});
                             }
                         });
                     }
@@ -2751,7 +2754,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    void exportPart(JSONObject m, final Instruments.Instrument ins, final String voice) {
+    void exportPart(final JSONObject m, final Instruments.Instrument ins, final String voice) {
         final String title = m.optString("_title", "Untitled");
         final Transpose.Part p;
         try {
@@ -2773,21 +2776,23 @@ public class MainActivity extends Activity {
                 alert("Could not write the part", why);
             }
 
-            public void laidOut(final String svg) {
+            public void laidOut(final String svg, final String lineStarts) {
                 new Thread(new Runnable() {
                     public void run() {
-                        String err = null;
+                        String err = null, words = null;
                         final String name = Albums.safeName(title + " - " + ins.name + (voice.equals("Vocal") ? "" : " (instrument)"));
                         try {
                             File dir = scoreDir();
                             if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
-                            ScorePages.writePdf(SvgScore.parse(svg), "Killa YuE", new File(dir, name + ".pdf"));
+                            SvgScore s = SvgScore.parse(svg);
+                            if (voice.equals("Vocal")) words = lyricsUnder(s, m, lineStarts);
+                            ScorePages.writePdf(s, "Killa YuE", new File(dir, name + ".pdf"));
                             Store.write(new File(dir, name + ".abc"), p.abc.getBytes("UTF-8"));
                         } catch (Exception e) {
                             err = String.valueOf(e.getMessage());
                         }
                         final String noXml = err == null ? musicXml(new File(scoreDir(), name + ".musicxml"), p.abc, title, ins) : null;
-                        final String ferr = err;
+                        final String ferr = err, fwords = words;
                         ui.post(new Runnable() {
                             public void run() {
                                 if (ferr != null) {
@@ -2797,6 +2802,8 @@ public class MainActivity extends Activity {
                                 String msg = "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the " + ins.title() + " part\n"
                                         + (noXml == null ? name + ".musicxml, for notation programs\n" : "") + name + ".abc, the part as a score";
                                 if (noXml != null) msg += "\n\nNo MusicXML this time: " + noXml;
+                                if (fwords == null) msg += "\n\nThe words are printed under each line of music.";
+                                else if (fwords.length() > 0) msg += "\n\n" + fwords;
                                 if (p.outOfRange > 0) msg += "\n\n" + p.outOfRange + " of its " + p.notes + " notes are outside the "
                                         + ins.name.toLowerCase() + "'s usual range. They are printed exactly as the song has them.";
                                 if (p.unplayable > 0) msg += "\n\n" + p.unplayable + (p.unplayable == 1 ? " note is" : " notes are")
@@ -2810,6 +2817,27 @@ public class MainActivity extends Activity {
                 }, "part").start();
             }
         });
+    }
+
+    /**
+     * Prints the song's lyric lines under the lines of music they are sung in, from the times lyric sync
+     * (or tap-to-time) saved. Null when printed; otherwise what to tell the reader ("" when the song has no words).
+     */
+    static String lyricsUnder(SvgScore s, JSONObject m, String lineStarts) {
+        String lyrics = m.optString("lyrics");
+        ArrayList<Karaoke.Line> lines = Karaoke.lines(lyrics);
+        if (lines.isEmpty()) return "";
+        JSONArray t = m.optJSONArray("_times");
+        if (t == null || t.length() != lines.size())
+            return "To print the words under each line of music, sync the lyrics first: play the song, then \u201cSync automatically\u201d on the Lyrics tab.";
+        ArrayList<String> texts = new ArrayList<String>();
+        int[] times = new int[lines.size()];
+        for (int i = 0; i < times.length; i++) {
+            texts.add(lines.get(i).text);
+            times[i] = t.optInt(i);
+        }
+        LyricLines.add(s, LyricLines.starts(lineStarts), texts, times);
+        return null;
     }
 
     /** Writes the score as MusicXML; null when written, else why not (the file is then not left behind). */
