@@ -23,4 +23,6 @@ J=$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")
 $CXX -std=c++17 -O1 -g -Wall -Wextra -Werror -Iinclude -I"$J/include" -I"$J/include/linux" -fPIC -shared $SRC jni/jni.cpp -o "$OUT/libstudio.so" -lpthread
 APP=../../app/src/ai/jackknife/killayue/studio
 javac -Xlint:-options --release 8 -d "$OUT/classes" $APP/*.java test/java/*.java
-java --enable-native-access=ALL-UNNAMED -Djava.library.path="$OUT" -cp "$OUT/classes" ai.jackknife.killayue.studio.NativeEngineTest
+for t in test/java/*Test.java; do
+    java --enable-native-access=ALL-UNNAMED -Djava.library.path="$OUT" -cp "$OUT/classes" "ai.jackknife.killayue.studio.$(basename "$t" .java)"
+done

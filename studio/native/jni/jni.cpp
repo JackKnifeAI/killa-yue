@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "studio/host.h"
+#include "studio/import.h"
 
 using studio::Host;
 
@@ -127,5 +128,39 @@ JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatenc
 }
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }
+
+// ---------- NativeImport ----------
+
+JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nOpen(JNIEnv* e, jclass, jint rateIn, jint ch, jint rateOut, jbyteArray path) {
+    std::string p((size_t)e->GetArrayLength(path), '\0');
+    e->GetByteArrayRegion(path, 0, (jsize)p.size(), reinterpret_cast<jbyte*>(&p[0]));
+    std::string err;
+    studio::Importer* im = studio::Importer::open(rateIn, ch, rateOut, p.c_str(), err);
+    if (!im) throwIo(e, err);
+    return reinterpret_cast<jlong>(im);
+}
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nPush(JNIEnv* e, jclass, jlong h, jfloatArray x, jint frames) {
+    auto* im = reinterpret_cast<studio::Importer*>(h);
+    jfloat* d = e->GetFloatArrayElements(x, nullptr);
+    std::string err;
+    const bool ok = im->push(d, frames, err);
+    e->ReleaseFloatArrayElements(x, d, JNI_ABORT);
+    if (!ok) throwIo(e, err);
+}
+
+JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nFinish(JNIEnv* e, jclass, jlong h) {
+    auto* im = reinterpret_cast<studio::Importer*>(h);
+    std::string err;
+    if (!im->finish(err)) {
+        throwIo(e, err);
+        return -1;
+    }
+    return im->frames();
+}
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nCancel(JNIEnv*, jclass, jlong h) { reinterpret_cast<studio::Importer*>(h)->cancel(); }
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nClose(JNIEnv*, jclass, jlong h) { delete reinterpret_cast<studio::Importer*>(h); }
 
 }  // extern "C"
