@@ -33,8 +33,26 @@ Host::~Host() {
 
 bool Host::start(std::string& err) { return !device_ || device_->start(err); }
 
-bool Host::load(const std::vector<TrackSpec>& tracks, std::string& err) {
+bool Host::post(const Message& m) {
+    flushMaster();  // first, so it keeps its place before later edits
+    if (m.kind == Msg::Master && engine_->post(m)) {
+        masterDb_ = m.value;
+        masterPending_ = false;
+        return true;
+    }
+    return engine_->post(m);
+}
+
+void Host::flushMaster() {
+    if (masterPending_ && engine_->post({Msg::Master, -1, masterDb_, 0, nullptr})) masterPending_ = false;
+}
+
+bool Host::load(const std::vector<TrackSpec>& tracks, float masterDb, std::string& err) {
     reap();
+    if ((int)tracks.size() > Engine::kMaxTracks) {
+        err = "The Studio plays up to " + std::to_string(Engine::kMaxTracks) + " tracks; this has " + std::to_string(tracks.size()) + ".";
+        return false;
+    }
     Generation g;
     std::unique_ptr<Session> session(new Session{rate_, {}});
     // one reader per file, shared by every clip of it (a loop opens its file once): only the disk thread reads
@@ -62,7 +80,20 @@ bool Host::load(const std::vector<TrackSpec>& tracks, std::string& err) {
         g.streams.emplace_back(new Streamer(clips));
         session->tracks.push_back({g.streams.back().get(), t.gainDb, t.pan, t.mute, t.solo});
     }
-    for (auto& s : g.streams) disk_.add(s.get());
+    // fill the new tracks from where the song is now before they take over, so the change is seamless: when
+    // the swap seeks them a moment further on, that place is already in their rings
+    const long now = engine_->position();
+    std::vector<Streamer*> fresh;
+    for (auto& s : g.streams) {
+        s->seek(now);
+        fresh.push_back(s.get());
+    }
+    disk_.add(fresh);
+    const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+    for (auto* s : fresh) {
+        const long left = (long)std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
+        s->waitReady((int)std::max(0L, left), rate_ / 2);  // half a second ahead; a slow disk only costs a gap
+    }
     g.session = session.get();
     if (!engine_->post({Msg::Swap, 0, 0, 0, g.session})) {
         for (auto& s : g.streams) disk_.remove(s.get());
@@ -71,6 +102,9 @@ bool Host::load(const std::vector<TrackSpec>& tracks, std::string& err) {
     }
     session.release();  // the engine has it now
     gens_.push_back(std::move(g));
+    masterDb_ = masterDb;
+    masterPending_ = true;
+    flushMaster();
     return true;
 }
 
@@ -94,23 +128,27 @@ void Host::reap() {
 
 Status Host::status() {
     reap();
+    flushMaster();
     return engine_->status();
 }
 
 DeviceStats Host::deviceStats() { return device_ ? device_->stats() : DeviceStats(); }
 
-// audio thread: is a measurement running? Starts one on a callback's microphone side (so both counts start
-// at the same callback) and lets go of the buffers if the measurement was withdrawn.
+// audio thread: is a measurement running? It starts on a callback's microphone side, so both counts start at
+// the same callback, and a withdrawn one is let go of here.
 bool Host::calibrating(bool startHere) {
-    if (!calBusy_.load(std::memory_order_relaxed)) {
-        if (!startHere || !calActive_.load(std::memory_order_acquire)) return false;
-        calBusy_.store(true, std::memory_order_relaxed);
-        calIn_ = calOut_ = 0;
-        return true;
+    int st = cal_.load(std::memory_order_acquire);
+    if (st == kArmed && startHere) {
+        if (cal_.compare_exchange_strong(st, kRunning, std::memory_order_acq_rel)) {
+            calIn_ = calOut_ = 0;
+            return true;
+        }
     }
-    if (calActive_.load(std::memory_order_acquire)) return true;
-    calBusy_.store(false, std::memory_order_release);
-    return false;
+    if (st == kWithdrawn) {
+        cal_.store(kIdle, std::memory_order_release);
+        return false;
+    }
+    return st == kRunning;
 }
 
 void Host::input(const float* in, int frames, int channels) {
@@ -121,20 +159,34 @@ void Host::input(const float* in, int frames, int channels) {
 void Host::render(float* out, int frames) {
     engine_->process(out, frames);
     if (!calibrating(false)) return;
-    const long P = (long)probe_.size();
-    for (long at : probeAt_) {
+    for (size_t k = 0; k < probeAt_.size(); k++) {
+        const long at = probeAt_[k], P = (long)probes_[k].size();
         const long from = std::max(at, calOut_), to = std::min(at + P, calOut_ + frames);
         for (long f = from; f < to; f++) {
-            const float v = probe_[(size_t)(f - at)];
+            const float v = probes_[k][(size_t)(f - at)];
             out[2 * (f - calOut_)] += v;
             out[2 * (f - calOut_) + 1] += v;
         }
     }
     calOut_ += frames;
-    if (calOut_ >= calEnd_ && calIn_ >= calEnd_) {
-        calBusy_.store(false, std::memory_order_relaxed);
-        calActive_.store(false, std::memory_order_release);  // hands the buffers back to measureLatency
+    if (calOut_ >= calEnd_ && calIn_ >= calEnd_) cal_.store(kDone, std::memory_order_release);  // hands the buffers back
+}
+
+// measureLatency stops waiting: takes the buffers back if the audio thread never started, or withdraws
+RoundTrip Host::giveUp(const char* why, std::string& err) {
+    int st = kArmed;
+    if (cal_.compare_exchange_strong(st, kIdle, std::memory_order_acq_rel)) {
+        err = calCancel_.load() ? "The measurement was cancelled." : "The microphone sent nothing. Is another app using it?";
+        return {false, 0};
     }
+    if (st == kRunning && cal_.compare_exchange_strong(st, kWithdrawn, std::memory_order_acq_rel)) {
+        err = calCancel_.load() ? "The measurement was cancelled." : why;
+        return {false, 0};
+    }
+    // it finished at this very moment (Done): hand the buffers back and report why we stopped waiting
+    cal_.store(kIdle, std::memory_order_release);
+    err = calCancel_.load() ? "The measurement was cancelled." : why;
+    return {false, 0};
 }
 
 RoundTrip Host::measureLatency(int probes, std::string& err) {
@@ -142,35 +194,40 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
         err = "Measuring latency needs the microphone open.";
         return {false, 0};
     }
-    if (calActive_.load(std::memory_order_acquire) || calBusy_.load(std::memory_order_acquire)) {
-        err = "A measurement is already running.";
+    int st = kIdle;
+    // just after a cancel the audio thread lets go on its next callback: give it a moment
+    for (int i = 0; i < 50 && cal_.load(std::memory_order_acquire) == kWithdrawn; i++) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (!cal_.compare_exchange_strong(st, kPreparing, std::memory_order_acq_rel)) {
+        err = st == kWithdrawn ? "The audio device has not come back since the last measurement." : "A measurement is already running.";
         return {false, 0};
     }
+    calCancel_.store(false);
     probes = std::max(3, std::min(probes, 20));
-    const long gap = rate_ * 2 / 5;  // 0.4 s between probes: room for the longest round trip worth measuring
-    probe_ = probeSignal(rate_);
+    const long gap = rate_ * 2 / 5;  // 0.4 s between probes
+    const long reach = rate_;        // round trips up to a second: each probe is its own noise, so they never mix up
+    probes_.clear();
     probeAt_.clear();
-    for (int k = 0; k < probes; k++) probeAt_.push_back(rate_ / 5 + k * gap);
-    calEnd_ = probeAt_.back() + gap;
+    for (int k = 0; k < probes; k++) {
+        probes_.push_back(probeSignal(rate_, (unsigned)k + 1));
+        probeAt_.push_back(rate_ / 5 + k * gap);
+    }
+    const long P = (long)probes_[0].size();
+    calEnd_ = probeAt_.back() + reach + P;
     heard_.assign((size_t)calEnd_, 0.f);
-    calActive_.store(true, std::memory_order_release);
+    cal_.store(kArmed, std::memory_order_release);
     const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000 + 1000L * calEnd_ / rate_);
-    while (calActive_.load(std::memory_order_acquire)) {
-        if (std::chrono::steady_clock::now() > until) {
-            // the device stopped calling; withdraw, and the audio thread lets go of the buffers on its next call
-            calActive_.store(false, std::memory_order_release);
-            err = "The audio device stopped during the measurement.";
-            return {false, 0};
-        }
+    while (cal_.load(std::memory_order_acquire) != kDone) {
+        if (calCancel_.load(std::memory_order_acquire)) return giveUp("The measurement was cancelled.", err);
+        if (std::chrono::steady_clock::now() > until) return giveUp("The audio device stopped during the measurement.", err);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     std::vector<long> delays;
-    const long P = (long)probe_.size();
-    for (long at : probeAt_) {
-        const long len = std::min(gap - rate_ / 50 + P, calEnd_ - at);
-        const Found f = findProbe(heard_.data() + at, len, probe_);
+    for (size_t k = 0; k < probeAt_.size(); k++) {
+        const long at = probeAt_[k];
+        const Found f = findProbe(heard_.data() + at, std::min(reach + P, calEnd_ - at), probes_[k]);
         delays.push_back(f.sure ? f.delay : -1);
     }
+    cal_.store(kIdle, std::memory_order_release);
     RoundTrip rt = roundTrip(delays, rate_);
     if (!rt.ok) err = "The probes were not heard clearly. Turn the volume up, keep the phone still and quiet, and try again.";
     return rt;

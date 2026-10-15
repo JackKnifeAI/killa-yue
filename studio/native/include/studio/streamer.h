@@ -45,6 +45,8 @@ public:
     void seek(long projectFrame) override;
     void setOffline(bool on) override { offline_.store(on); }
     bool waitReady(int ms) override;
+    // Waits up to ms until the ring holds `ahead` frames from the current place (or the rest of the clips).
+    bool waitReady(int ms, long ahead);
 
     long starved() const { return starved_.load(); }
     size_t ringBytes() const { return ring_.size() * sizeof(float); }

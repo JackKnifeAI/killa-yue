@@ -17,6 +17,7 @@ public:
     // UI thread. A clip is fed from add() until remove() returns; after that the disk thread never touches it
     // again, so it can be freed.
     void add(Streamer* s);
+    void add(const std::vector<Streamer*>& many);  // one wait for the thread, however many
     void remove(Streamer* s);
 
 private:

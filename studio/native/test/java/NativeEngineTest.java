@@ -53,7 +53,8 @@ public class NativeEngineTest {
 
     public static void main(String[] a) throws Exception {
         NativeEngine.load();
-        File dir = new File(System.getProperty("java.io.tmpdir"), "native-engine-test-" + System.nanoTime());
+        // a folder named like a song, emoji and accents included: it must open like any other
+        File dir = new File(System.getProperty("java.io.tmpdir"), "native-engine-test-" + System.nanoTime() + " \uD83D\uDD25 Café");
         new File(dir, "audio").mkdirs();
         wav(new File(dir, "audio/a.wav"), 48000, 2, 0.25f, 48000);
         wav(new File(dir, "audio/b.wav"), 48000, 1, 0.5f, 48000);
@@ -100,6 +101,31 @@ public class NativeEngineTest {
         check("a missing file is refused, by name: " + why, why.contains("missing.wav"));
         out = play(e, 2000);
         near("and the tracks that were playing play on", 0.125, out[1500], 1e-4);
+
+        // a failed load with different track IDs keeps the old IDs working
+        Project fresh = new Project("Fresh", 48000);
+        Track tf = fresh.addTrack("New");
+        fresh.addClip(tf, "audio/missing-too.wav", 0, 0, 100);
+        fresh.nextId = 500;
+        try {
+            e.load(fresh, dir);
+        } catch (IOException x) {
+            // expected
+        }
+        e.gain(ta.id, -12.0412f);
+        out = play(e, 3000);
+        near("after a failed load, the old track IDs still reach their tracks", 0.0625, out[2500], 1e-4);
+        e.gain(ta.id, -6.0206f);
+
+        // the master level travels with the project
+        Project loud = p.copy();
+        loud.masterDb = -6.0206f;
+        e.load(loud, dir);
+        out = play(e, 4000);
+        // the copy carries the project's own levels (0 dB, unmuted), not the edits sent since: both tracks, halved
+        near("the project's master level is applied", 0.5 * (0.25 + 0.5 * Math.sqrt(0.5)), out[3500], 1e-4);
+        loud.masterDb = 0f;
+        e.load(loud, dir);
 
         Project other = new Project("Other rate", 44100);
         why = "";

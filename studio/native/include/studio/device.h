@@ -42,7 +42,7 @@ public:
     virtual void setRenderer(Renderer* r) = 0;  // before start()
     virtual void setInput(InputSink* s) = 0;    // before start(); nullptr drops the input
     virtual bool start(std::string& err) = 0;
-    virtual void close() = 0;  // stops and closes; render() and input() are never called after it returns
+    virtual void close() = 0;  // stops and closes for good; render() and input() are never called after it returns
     virtual DeviceStats stats() = 0;
 };
 

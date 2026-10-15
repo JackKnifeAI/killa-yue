@@ -76,6 +76,7 @@ public:
     // Off-line use only, while process() is not running on another thread.
     bool waitSourcesReady(int ms);
     int latency() const { return limiter_.latency(); }
+    long position() const { return position_.load(std::memory_order_relaxed); }  // any thread; clears nothing
     int rate() const { return rate_; }
 
 private:

@@ -38,13 +38,17 @@ public:
     ~Host() override;
 
     int rate() const { return rate_; }
+    bool hasDevice() const { return device_ != nullptr; }
     bool start(std::string& err);  // starts the device (nothing to start without one)
 
     // Opens every clip's file and swaps the tracks in at the next block, at the song's position. The old tracks
     // are freed once the engine lets go of them. On failure (a file missing, damaged or at another rate) the
     // old tracks keep playing and err says which file and why.
-    bool load(const std::vector<TrackSpec>& tracks, std::string& err);
-    bool post(const Message& m) { return engine_->post(m); }
+    bool load(const std::vector<TrackSpec>& tracks, std::string& err) { return load(tracks, masterDb_, err); }
+    // The same, with the master level that goes with these tracks (it reaches the engine even if its queue
+    // is full now: then it follows at the next status() or post()).
+    bool load(const std::vector<TrackSpec>& tracks, float masterDb, std::string& err);
+    bool post(const Message& m);
     Status status();  // also frees the tracks the engine has let go of
     DeviceStats deviceStats();
     int sessionsHeld() const { return (int)gens_.size(); }  // the current one plus any not yet let go of
@@ -54,14 +58,18 @@ public:
     void render(float* out, int frames) override;
     void input(const float* in, int frames, int channels) override;
 
-    // Plays `probes` probes (0.4 s apart) and finds them in the microphone. Blocks for about probes * 0.4 s.
-    // Needs a device opened with the microphone. Play stays as it was; the probes are added on top.
+    // Plays `probes` probes (0.4 s apart, each its own noise) and finds them in the microphone; round trips up
+    // to a second are measured. Blocks for about probes * 0.4 + 1.3 s. Needs a device opened with the
+    // microphone. Play stays as it was; the probes are added on top.
     RoundTrip measureLatency(int probes, std::string& err);
+    // Any thread: makes a running measureLatency return at once ("cancelled").
+    void cancelLatency() { calCancel_.store(true, std::memory_order_release); }
 
 private:
     Host(int rate, Device* d, bool mic);
     void reap();
     bool calibrating(bool startHere);
+    RoundTrip giveUp(const char* why, std::string& err);
 
     struct Generation {
         Session* session;  // owned by the engine until it hands it back
@@ -75,12 +83,20 @@ private:
     Disk disk_;
     std::unique_ptr<Engine> engine_;
     std::list<Generation> gens_;
+    float masterDb_ = 0.f;
+    bool masterPending_ = false;  // a master level that did not fit in the engine's queue yet
+    void flushMaster();
 
-    // calibration: measureLatency fills these, then raises calActive_. The audio thread raises calBusy_ while
-    // it uses them and lowers both when done (or when calActive_ is withdrawn after a timeout); a new
-    // measurement waits until calBusy_ is down, so the buffers are never changed under the audio thread.
-    std::atomic<bool> calActive_{false}, calBusy_{false};
-    std::vector<float> probe_, heard_;
+    // calibration, one state shared by measureLatency and the audio thread (compare-and-swap):
+    //   Idle -> Preparing (measureLatency claims it and fills the buffers) -> Armed -> Running (the audio thread
+    //   starts on a callback's microphone side) -> Done (it hands the buffers back) -> Idle.
+    //   Withdrawn: measureLatency gave up while Running; the audio thread lets go on its next call (-> Idle).
+    // The buffers belong to measureLatency in Preparing and Done, to the audio thread in Running.
+    enum { kIdle, kPreparing, kArmed, kRunning, kDone, kWithdrawn };
+    std::atomic<int> cal_{kIdle};
+    std::atomic<bool> calCancel_{false};
+    std::vector<std::vector<float>> probes_;
+    std::vector<float> heard_;
     std::vector<long> probeAt_;
     long calOut_ = 0, calIn_ = 0, calEnd_ = 0;
 };

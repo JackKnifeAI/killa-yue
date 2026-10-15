@@ -65,6 +65,13 @@ int main() {
         Found f = findProbe(r.data(), (long)probe.size() / 2, probe);
         CHECK(!f.sure, "a recording shorter than the probe finds nothing");
     }
+    {   // every probe is its own noise: one probe is never mistaken for another
+        const std::vector<float> second = probeSignal(rate, 2);
+        CHECK(second.size() == probe.size() && second != probe, "a second probe has the same length and different noise");
+        auto r = heard(second, rate, 7000, 0.1f, 0.001f, 8);
+        CHECK(!findProbe(r.data(), (long)r.size(), probe).sure, "the first probe is not found where only the second was played");
+        CHECK(findProbe(r.data(), (long)r.size(), second).delay == 7000, "the second is found where it was played");
+    }
     {   // the measurement: several probes, the median, and a refusal when they disagree
         CHECK(roundTrip({1000, 1001, 999, 1000, 1002}, rate).ok, "agreeing probes give a measurement");
         CHECK(roundTrip({1000, 1001, 999, 1000, 1002}, rate).frames == 1000, "the median of five");

@@ -22,6 +22,7 @@ if [ -n "$STUDIO_TEST" ]; then
     python3 - <<'PY'
 import re
 m = open('AndroidManifest.xml').read()
+assert m.count('<application ') == 1 and m.count('</application>') == 1, 'the manifest changed: update the STUDIO_TEST edit'
 m = m.replace('<application ', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application ', 1)
 m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/>\n    </application>', 1)
 open('out/AndroidManifest.xml', 'w').write(m)

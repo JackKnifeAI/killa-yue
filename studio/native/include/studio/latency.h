@@ -7,7 +7,8 @@
 namespace studio {
 
 // A burst of shaped noise, about 50 ms: easy to find by correlation, even quiet, echoing and band-limited.
-std::vector<float> probeSignal(int rate);
+// seed picks the noise: probes with different seeds are told apart by findProbe.
+std::vector<float> probeSignal(int rate, unsigned seed = 1);
 
 struct Found {
     long delay;  // frames from the start of the recording to the probe's first arrival; -1 when not found

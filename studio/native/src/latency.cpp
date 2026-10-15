@@ -5,12 +5,13 @@
 
 namespace studio {
 
-std::vector<float> probeSignal(int rate) {
+std::vector<float> probeSignal(int rate, unsigned seed) {
     const int n = rate / 20;  // 50 ms
     std::vector<float> p((size_t)n);
     // white noise from a fixed generator (the same probe on every phone), kept to 400 Hz - 6 kHz, where phone
     // speakers and microphones both work
-    uint32_t x = 0x9E3779B9u;
+    uint32_t x = 0x9E3779B9u ^ (seed * 0x85EBCA6Bu);
+    if (x == 0) x = 1;  // xorshift never leaves zero
     const float hp = std::exp(-2.f * (float)M_PI * 400.f / rate), lp = 1.f - std::exp(-2.f * (float)M_PI * 6000.f / rate);
     float prevIn = 0.f, high = 0.f, low1 = 0.f, low2 = 0.f;
     for (int i = 0; i < n; i++) {

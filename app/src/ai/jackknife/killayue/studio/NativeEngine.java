@@ -2,6 +2,7 @@ package ai.jackknife.killayue.studio;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 
 /**
@@ -29,7 +30,10 @@ public final class NativeEngine implements AutoCloseable {
     }
 
     private long h;
+    private final boolean device;
+    private int measuring;  // measureLatency calls in flight (guarded by this): close() waits for them
     private final ArrayList<String> trackIds = new ArrayList<String>();  // engine track index -> project track ID
+    private static final Charset UTF8 = Charset.forName("UTF-8");
 
     /** Loads libstudio.so; throws UnsatisfiedLinkError if this build has no Studio engine. */
     public static void load() {
@@ -38,23 +42,24 @@ public final class NativeEngine implements AutoCloseable {
 
     /** An engine on the phone's audio device, at the device's own rate, with the microphone when mic. */
     public static NativeEngine onDevice(boolean mic) throws IOException {
-        return new NativeEngine(nOpen(true, mic, 0));
+        return new NativeEngine(nOpen(true, mic, 0), true);
     }
 
     /** An engine with no device, at rate: call render() yourself. */
     public static NativeEngine offline(int rate) {
         try {
-            return new NativeEngine(nOpen(false, false, rate));
+            return new NativeEngine(nOpen(false, false, rate), false);
         } catch (IOException x) {
             throw new IllegalStateException(x);  // nothing to open off-line
         }
     }
 
-    private NativeEngine(long handle) {
+    private NativeEngine(long handle, boolean device) {
         h = handle;
+        this.device = device;
     }
 
-    private long handle() {
+    private synchronized long handle() {
         if (h == 0) throw new IllegalStateException("The Studio engine is closed.");
         return h;
     }
@@ -78,7 +83,7 @@ public final class NativeEngine implements AutoCloseable {
         float[] gain = new float[n], pan = new float[n], clipGain = new float[clips];
         boolean[] mute = new boolean[n], solo = new boolean[n];
         int[] clipTrack = new int[clips];
-        String[] files = new String[clips];
+        byte[][] files = new byte[clips][];  // real UTF-8: JNI's own strings mangle emoji, and songs have them
         long[] start = new long[clips], offset = new long[clips], length = new long[clips];
         ArrayList<String> ids = new ArrayList<String>();
         int k = 0;
@@ -91,7 +96,7 @@ public final class NativeEngine implements AutoCloseable {
             solo[i] = t.solo;
             for (Clip c : t.clips) {
                 clipTrack[k] = i;
-                files[k] = new File(folder, c.file).getPath();
+                files[k] = new File(folder, c.file).getPath().getBytes(UTF8);
                 start[k] = c.start;
                 offset[k] = c.offset;
                 length[k] = c.length;
@@ -99,10 +104,9 @@ public final class NativeEngine implements AutoCloseable {
                 k++;
             }
         }
-        nLoad(handle(), gain, pan, mute, solo, clipTrack, files, start, offset, length, clipGain);
+        nLoad(handle(), gain, pan, mute, solo, clipTrack, files, start, offset, length, clipGain, p.masterDb);
         trackIds.clear();
         trackIds.addAll(ids);
-        post(MASTER, -1, p.masterDb, 0);
     }
 
     private int index(String trackId) {
@@ -179,21 +183,45 @@ public final class NativeEngine implements AutoCloseable {
 
     /** Off-line only: renders frames of stereo into out (interleaved; out holds at least 2 * frames). */
     public void render(float[] out, int frames) {
+        if (device) throw new IllegalStateException("The device renders this engine; render() is for off-line engines.");
         if (frames < 0 || out.length < 2 * frames) throw new IllegalArgumentException("render: out is too small.");
         nRender(handle(), out, frames);
     }
 
-    /** Plays probes and finds them in the microphone: the round trip in frames. Blocks for about probes * 0.4 s. */
+    /**
+     * Plays probes and finds them in the microphone: the round trip in frames. Blocks for about probes * 0.4 + 1.3 s,
+     * so call it on a worker thread; close() from another thread cancels it.
+     */
     public long measureLatency(int probes) throws IOException {
-        return nLatency(handle(), probes);
+        long handle;
+        synchronized (this) {
+            handle = handle();
+            measuring++;
+        }
+        try {
+            return nLatency(handle, probes);
+        } finally {
+            synchronized (this) {
+                measuring--;
+                notifyAll();
+            }
+        }
     }
 
+    /** Closes the engine; a measurement running on another thread is cancelled and waited for first. */
     @Override
-    public void close() {
-        if (h != 0) {
-            nClose(h);
-            h = 0;
+    public synchronized void close() {
+        if (h == 0) return;
+        if (measuring > 0) nCancelLatency(h);
+        while (measuring > 0) {
+            try {
+                wait();
+            } catch (InterruptedException x) {
+                Thread.currentThread().interrupt();
+            }
         }
+        nClose(h);
+        h = 0;
     }
 
     private static native long nOpen(boolean device, boolean mic, int rate) throws IOException;
@@ -204,8 +232,8 @@ public final class NativeEngine implements AutoCloseable {
 
     private static native void nStart(long h) throws IOException;
 
-    private static native void nLoad(long h, float[] gain, float[] pan, boolean[] mute, boolean[] solo, int[] clipTrack, String[] files,
-            long[] start, long[] offset, long[] length, float[] clipGain) throws IOException;
+    private static native void nLoad(long h, float[] gain, float[] pan, boolean[] mute, boolean[] solo, int[] clipTrack, byte[][] files,
+            long[] start, long[] offset, long[] length, float[] clipGain, float masterDb) throws IOException;
 
     private static native boolean nPost(long h, int kind, int track, float value, long frame);
 
@@ -214,4 +242,6 @@ public final class NativeEngine implements AutoCloseable {
     private static native void nRender(long h, float[] out, int frames);
 
     private static native long nLatency(long h, int probes) throws IOException;
+
+    private static native void nCancelLatency(long h);
 }

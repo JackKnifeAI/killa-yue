@@ -27,14 +27,33 @@ class Duplex : public oboe::FullDuplexStream {
 public:
     explicit Duplex(OboeDevice* d) : dev_(d) {}
     oboe::DataCallbackResult onBothStreamsReady(const void* in, int nIn, void* out, int nOut) override;
+    // Oboe stops the output when reading the microphone fails, without an error callback: tell the watcher
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream* s, void* d, int32_t n) override;
 
 private:
     OboeDevice* dev_;
 };
 
-class OboeDevice : public Device, public oboe::AudioStreamDataCallback, public oboe::AudioStreamErrorCallback {
+// Oboe calls error callbacks on a thread of its own that can outlive the device; the streams hold this small
+// object by shared_ptr, so it outlives the device too, and it forwards only while the device is there.
+class ErrorSink : public oboe::AudioStreamErrorCallback {
 public:
-    OboeDevice() : duplex_(this) {}
+    explicit ErrorSink(OboeDevice* d) : dev_(d) {}
+    void detach() {
+        std::lock_guard<std::mutex> l(m_);
+        dev_ = nullptr;
+    }
+    void onErrorBeforeClose(oboe::AudioStream* s, oboe::Result e) override;
+    void onErrorAfterClose(oboe::AudioStream* s, oboe::Result e) override;
+
+private:
+    std::mutex m_;  // taken before the device's own lock, never after it
+    OboeDevice* dev_;
+};
+
+class OboeDevice : public Device, public oboe::AudioStreamDataCallback {
+public:
+    OboeDevice() : duplex_(this), errors_(std::make_shared<ErrorSink>(this)) {}
     ~OboeDevice() override { close(); }
 
     bool open(bool withInput, std::string& err) override {
@@ -57,6 +76,7 @@ public:
     }
 
     void close() override {
+        errors_->detach();  // first, and outside mu_: an error callback in flight may be waiting for mu_
         {
             std::lock_guard<std::mutex> l(mu_);
             closing_ = true;
@@ -118,21 +138,28 @@ public:
         callbacks_.store(callbacks_.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);  // one writer
         totalNs_.store(totalNs_.load(std::memory_order_relaxed) + ns, std::memory_order_relaxed);
         if (ns > maxNs_.load(std::memory_order_relaxed)) maxNs_.store(ns, std::memory_order_relaxed);
-        if (rate_ > 0 && ns > (long)burst_ * 1000000000L / rate_) slow_.store(slow_.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+        if (rate_ > 0 && ns > (long)nOut * 1000000000L / rate_) slow_.store(slow_.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    }
+
+    // audio thread: the duplex stream stopped itself (the microphone failed)
+    void stalled() {
+        stalled_.store(true, std::memory_order_release);
+        wake_.notify_all();
     }
 
     // the route changed (or the stream died): Oboe has closed the stream; the watcher thread brings it back
-    void onErrorBeforeClose(oboe::AudioStream* s, oboe::Result) override {
+    void beforeClose(oboe::AudioStream* s) {
         if (s->getDirection() == oboe::Direction::Output) {  // its count is gone once Oboe closes it
             auto x = s->getXRunCount();
             if (x) lostXruns_.store(x.value());
         }
     }
 
-    void onErrorAfterClose(oboe::AudioStream*, oboe::Result e) override {
+    void afterClose(oboe::AudioStream* s, oboe::Result e) {
         {
             std::lock_guard<std::mutex> l(mu_);
-            if (closing_) return;
+            // only the streams we have now: an unplug errors both, and the second must not tear down the new pair
+            if (closing_ || (s != out_.get() && s != in_.get())) return;
             error_ = std::string("The audio stream stopped (") + oboe::convertToText(e) + "); reopening it.";
             broken_ = true;
         }
@@ -149,7 +176,7 @@ private:
             ->setChannelCount(oboe::ChannelCount::Stereo)
             ->setUsage(oboe::Usage::Media)
             ->setContentType(oboe::ContentType::Music)
-            ->setErrorCallback(this);
+            ->setErrorCallback(errors_);
         if (keepRate > 0) {
             // after a route change: the same rate as before, converted by Oboe if the new device differs
             b.setSampleRate(keepRate)->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium);
@@ -179,7 +206,7 @@ private:
                 ->setFormatConversionAllowed(true)
                 ->setChannelConversionAllowed(true)
                 ->setInputPreset(oboe::InputPreset::Unprocessed)  // no gain control or noise suppression
-                ->setErrorCallback(this);
+                ->setErrorCallback(errors_);
             r = ib.openStream(in_);
             if (r != oboe::Result::OK) {
                 err = std::string("Could not open the microphone: ") + oboe::convertToText(r);
@@ -228,8 +255,9 @@ private:
     void watch() {
         std::unique_lock<std::mutex> l(mu_);
         while (!closing_) {
-            wake_.wait(l, [this] { return closing_ || broken_; });
+            wake_.wait_for(l, std::chrono::milliseconds(250), [this] { return closing_ || broken_ || stalled_.load(); });
             if (closing_) break;
+            if (!broken_ && !stalled_.exchange(false)) continue;
             broken_ = false;
             const bool wasRunning = running_;
             const int keep = rate_;
@@ -250,15 +278,19 @@ private:
             running_ = false;
             xrunsBefore_ += lostXruns_.exchange(0);
             std::string err;
-            for (int attempt = 0; attempt < 20 && !closing_; attempt++) {
-                if (openStreams(keep, err) && (!wasRunning || startStreams(err))) {
-                    reopened_++;
-                    error_.clear();
-                    break;
+            for (int wait = 250; !closing_; wait = std::min(wait * 2, 2000)) {  // keep trying: there is always a speaker
+                if (openStreams(keep, err)) {
+                    if (!wasRunning || startStreams(err)) {
+                        reopened_++;
+                        error_.clear();
+                        policy_.store(-1, std::memory_order_relaxed);  // look again: the new callback thread may differ
+                        break;
+                    }
+                    closeStreams();  // opened but would not start: close before trying again, or they leak
                 }
                 error_ = err;
                 l.unlock();
-                std::this_thread::sleep_for(std::chrono::milliseconds(250));  // the new device may still be appearing
+                std::this_thread::sleep_for(std::chrono::milliseconds(wait));  // the new device may still be appearing
                 l.lock();
             }
         }
@@ -270,6 +302,8 @@ private:
     std::shared_ptr<oboe::AudioStream> out_, in_;
     std::unique_ptr<oboe::LatencyTuner> tuner_;
     Duplex duplex_;
+    std::shared_ptr<ErrorSink> errors_;
+    std::atomic<bool> stalled_{false};
     Renderer* renderer_ = nullptr;
     InputSink* sink_ = nullptr;
     bool wantInput_ = false, closing_ = false, broken_ = false, running_ = false;
@@ -284,6 +318,22 @@ private:
 oboe::DataCallbackResult Duplex::onBothStreamsReady(const void* in, int nIn, void* out, int nOut) {
     dev_->callback(in, nIn, out, nOut);
     return oboe::DataCallbackResult::Continue;
+}
+
+oboe::DataCallbackResult Duplex::onAudioReady(oboe::AudioStream* s, void* d, int32_t n) {
+    const oboe::DataCallbackResult r = oboe::FullDuplexStream::onAudioReady(s, d, n);
+    if (r == oboe::DataCallbackResult::Stop) dev_->stalled();
+    return r;
+}
+
+void ErrorSink::onErrorBeforeClose(oboe::AudioStream* s, oboe::Result) {
+    std::lock_guard<std::mutex> l(m_);
+    if (dev_) dev_->beforeClose(s);
+}
+
+void ErrorSink::onErrorAfterClose(oboe::AudioStream* s, oboe::Result e) {
+    std::lock_guard<std::mutex> l(m_);
+    if (dev_) dev_->afterClose(s, e);
 }
 
 }  // namespace

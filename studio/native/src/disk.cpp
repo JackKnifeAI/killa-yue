@@ -19,6 +19,15 @@ void Disk::add(Streamer* s) {
     s->fed_.store(true, std::memory_order_release);
 }
 
+void Disk::add(const std::vector<Streamer*>& many) {
+    std::lock_guard<std::mutex> l(mu_);
+    for (auto* s : many) {
+        if (std::find(clips_.begin(), clips_.end(), s) != clips_.end()) continue;
+        clips_.push_back(s);
+        s->fed_.store(true, std::memory_order_release);
+    }
+}
+
 void Disk::remove(Streamer* s) {
     std::lock_guard<std::mutex> l(mu_);  // waits out a pass in progress, so the thread is done with s
     clips_.erase(std::remove(clips_.begin(), clips_.end(), s), clips_.end());

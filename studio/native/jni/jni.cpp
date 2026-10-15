@@ -11,10 +11,12 @@ namespace {
 
 Host* host(jlong h) { return reinterpret_cast<Host*>(h); }
 
-void throwIo(JNIEnv* e, const std::string& m) {
-    jclass c = e->FindClass("java/io/IOException");
+void throwAs(JNIEnv* e, const char* cls, const std::string& m) {
+    jclass c = e->FindClass(cls);
     if (c) e->ThrowNew(c, m.c_str());
 }
+
+void throwIo(JNIEnv* e, const std::string& m) { throwAs(e, "java/io/IOException", m); }
 
 }  // namespace
 
@@ -39,7 +41,7 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nStart(JNI
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIEnv* e, jclass, jlong h, jfloatArray gain, jfloatArray pan,
                                                                           jbooleanArray mute, jbooleanArray solo, jintArray clipTrack,
                                                                           jobjectArray files, jlongArray start, jlongArray offset,
-                                                                          jlongArray length, jfloatArray clipGain) {
+                                                                          jlongArray length, jfloatArray clipGain, jfloat masterDb) {
     const jsize tracks = e->GetArrayLength(gain), clips = e->GetArrayLength(clipTrack);
     std::vector<jfloat> g(tracks), p(tracks), cg(clips);
     std::vector<jboolean> m(tracks), s(tracks);
@@ -61,14 +63,18 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIE
             throwIo(e, "A clip belongs to no track.");
             return;
         }
-        jstring js = (jstring)e->GetObjectArrayElement(files, k);
-        const char* c = js ? e->GetStringUTFChars(js, nullptr) : nullptr;
-        spec[ct[k]].clips.push_back({c ? c : "", (long)st[k], (long)of[k], (long)ln[k], cg[k]});
-        if (c) e->ReleaseStringUTFChars(js, c);
-        if (js) e->DeleteLocalRef(js);
+        // the path as UTF-8 bytes from Java (GetStringUTFChars would give modified UTF-8, which breaks emoji)
+        jbyteArray jb = (jbyteArray)e->GetObjectArrayElement(files, k);
+        std::string path;
+        if (jb) {
+            path.resize((size_t)e->GetArrayLength(jb));
+            e->GetByteArrayRegion(jb, 0, (jsize)path.size(), reinterpret_cast<jbyte*>(&path[0]));
+            e->DeleteLocalRef(jb);
+        }
+        spec[ct[k]].clips.push_back({path, (long)st[k], (long)of[k], (long)ln[k], cg[k]});
     }
     std::string err;
-    if (!host(h)->load(spec, err)) throwIo(e, err);
+    if (!host(h)->load(spec, masterDb, err)) throwIo(e, err);
 }
 
 JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPost(JNIEnv*, jclass, jlong h, jint kind, jint track, jfloat value,
@@ -97,6 +103,10 @@ JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nStatus
 }
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nRender(JNIEnv* e, jclass, jlong h, jfloatArray out, jint frames) {
+    if (host(h)->hasDevice()) {  // the device's callback renders it; two threads in process() would corrupt it
+        throwAs(e, "java/lang/IllegalStateException", "The device renders this engine.");
+        return;
+    }
     std::vector<float> buf(2 * (size_t)frames);
     host(h)->render(buf.data(), frames);
     e->SetFloatArrayRegion(out, 0, 2 * frames, buf.data());
@@ -111,5 +121,7 @@ JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatency(
     }
     return rt.frames;
 }
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }
 
 }  // extern "C"

@@ -47,6 +47,12 @@ long Streamer::overlap(long from, long to) const {
 
 void Streamer::seek(long projectFrame) {
     if (projectFrame == pos_) return;  // already there: nothing to refill
+    // a little ahead, into what the ring already holds: move on (take() skips to it), keeping the read-ahead
+    if (projectFrame > pos_ && ringGeneration_.load(std::memory_order_acquire) == wanted_ &&
+        projectFrame < base_.load(std::memory_order_relaxed) + written_.load(std::memory_order_acquire)) {
+        pos_ = projectFrame;
+        return;
+    }
     pos_ = projectFrame;
     seekTo_.store(projectFrame, std::memory_order_relaxed);
     wanted_ = generation_.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -88,12 +94,14 @@ int Streamer::read(float* out, int frames) {
     return frames - (int)missing;
 }
 
-bool Streamer::waitReady(int ms) {
+bool Streamer::waitReady(int ms) { return waitReady(ms, 4096); }
+
+bool Streamer::waitReady(int ms, long ahead) {
     const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     while (std::chrono::steady_clock::now() < until) {
         if (ringGeneration_.load(std::memory_order_acquire) == wanted_) {
             const long base = base_.load(), w = written_.load(std::memory_order_acquire);
-            const long want = std::min(clipEnd(), pos_ + 4096);
+            const long want = std::min(clipEnd(), pos_ + ahead);
             if (base + w >= want || pos_ >= clipEnd()) return true;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
