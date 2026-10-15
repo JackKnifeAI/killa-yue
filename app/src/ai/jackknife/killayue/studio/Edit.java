@@ -83,8 +83,15 @@ public abstract class Edit {
      * project that keeps an ID (the engine, a stems job) can trust it.
      */
     public static Edit addTrack(String name, String file, long length) {
+        return addTrack(name, file, length, null);
+    }
+
+    /** The same, with what the track is ("stem:vocals", "take", ...). */
+    public static Edit addTrack(String name, String file, long length, String role) {
         if (name == null || file == null) throw new IllegalArgumentException("A track needs a name and a file.");
-        return new AddTrack(name, file, length);
+        AddTrack a = new AddTrack(name, file, length);
+        a.role = role;
+        return a;
     }
 
     /** Several edits as one step: applied in order, undone in reverse. */
@@ -212,6 +219,7 @@ public abstract class Edit {
     static final class AddTrack extends Edit {
         final String name, file;
         final long length;
+        String role;
         Track added;
 
         AddTrack(String name, String file, long length) {
@@ -223,6 +231,7 @@ public abstract class Edit {
         void apply(Project p) {
             if (added == null) {
                 added = p.addTrack(name);
+                added.role = role;
                 p.addClip(added, file, 0, 0, length);
             } else {
                 p.tracks.add(added);
@@ -245,6 +254,7 @@ public abstract class Edit {
             j.put("name", name);
             j.put("file", file);
             j.put("length", Long.valueOf(length));
+            if (role != null) j.put("role", role);
             if (added != null) j.put("added", Project.trackJson(added));
             return j;
         }
@@ -372,6 +382,7 @@ public abstract class Edit {
         }
         if ("addTrack".equals(k)) {
             AddTrack a = new AddTrack((String) j.get("name"), (String) j.get("file"), ((Number) j.get("length")).longValue());
+            if (j.get("role") instanceof String) a.role = (String) j.get("role");
             if (j.get("added") != null) a.added = Project.trackFromJson(j.get("added"));
             return a;
         }

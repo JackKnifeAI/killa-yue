@@ -80,6 +80,11 @@ if [ -n "$STUDIO_LIB" ]; then
     cp "$STUDIO_LIB" out/apk/lib/arm64-v8a/libstudio.so
     $STRIP out/apk/lib/arm64-v8a/libstudio.so 2>/dev/null || true
 fi
+# The Studio's stems job (studio/ai): its ExecuTorch runtime is downloaded with the model, not shipped here.
+if [ -n "$STUDIO_AI_LIB" ]; then
+    cp "$STUDIO_AI_LIB" out/apk/lib/arm64-v8a/libkillastem.so
+    $STRIP out/apk/lib/arm64-v8a/libkillastem.so 2>/dev/null || true
+fi
 if [ -n "$NPU_DIR" ]; then
     cp "$NPU_DIR/sdnpu" out/apk/lib/arm64-v8a/libsdnpu.so
     cp "$NPU_DIR"/lib/libQnnHtp.so "$NPU_DIR"/lib/libQnnSystem.so "$NPU_DIR"/lib/libQnnHtpV79Stub.so "$NPU_DIR"/lib/libQnnHtpV79Skel.so out/apk/lib/arm64-v8a/

@@ -86,6 +86,16 @@ public class ProjectV2Test {
         same("undo the loop after saving", "48000 96000 true", back.project().loopStart + " " + back.project().loopEnd + " " + back.project().loopOn);
         same("labels", "Colour Loop", h.undoLabel() + " " + (h.undo() ? h.undoLabel() : ""));
 
+        // a track added with a role keeps it through undo, redo and saving
+        History hr = new History(new Project("Roles", 48000));
+        hr.run(Edit.addTrack("Vocals", "audio/stems-1/vocals.wav", 1000, "stem:vocals"));
+        String rid = hr.project().tracks.get(0).id;
+        same("an added track has its role", "stem:vocals", hr.project().track(rid).role);
+        History hr2 = History.fromJson(Json.parse(Json.write(hr.toJson("x"))), hr.project().copy());
+        hr2.undo();
+        hr2.redo();
+        same("and keeps it after saving, undo and redo", "stem:vocals", hr2.project().track(rid).role);
+
         // the undo history of an old project survives the upgrade
         File dir = new File(System.getProperty("java.io.tmpdir"), "v2test-" + System.nanoTime());
         dir.mkdirs();

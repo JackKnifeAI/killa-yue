@@ -49,6 +49,8 @@
         <!-- the song engine as a library in its own app process (JNI), bound by EngineService -->
         <service android:name=".EngineHost" android:process=":engine" android:exported="false"/>
         <service android:name=".WriterHost" android:process=":writer" android:exported="false"/>
+        <!-- the Studio's AI jobs (stems) in their own process, so a heavy model's memory goes back when it ends -->
+        <service android:name=".studio.ui.AiHost" android:process=":ai" android:exported="false"/>
         <service android:name=".NowPlaying" android:exported="false"/>
         <receiver android:name=".Widget" android:label="Killa YuE" android:exported="true">
             <intent-filter>

@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
 
 
     // one job at a time, shared across activity restarts
-    static volatile boolean jobBusy;
+    public static volatile boolean jobBusy;
     static volatile String jobId, jobMsg = "", jobError = "";
     static volatile String runningCheckpoint = ""; // the checkpoint folder of the song being made
     static volatile boolean jobCancel, engineHealthy;
