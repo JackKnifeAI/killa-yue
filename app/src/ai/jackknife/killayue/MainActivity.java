@@ -2539,6 +2539,7 @@ public class MainActivity extends Activity {
                 } catch (Exception e) {
                     err = String.valueOf(e.getMessage());
                 }
+                final String noXml = err == null ? musicXml(new File(dir, name + ".musicxml"), abc, title, null) : null;
                 final String ferr = err;
                 ui.post(new Runnable() {
                     public void run() {
@@ -2547,8 +2548,11 @@ public class MainActivity extends Activity {
                             return;
                         }
                         scoreReady("Sheet music ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the sheet music\n" + name
-                                + ".mid, MIDI with the vocal, instrument and chord tracks\n" + name + ".abc, the score itself",
-                                new String[] {name + ".pdf", name + ".mid", name + ".abc"});
+                                + ".mid, MIDI with the vocal, instrument and chord tracks\n"
+                                + (noXml == null ? name + ".musicxml, for MuseScore, Sibelius, Dorico or Finale\n" : "") + name + ".abc, the score itself"
+                                + (noXml != null ? "\n\nNo MusicXML this time: " + noXml : ""),
+                                noXml == null ? new String[] {name + ".pdf", name + ".mid", name + ".musicxml", name + ".abc"}
+                                        : new String[] {name + ".pdf", name + ".mid", name + ".abc"});
                     }
                 });
             }
@@ -2624,7 +2628,7 @@ public class MainActivity extends Activity {
                 String pdf = saved.get(w), base = pdf.substring(0, pdf.length() - 4);
                 ArrayList<String> share = new ArrayList<String>();
                 share.add(pdf);
-                for (String ext : new String[] {".mid", ".abc"}) if (new File(scoreDir(), base + ext).isFile()) share.add(base + ext);
+                for (String ext : new String[] {".mid", ".musicxml", ".abc"}) if (new File(scoreDir(), base + ext).isFile()) share.add(base + ext);
                 SheetActivity.open(MainActivity.this, pdf, share.toArray(new String[0]));
             }
         }).setNegativeButton("Back", null).show();
@@ -2722,6 +2726,8 @@ public class MainActivity extends Activity {
                             File dir = scoreDir();
                             if (!dir.isDirectory() && !dir.mkdirs()) throw new Exception("Could not open Documents/Killa YuE");
                             ScorePages.writePdf(s, "Killa YuE", new File(dir, name + ".pdf"));
+                            String noXml = musicXml(new File(dir, name + ".musicxml"), p.abc, title, null);
+                            if (noXml != null) throw new Exception(noXml);
                         } catch (Exception e) {
                             err = String.valueOf(e.getMessage());
                         }
@@ -2733,9 +2739,10 @@ public class MainActivity extends Activity {
                                     alert("Could not write the chords", ferr);
                                     return;
                                 }
-                                scoreReady("Chords ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf\n\nThe vocal line with its "
+                                scoreReady("Chords ready", "Saved in Documents/Killa YuE:\n\n" + name + ".pdf\n" + name
+                                        + ".musicxml, the vocal line and chord symbols for notation programs\n\nThe vocal line with its "
                                         + chords + (chords == 1 ? " chord" : " chords") + ", each chord's shape on the " + ins.name.toLowerCase()
-                                        + " tab under it, and a diagram of every shape at the top.", new String[] {name + ".pdf"});
+                                        + " tab under it, and a diagram of every shape at the top.", new String[] {name + ".pdf", name + ".musicxml"});
                             }
                         });
                     }
@@ -2779,6 +2786,7 @@ public class MainActivity extends Activity {
                         } catch (Exception e) {
                             err = String.valueOf(e.getMessage());
                         }
+                        final String noXml = err == null ? musicXml(new File(scoreDir(), name + ".musicxml"), p.abc, title, ins) : null;
                         final String ferr = err;
                         ui.post(new Runnable() {
                             public void run() {
@@ -2787,19 +2795,32 @@ public class MainActivity extends Activity {
                                     return;
                                 }
                                 String msg = "Saved in Documents/Killa YuE:\n\n" + name + ".pdf, the " + ins.title() + " part\n"
-                                        + name + ".abc, the part as a score";
+                                        + (noXml == null ? name + ".musicxml, for notation programs\n" : "") + name + ".abc, the part as a score";
+                                if (noXml != null) msg += "\n\nNo MusicXML this time: " + noXml;
                                 if (p.outOfRange > 0) msg += "\n\n" + p.outOfRange + " of its " + p.notes + " notes are outside the "
                                         + ins.name.toLowerCase() + "'s usual range. They are printed exactly as the song has them.";
                                 if (p.unplayable > 0) msg += "\n\n" + p.unplayable + (p.unplayable == 1 ? " note is" : " notes are")
                                         + " lower than the " + ins.name.toLowerCase() + "'s lowest string, so the tab marks "
                                         + (p.unplayable == 1 ? "it" : "them") + " with a question mark.";
-                                scoreReady("Part ready", msg, new String[] {name + ".pdf", name + ".abc"});
+                                scoreReady("Part ready", msg, noXml == null ? new String[] {name + ".pdf", name + ".musicxml", name + ".abc"}
+                                        : new String[] {name + ".pdf", name + ".abc"});
                             }
                         });
                     }
                 }, "part").start();
             }
         });
+    }
+
+    /** Writes the score as MusicXML; null when written, else why not (the file is then not left behind). */
+    static String musicXml(File out, String abc, String title, Instruments.Instrument ins) {
+        try {
+            Store.write(out, MusicXml.write(abc, title, ins).getBytes("UTF-8"));
+            return null;
+        } catch (Exception e) {
+            out.delete();
+            return String.valueOf(e.getMessage());
+        }
     }
 
     /** The key from a score's K: line, e.g. "Em". */

@@ -13,6 +13,8 @@ import java.util.Arrays;
 class Chords {
     static class Chord {
         String name;
+        String quality;       // the table's own spelling of the quality ("maj7"), and as written in the name
+        String suffix;
         int root, bass;       // pitch classes, 0 = C
         int[] tones;          // semitones above the root, the root (0) first, rising
         boolean[] optional;   // tones a shape may leave out (the fifth of a seventh chord, inner extensions)
@@ -55,6 +57,13 @@ class Chords {
         {new String[] {"maj7#11"}, new int[] {0, 4, 7, 11, 18}, new int[] {7}},
     };
 
+    /** Every quality, in the table's own spelling of it. */
+    static java.util.List<String> qualities() {
+        java.util.ArrayList<String> out = new java.util.ArrayList<String>();
+        for (Object[] q : QUALITIES) out.add(((String[]) q[0])[0]);
+        return out;
+    }
+
     private static final String LETTERS = "CDEFGAB";
     private static final int[] NATURAL = {0, 2, 4, 5, 7, 9, 11};
 
@@ -87,6 +96,8 @@ class Chords {
                 if (!s.equals(rest)) continue;
                 Chord c = new Chord();
                 c.name = n;
+                c.quality = ((String[]) q[0])[0];
+                c.suffix = rest;
                 c.root = root;
                 c.bass = bass;
                 c.tones = (int[]) q[1];
