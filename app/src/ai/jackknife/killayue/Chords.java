@@ -203,7 +203,8 @@ class Chords {
             unplayed = 10.0 * muted;
         }
         int stretch = maxFret > 0 ? maxFret - minFret : 0;
-        return unplayed + 6.0 * interior + 0.6 * fingers + (barre ? 1.5 : 0) + 0.5 * maxFret + 0.8 * stretch - 0.3 * optionalHeard;
+        double position = f.length >= 6 ? 0.5 : 1.0; // four-string chords live near the nut; a guitar moves up for barre shapes
+        return unplayed + 6.0 * interior + 0.6 * fingers + (barre ? 1.5 : 0) + position * maxFret + 0.8 * stretch - 0.3 * optionalHeard;
     }
 
     /**

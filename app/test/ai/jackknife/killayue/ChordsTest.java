@@ -85,6 +85,8 @@ public class ChordsTest {
         same("uke Am", "2000", shape("Am", "ukulele"));
         same("uke Dm", "2210", shape("Dm", "ukulele"));
         same("uke G7", "0212", shape("G7", "ukulele"));
+        same("uke Fm7 low on the neck, not a one-finger barre at the eighth fret", "1313", shape("Fm7", "ukulele"));
+        same("uke Dm7", "2213", shape("Dm7", "ukulele"));
 
         // mandolin (G D A E) and banjo (open G, the four long strings)
         same("mandolin G", "0023", shape("G", "mandolin"));
