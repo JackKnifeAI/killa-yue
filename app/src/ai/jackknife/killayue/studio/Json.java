@@ -205,6 +205,7 @@ public final class Json {
             double d = ((Number) v).doubleValue();
             if (Double.isNaN(d) || Double.isInfinite(d)) throw new IllegalArgumentException("JSON: cannot write " + d);
             if (v instanceof Long || v instanceof Integer) b.append(((Number) v).longValue());
+            else if (v instanceof Float && d != Math.rint(d)) b.append(Float.toString(((Float) v).floatValue())); // shortest: 0.1, not 0.10000000149
             else if (d == Math.rint(d) && Math.abs(d) <= 9007199254740992.0) b.append((long) d);
             else b.append(Double.toString(d));
         } else if (v instanceof Boolean) {
