@@ -1,6 +1,8 @@
 #include "studio/host.h"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <map>
 #include <thread>
 
@@ -136,11 +138,13 @@ DeviceStats Host::deviceStats() { return device_ ? device_->stats() : DeviceStat
 
 // audio thread: is a measurement running? It starts on a callback's microphone side, so both counts start at
 // the same callback, and a withdrawn one is let go of here.
-bool Host::calibrating(bool startHere) {
+bool Host::calibrating(bool startHere, long position) {
     int st = cal_.load(std::memory_order_acquire);
     if (st == kArmed && startHere) {
         if (cal_.compare_exchange_strong(st, kRunning, std::memory_order_acq_rel)) {
             calIn_ = calOut_ = 0;
+            calInBase_ = position;
+            calOutBase_ = -1;  // the next render's position
             return true;
         }
     }
@@ -151,14 +155,21 @@ bool Host::calibrating(bool startHere) {
     return st == kRunning;
 }
 
-void Host::input(const float* in, int frames, int channels) {
-    if (!calibrating(true)) return;
-    for (int i = 0; i < frames && calIn_ < (long)heard_.size(); i++) heard_[(size_t)calIn_++] = in[(size_t)i * channels];
+void Host::input(const float* in, int frames, int channels, long position) {
+    if (!calibrating(true, position)) return;
+    // by the microphone's own position, so a backlog in reading it changes nothing
+    for (int i = 0; i < frames; i++) {
+        const long at = position + i - calInBase_;
+        if (at >= 0 && at < (long)heard_.size()) heard_[(size_t)at] = in[(size_t)i * channels];
+    }
+    calIn_ = std::max(calIn_, position + frames - calInBase_);
 }
 
-void Host::render(float* out, int frames) {
+void Host::render(float* out, int frames, long position) {
     engine_->process(out, frames);
-    if (!calibrating(false)) return;
+    if (!calibrating(false, position)) return;
+    if (calOutBase_ < 0) calOutBase_ = position;
+    calOut_ = position - calOutBase_;  // the probes go by the output's own position too
     for (size_t k = 0; k < probeAt_.size(); k++) {
         const long at = probeAt_[k], P = (long)probes_[k].size();
         const long from = std::max(at, calOut_), to = std::min(at + P, calOut_ + frames);
@@ -169,7 +180,9 @@ void Host::render(float* out, int frames) {
         }
     }
     calOut_ += frames;
-    if (calOut_ >= calEnd_ && calIn_ >= calEnd_) cal_.store(kDone, std::memory_order_release);  // hands the buffers back
+    // done when the last probe has played and the microphone has had time to hear it (or its buffer is full)
+    const long need = std::min((long)heard_.size(), calEnd_ + std::max(0L, calOutBase_ - calInBase_));
+    if (calOut_ >= calEnd_ && calIn_ >= need) cal_.store(kDone, std::memory_order_release);  // hands the buffers back
 }
 
 // measureLatency stops waiting: takes the buffers back if the audio thread never started, or withdraws
@@ -177,10 +190,12 @@ RoundTrip Host::giveUp(const char* why, std::string& err) {
     int st = kArmed;
     if (cal_.compare_exchange_strong(st, kIdle, std::memory_order_acq_rel)) {
         err = calCancel_.load() ? "The measurement was cancelled." : "The microphone sent nothing. Is another app using it?";
+        calReport_ = err;
         return {false, 0};
     }
     if (st == kRunning && cal_.compare_exchange_strong(st, kWithdrawn, std::memory_order_acq_rel)) {
         err = calCancel_.load() ? "The measurement was cancelled." : why;
+        calReport_ = err;
         return {false, 0};
     }
     // it finished at this very moment (Done): hand the buffers back and report why we stopped waiting
@@ -202,6 +217,7 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
         return {false, 0};
     }
     calCancel_.store(false);
+    calReport_.clear();
     probes = std::max(3, std::min(probes, 20));
     const long gap = rate_ * 2 / 5;  // 0.4 s between probes
     const long reach = rate_;        // round trips up to a second: each probe is its own noise, so they never mix up
@@ -209,11 +225,11 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
     probeAt_.clear();
     for (int k = 0; k < probes; k++) {
         probes_.push_back(probeSignal(rate_, (unsigned)k + 1));
-        probeAt_.push_back(rate_ / 5 + k * gap);
+        probeAt_.push_back(rate_ / 2 + k * gap);  // the first after half a second: the streams settle first
     }
     const long P = (long)probes_[0].size();
     calEnd_ = probeAt_.back() + reach + P;
-    heard_.assign((size_t)calEnd_, 0.f);
+    heard_.assign((size_t)(calEnd_ + rate_), 0.f);  // a second more: the microphone's count may be behind the output's
     cal_.store(kArmed, std::memory_order_release);
     const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000 + 1000L * calEnd_ / rate_);
     while (cal_.load(std::memory_order_acquire) != kDone) {
@@ -222,10 +238,33 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     std::vector<long> delays;
+    float peak = 0.f;
+    double sum = 0.0;
+    for (long i = 0; i < std::min(calIn_, (long)heard_.size()); i++) {
+        peak = std::max(peak, std::fabs(heard_[(size_t)i]));
+        sum += (double)heard_[(size_t)i] * heard_[(size_t)i];
+    }
+    char line[160];
+    if (peak <= 0.f) calReport_ = "microphone silent: every sample it sent was zero";
+    else {
+        std::snprintf(line, sizeof line, "microphone peak %.1f dBFS, average %.1f dBFS", 20.0 * std::log10(peak),
+                      10.0 * std::log10(sum / (double)std::max(calIn_, 1L) + 1e-20));
+        calReport_ = line;
+    }
+    // Each probe is looked for where its sound must land on the microphone's count: from 0.4 s before the
+    // place with the same position as when it was played (the streams' counts started at different moments,
+    // so the answer can even be negative) to a second after. The answer is microphone position minus output
+    // position: what moves a recording into line with what was playing.
+    const long lead = rate_ * 2 / 5;
     for (size_t k = 0; k < probeAt_.size(); k++) {
-        const long at = probeAt_[k];
-        const Found f = findProbe(heard_.data() + at, std::min(reach + P, calEnd_ - at), probes_[k]);
-        delays.push_back(f.sure ? f.delay : -1);
+        const long played = calOutBase_ + probeAt_[k];  // the output position the probe started at
+        const long from = std::max(0L, played - calInBase_ - lead), to = std::min((long)heard_.size(), played - calInBase_ + reach + P);
+        const Found f = to - from >= P ? findProbe(heard_.data() + from, to - from, probes_[k]) : Found{-1, false, 0.f, 0.f};
+        const long rt = f.delay < 0 ? -1 : calInBase_ + from + f.delay - played;
+        delays.push_back(f.sure ? rt : kNotFound);
+        if (f.sure) std::snprintf(line, sizeof line, "; probe %zu: %ld (match %.2f, clarity %.0f)", k + 1, rt, f.score, f.clarity);
+        else std::snprintf(line, sizeof line, "; probe %zu: not found (best %.2f at %ld, clarity %.0f)", k + 1, f.score, rt, f.clarity);
+        calReport_ += line;
     }
     cal_.store(kIdle, std::memory_order_release);
     RoundTrip rt = roundTrip(delays, rate_);

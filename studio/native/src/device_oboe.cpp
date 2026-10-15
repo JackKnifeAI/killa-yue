@@ -115,12 +115,13 @@ public:
     }
 
     // output only: Oboe calls this; with the microphone, Duplex calls callback() instead
-    oboe::DataCallbackResult onAudioReady(oboe::AudioStream*, void* audio, int32_t frames) override {
-        callback(nullptr, 0, audio, frames);
+    oboe::DataCallbackResult onAudioReady(oboe::AudioStream* s, void* audio, int32_t frames) override {
+        callback(nullptr, 0, 0, audio, frames, s->getFramesWritten());
         return oboe::DataCallbackResult::Continue;
     }
 
-    void callback(const void* in, int nIn, void* out, int nOut) {
+    // inPos, outPos: the streams' own frame counts at in[0] and out[0] (cheap counters, safe here)
+    void callback(const void* in, int nIn, long inPos, void* out, int nOut, long outPos) {
         const auto t0 = std::chrono::steady_clock::now();
         if (policy_.load(std::memory_order_relaxed) < 0) {  // once: is this thread real-time?
             int pol = 0;
@@ -130,8 +131,8 @@ public:
                 policy_.store(pol, std::memory_order_relaxed);
             }
         }
-        if (in && nIn > 0 && sink_) sink_->input(static_cast<const float*>(in), nIn, inChannels_);
-        if (renderer_) renderer_->render(static_cast<float*>(out), nOut);
+        if (in && nIn > 0 && sink_) sink_->input(static_cast<const float*>(in), nIn, inChannels_, inPos);
+        if (renderer_) renderer_->render(static_cast<float*>(out), nOut, outPos);
         else std::fill(static_cast<float*>(out), static_cast<float*>(out) + 2 * nOut, 0.f);
         if (tuner_) tuner_->tune();  // grows the buffer after an underrun (safe to call here)
         const long ns = (long)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
@@ -316,7 +317,8 @@ private:
 };
 
 oboe::DataCallbackResult Duplex::onBothStreamsReady(const void* in, int nIn, void* out, int nOut) {
-    dev_->callback(in, nIn, out, nOut);
+    // the microphone's count is past what was just read; the output's is where this callback's audio goes
+    dev_->callback(in, nIn, (long)getInputStream()->getFramesRead() - nIn, out, nOut, (long)getOutputStream()->getFramesWritten());
     return oboe::DataCallbackResult::Continue;
 }
 

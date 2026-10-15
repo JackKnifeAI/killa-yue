@@ -54,21 +54,26 @@ public:
     int sessionsHeld() const { return (int)gens_.size(); }  // the current one plus any not yet let go of
     int filesOpen() const;  // over every session held
 
-    // Audio thread (the device calls these; offline, call render() yourself).
-    void render(float* out, int frames) override;
-    void input(const float* in, int frames, int channels) override;
+    // Audio thread (the device calls these).
+    void render(float* out, int frames, long position) override;
+    void input(const float* in, int frames, int channels, long position) override;
+    // Off-line: render by hand (a host with no device; never while a device is calling render()).
+    void render(float* out, int frames) { render(out, frames, offlinePos_); offlinePos_ += frames; }
 
     // Plays `probes` probes (0.4 s apart, each its own noise) and finds them in the microphone; round trips up
-    // to a second are measured. Blocks for about probes * 0.4 + 1.3 s. Needs a device opened with the
+    // to a second are measured. Blocks for about probes * 0.4 + 1.6 s. Needs a device opened with the
     // microphone. Play stays as it was; the probes are added on top.
     RoundTrip measureLatency(int probes, std::string& err);
     // Any thread: makes a running measureLatency return at once ("cancelled").
     void cancelLatency() { calCancel_.store(true, std::memory_order_release); }
+    // What the last measurement heard, in words: the microphone's level, and each probe's match. Call it from
+    // the thread that ran measureLatency, after it returned.
+    std::string latencyReport() const { return calReport_; }
 
 private:
     Host(int rate, Device* d, bool mic);
     void reap();
-    bool calibrating(bool startHere);
+    bool calibrating(bool startHere, long position);
     RoundTrip giveUp(const char* why, std::string& err);
 
     struct Generation {
@@ -99,6 +104,9 @@ private:
     std::vector<float> heard_;
     std::vector<long> probeAt_;
     long calOut_ = 0, calIn_ = 0, calEnd_ = 0;
+    long calInBase_ = 0, calOutBase_ = 0;  // the streams' positions where the measurement started
+    long offlinePos_ = 0;
+    std::string calReport_;
 };
 
 }  // namespace studio

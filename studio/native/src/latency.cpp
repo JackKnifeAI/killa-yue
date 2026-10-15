@@ -40,7 +40,7 @@ std::vector<float> probeSignal(int rate, unsigned seed) {
 
 Found findProbe(const float* r, long frames, const std::vector<float>& probe) {
     const long P = (long)probe.size();
-    if (P == 0 || frames < P) return {-1, false};
+    if (P == 0 || frames < P) return {-1, false, 0.f, 0.f};
     double pe = 0.0;
     for (float v : probe) pe += (double)v * v;
     const double pn = std::sqrt(pe);
@@ -61,7 +61,7 @@ Found findProbe(const float* r, long frames, const std::vector<float>& probe) {
         mean += v;
     }
     mean /= (float)lags;
-    if (m <= 0.f) return {-1, false};
+    if (m <= 0.f) return {-1, false, 0.f, 0.f};
     // the first arrival: the earliest place that reaches half the best match, then its own peak (within 1 ms);
     // a reflection can be louder than the direct sound, but it always comes later
     long at = 0;
@@ -71,16 +71,22 @@ Found findProbe(const float* r, long frames, const std::vector<float>& probe) {
     for (long L = at; L < end; L++)
         if (ncc[L] > ncc[best]) best = L;
     // sure: the match stands far above the correlation's own noise floor, and is a real likeness
-    return {best, m > 10.f * mean && m > 0.15f};
+    return {best, m > 10.f * mean && m > 0.15f, m, mean > 0.f ? m / mean : 0.f};
 }
 
 RoundTrip roundTrip(const std::vector<long>& delays, int rate) {
     std::vector<long> d;
     for (long v : delays)
-        if (v >= 0) d.push_back(v);
+        if (v != kNotFound) d.push_back(v);
     if (d.size() < 3) return {false, 0};
     std::sort(d.begin(), d.end());
-    return {d.back() - d.front() <= rate / 1000, d[d.size() / 2]};
+    // the median, and the probes within 1 ms of it: at least three, and two thirds of those found
+    const long med = d[d.size() / 2];
+    std::vector<long> agree;
+    for (long v : d)
+        if (std::labs(v - med) <= rate / 1000) agree.push_back(v);
+    if (agree.size() < 3 || 3 * agree.size() < 2 * d.size()) return {false, 0};
+    return {true, agree[agree.size() / 2]};
 }
 
 }  // namespace studio

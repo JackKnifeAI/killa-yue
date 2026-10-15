@@ -122,6 +122,10 @@ JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatency(
     return rt.frames;
 }
 
+JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatencyReport(JNIEnv* e, jclass, jlong h) {
+    return e->NewStringUTF(host(h)->latencyReport().c_str());  // plain ASCII
+}
+
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }
 
 }  // extern "C"

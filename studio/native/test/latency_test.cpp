@@ -75,10 +75,17 @@ int main() {
     {   // the measurement: several probes, the median, and a refusal when they disagree
         CHECK(roundTrip({1000, 1001, 999, 1000, 1002}, rate).ok, "agreeing probes give a measurement");
         CHECK(roundTrip({1000, 1001, 999, 1000, 1002}, rate).frames == 1000, "the median of five");
-        CHECK(!roundTrip({1000, 1400, 999, 2000, 1002}, rate).ok, "probes more than 1 ms apart are refused");
+        CHECK(!roundTrip({1000, 1400, 999, 2000, 1002}, rate).ok, "with two of five far off, it is refused");
         CHECK(!roundTrip({1000, 1001}, rate).ok, "fewer than three probes are not enough");
-        CHECK(roundTrip({1000, 1001, -1, 1000}, rate).ok && roundTrip({1000, 1001, -1, 1000}, rate).frames == 1000,
-              "a probe that was not found (-1) is left out");
+        // as on the S25: the first probe, while the streams were still settling, came 427 frames late
+        CHECK(roundTrip({1636, 1209, 1209, 1209, 1209}, rate).ok && roundTrip({1636, 1209, 1209, 1209, 1209}, rate).frames == 1209,
+              "one stray probe out of five does not spoil the four that agree");
+        CHECK(!roundTrip({1000, 1001, 1002, 3000, 3001, 3002}, rate).ok, "two camps of three is no answer");
+        CHECK(roundTrip({1000, 1001, kNotFound, 1000}, rate).ok && roundTrip({1000, 1001, kNotFound, 1000}, rate).frames == 1000,
+              "a probe that was not found is left out");
+        // counted by the streams' own positions the answer can be below zero (the microphone's count started first)
+        CHECK(roundTrip({-1200, -1201, -1199}, rate).ok && roundTrip({-1200, -1201, -1199}, rate).frames == -1200,
+              "a round trip below zero is an answer, not a miss");
     }
     DONE("latency_test");
 }

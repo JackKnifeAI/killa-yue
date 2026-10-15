@@ -187,7 +187,11 @@ public class StudioTestActivity extends Activity {
             Thread.sleep(700);  // let both streams settle
             long[] got = new long[3];
             for (int k = 0; k < 3; k++) {
-                got[k] = e.measureLatency(5);
+                try {
+                    got[k] = e.measureLatency(5);
+                } finally {
+                    log("heard: " + e.latencyReport());
+                }
                 log(String.format(java.util.Locale.ROOT, "round trip %d: %d frames = %.2f ms", k + 1, got[k], 1000.0 * got[k] / e.rate()));
                 Thread.sleep(300);
             }

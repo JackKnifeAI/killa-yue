@@ -32,10 +32,13 @@ static std::vector<float> play(Host& h, long frames) {
 }
 
 // A loopback: what it plays comes back to the microphone `delay` frames later, quieter and with noise.
-// deaf: the microphone stream runs but never delivers a frame.
+// deaf: the microphone stream runs but never delivers a frame. lag: the app falls that many microphone frames
+// behind (they wait in the device's buffer, as on a real phone), changing nothing about the sound's path.
 struct Loopback : Device {
     int delay;
     bool deaf = false;
+    float gain = 0.3f;  // how loud the speaker is at the microphone
+    std::atomic<int> lag{0};
     Renderer* r = nullptr;
     InputSink* in = nullptr;
     std::thread t;
@@ -49,15 +52,24 @@ struct Loopback : Device {
     void setInput(InputSink* s) override { in = s; }
     bool start(std::string&) override {
         t = std::thread([this] {
-            std::vector<float> line((size_t)delay + 192, 0.f), out(2 * 192), mic(192);
+            std::vector<float> played, out(2 * 192), mic(192);  // played: the left channel, by output frame
             std::mt19937 rng(7);
             std::normal_distribution<float> noise(0.f, 0.003f);
-            long n = 0;
+            long n = 0, m = 0;  // the next output frame, the next microphone frame
             while (!stop) {
-                for (int i = 0; i < 192; i++) mic[i] = 0.3f * line[(size_t)((n + i) % (long)line.size())] + noise(rng);
-                if (!deaf) in->input(mic.data(), 192, 1);  // the microphone first, as the real device does
-                r->render(out.data(), 192);
-                for (int i = 0; i < 192; i++) line[(size_t)((n + i + delay) % (long)line.size())] = out[2 * i];
+                int k = 192;
+                if (lag.load() > 0) {  // read half a burst: the rest waits in the buffer
+                    k = 96;
+                    lag -= 96;
+                }
+                for (int i = 0; i < k; i++) {
+                    const long src = m + i - delay;
+                    mic[i] = (src >= 0 && src < (long)played.size() ? gain * played[(size_t)src] : 0.f) + (gain > 0.f ? noise(rng) : 0.f);
+                }
+                if (!deaf) in->input(mic.data(), k, 1, m);  // the microphone first, as the real device does
+                m += k;
+                r->render(out.data(), 192, n);
+                for (int i = 0; i < 192; i++) played.push_back(out[2 * i]);
                 n += 192;
                 std::this_thread::sleep_for(std::chrono::microseconds(200));  // faster than real time
             }
@@ -86,9 +98,11 @@ struct Pacer : Device {
     bool start(std::string&) override {
         t = std::thread([this] {
             std::vector<float> out(2 * 192);
+            long pos = 0;
             auto next = std::chrono::steady_clock::now();
             while (!stop) {
-                r->render(out.data(), 192);
+                r->render(out.data(), 192, pos);
+                pos += 192;
                 for (int i = 0; i < 192; i++) played.push_back(out[2 * i]);
                 next += std::chrono::microseconds(4000);
                 std::this_thread::sleep_until(next);
@@ -198,8 +212,29 @@ int main() {
         CHECK(h->load({{-30.f, 0.f, false, false, {{half, 0, 0, rate, 0.f}}}}, err), "with tracks");
         h->post({Msg::Play, 0, 0, 0, nullptr});
         CHECK(h->start(err), "and starts");
+        Loopback* loop = new Loopback(2000);
+        h.reset(Host::withDevice(loop, true, err));
+        h->load({{-30.f, 0.f, false, false, {{half, 0, 0, rate, 0.f}}}}, err);
+        h->post({Msg::Play, 0, 0, 0, nullptr});
+        h->start(err);
         RoundTrip rt = h->measureLatency(5, err);
         CHECK(rt.ok && rt.frames == 2000, "the loopback's 2000 frames are measured exactly");
+        loop->lag = 480;  // as on the S25: between two measurements the app fell 480 microphone frames behind
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        rt = h->measureLatency(5, err);
+        CHECK(rt.ok && rt.frames == 2000, ("a microphone backlog does not change the answer: " + std::to_string(rt.frames)).c_str());
+        const std::string rep = h->latencyReport();
+        CHECK(rep.find("probe 5: 2000") != std::string::npos && rep.find("microphone peak") != std::string::npos,
+              ("the report shows each probe and what the microphone heard: " + rep).c_str());
+    }
+    {   // a microphone that delivers silence: the report says so
+        std::string err;
+        Loopback* quiet = new Loopback(2000);
+        quiet->gain = 0.f;
+        std::unique_ptr<Host> h(Host::withDevice(quiet, true, err));
+        h->start(err);
+        RoundTrip rt = h->measureLatency(3, err);
+        CHECK(!rt.ok && h->latencyReport().find("silent") != std::string::npos, ("a silent microphone is reported: " + h->latencyReport()).c_str());
     }
     for (int delay : {19200, 24000, 40000}) {  // 400 ms (the probes' spacing), 500 ms and 833 ms: Bluetooth territory
         std::string err;

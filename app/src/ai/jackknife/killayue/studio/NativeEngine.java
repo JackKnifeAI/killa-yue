@@ -189,7 +189,7 @@ public final class NativeEngine implements AutoCloseable {
     }
 
     /**
-     * Plays probes and finds them in the microphone: the round trip in frames. Blocks for about probes * 0.4 + 1.3 s,
+     * Plays probes and finds them in the microphone: the round trip in frames. Blocks for about probes * 0.4 + 1.6 s,
      * so call it on a worker thread; close() from another thread cancels it.
      */
     public long measureLatency(int probes) throws IOException {
@@ -206,6 +206,11 @@ public final class NativeEngine implements AutoCloseable {
                 notifyAll();
             }
         }
+    }
+
+    /** What the last measureLatency heard: the microphone's level and each probe's match. Same thread, after it. */
+    public String latencyReport() {
+        return nLatencyReport(handle());
     }
 
     /** Closes the engine; a measurement running on another thread is cancelled and waited for first. */
@@ -244,4 +249,6 @@ public final class NativeEngine implements AutoCloseable {
     private static native long nLatency(long h, int probes) throws IOException;
 
     private static native void nCancelLatency(long h);
+
+    private static native String nLatencyReport(long h);
 }

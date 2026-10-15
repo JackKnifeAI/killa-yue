@@ -7,13 +7,16 @@
 
 namespace studio {
 
+// Positions are the stream's own frame counts since it started (the output frame of out[0], the microphone
+// frame of in[0]): unlike counting callbacks, they hold still however far behind the app falls in reading
+// the microphone, so a latency measured once keeps lining recordings up.
 struct Renderer {  // audio thread: fills frames of stereo; must not block, allocate or do I/O
-    virtual void render(float* outStereo, int frames) = 0;
+    virtual void render(float* outStereo, int frames, long position) = 0;
     virtual ~Renderer() {}
 };
 
 struct InputSink {  // audio thread: what the microphone heard during this callback (frames may be fewer than out)
-    virtual void input(const float* in, int frames, int channels) = 0;
+    virtual void input(const float* in, int frames, int channels, long position) = 0;
     virtual ~InputSink() {}
 };
 
