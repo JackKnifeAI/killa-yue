@@ -111,28 +111,7 @@ public final class Project {
         p.put("nextId", Integer.valueOf(nextId));
         p.put("masterDb", Float.valueOf(masterDb));
         ArrayList<Object> ts = new ArrayList<Object>();
-        for (Track t : tracks) {
-            LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
-            j.put("id", t.id);
-            j.put("name", t.name);
-            j.put("gainDb", Float.valueOf(t.gainDb));
-            j.put("pan", Float.valueOf(t.pan));
-            j.put("mute", Boolean.valueOf(t.mute));
-            j.put("solo", Boolean.valueOf(t.solo));
-            ArrayList<Object> cs = new ArrayList<Object>();
-            for (Clip c : t.clips) {
-                LinkedHashMap<String, Object> k = new LinkedHashMap<String, Object>();
-                k.put("id", c.id);
-                k.put("file", c.file);
-                k.put("start", Long.valueOf(c.start));
-                k.put("offset", Long.valueOf(c.offset));
-                k.put("length", Long.valueOf(c.length));
-                k.put("gainDb", Float.valueOf(c.gainDb));
-                cs.add(k);
-            }
-            j.put("clips", cs);
-            ts.add(j);
-        }
+        for (Track t : tracks) ts.add(trackJson(t));
         p.put("tracks", ts);
         return p;
     }
@@ -143,30 +122,56 @@ public final class Project {
         out.version = (int) num(p, "version", false);
         out.nextId = (int) num(p, "nextId", false);
         out.masterDb = (float) num(p, "masterDb", true);
-        for (Object to : list(p, "tracks")) {
-            Map<?, ?> tj = map(to, "a track");
-            Track t = new Track();
-            t.id = str(tj, "id");
-            t.name = str(tj, "name");
-            t.gainDb = (float) num(tj, "gainDb", true);
-            t.pan = (float) num(tj, "pan", true);
-            t.mute = bool(tj, "mute");
-            t.solo = bool(tj, "solo");
-            for (Object co : list(tj, "clips")) {
-                Map<?, ?> cj = map(co, "a clip");
-                Clip c = new Clip();
-                c.id = str(cj, "id");
-                c.file = str(cj, "file");
-                c.start = (long) num(cj, "start", false);
-                c.offset = (long) num(cj, "offset", false);
-                c.length = (long) num(cj, "length", false);
-                c.gainDb = (float) num(cj, "gainDb", true);
-                t.clips.add(c);
-            }
-            out.tracks.add(t);
-        }
+        for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
         out.validate();
         return out;
+    }
+
+    /** A track and its clips as JSON (also used by the undo history). */
+    static LinkedHashMap<String, Object> trackJson(Track t) {
+        LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
+        j.put("id", t.id);
+        j.put("name", t.name);
+        j.put("gainDb", Float.valueOf(t.gainDb));
+        j.put("pan", Float.valueOf(t.pan));
+        j.put("mute", Boolean.valueOf(t.mute));
+        j.put("solo", Boolean.valueOf(t.solo));
+        ArrayList<Object> cs = new ArrayList<Object>();
+        for (Clip c : t.clips) {
+            LinkedHashMap<String, Object> k = new LinkedHashMap<String, Object>();
+            k.put("id", c.id);
+            k.put("file", c.file);
+            k.put("start", Long.valueOf(c.start));
+            k.put("offset", Long.valueOf(c.offset));
+            k.put("length", Long.valueOf(c.length));
+            k.put("gainDb", Float.valueOf(c.gainDb));
+            cs.add(k);
+        }
+        j.put("clips", cs);
+        return j;
+    }
+
+    static Track trackFromJson(Object to) {
+        Map<?, ?> tj = map(to, "a track");
+        Track t = new Track();
+        t.id = str(tj, "id");
+        t.name = str(tj, "name");
+        t.gainDb = (float) num(tj, "gainDb", true);
+        t.pan = (float) num(tj, "pan", true);
+        t.mute = bool(tj, "mute");
+        t.solo = bool(tj, "solo");
+        for (Object co : list(tj, "clips")) {
+            Map<?, ?> cj = map(co, "a clip");
+            Clip c = new Clip();
+            c.id = str(cj, "id");
+            c.file = str(cj, "file");
+            c.start = (long) num(cj, "start", false);
+            c.offset = (long) num(cj, "offset", false);
+            c.length = (long) num(cj, "length", false);
+            c.gainDb = (float) num(cj, "gainDb", true);
+            t.clips.add(c);
+        }
+        return t;
     }
 
     public String toText() {

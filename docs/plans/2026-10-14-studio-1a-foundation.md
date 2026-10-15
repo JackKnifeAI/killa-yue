@@ -1042,3 +1042,26 @@ Co-Authored-By: Claudia Casavant <claudia@jackknifeai.com>"
   - Oboe, the JNI bridge, route changes and latency measurement (1b);
   - the Studio screen, import with resampling, the mixer UI, and autosave scheduling (1c);
   - stems (1d).
+
+---
+
+### Task 10: Undo tree (added 14 October at Alexander's request)
+
+Artists must be able to go back, try something else, and still return to what they had: undoing a few steps and then editing starts a new branch instead of throwing the old future away.
+
+**Files:**
+- Modify: `app/src/ai/jackknife/killayue/studio/Edit.java` (named edit classes that save to and load from JSON)
+- Modify: `app/src/ai/jackknife/killayue/studio/History.java` (a tree)
+- Modify: `app/src/ai/jackknife/killayue/studio/Project.java` (track JSON helpers shared with Edit)
+- Modify: `app/src/ai/jackknife/killayue/studio/ProjectStore.java` (`saveHistory`, `loadHistory`)
+- Create: `app/test/ai/jackknife/killayue/studio/HistoryTreeTest.java`
+
+**Behaviour:**
+- `run(e)`: applies and adds a child under the current state.
+- `undo()`: goes to the parent.
+- `redo()`: goes to the child last visited, so it follows the branch you were on.
+- `redoChoices()` lists the children's labels; `redo(int choice)` takes one of them.
+- `jumpTo(int stepId)` walks from any state to any other: it undoes up to the branch point, then redoes down.
+- `steps()` lists every state (id, parent, label, time) for a History view.
+- Nothing is ever discarded.
+- `saveHistory`/`loadHistory` keep the tree in `history.json`, written like project.json (tmp, flushed, renamed, with a backup). The file carries the SHA-256 of the project text at the current state. When it does not match the project that loaded (the tree is from another save), loading starts a fresh history and says so, rather than undoing into the wrong values.
