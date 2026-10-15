@@ -34,7 +34,7 @@ def main(lib, scores):
             name = os.path.basename(s).replace('.abc', '')
             concert[(name, 'Vocal')], concert[(name, 'Ins')] = tl.get('track0', []), tl.get('track1', [])
         bad = checked = notes = 0
-        for f, song, voice, ins, semis, octaves, key, n, out_of_range in rows:
+        for f, song, voice, ins, semis, octaves, key, n, out_of_range, *_ in rows:
             problems = []
             part = parts[f]
             if part['warnings']:

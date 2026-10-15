@@ -25,6 +25,11 @@ class Engrave {
     }
 
     static void run(Activity a, String abc, final Done done) {
+        run(a, abc, null, done);
+    }
+
+    /** tablature: abcjs's tablature option (Tabs.option) to draw a tab under the staff, or null. */
+    static void run(Activity a, String abc, String tablature, final Done done) {
         final ViewGroup root = (ViewGroup) a.getWindow().getDecorView();
         final WebView web = new WebView(a);
         web.setVisibility(View.INVISIBLE); // laid out, so abcjs can measure text, but never drawn
@@ -32,7 +37,7 @@ class Engrave {
         web.getSettings().setJavaScriptEnabled(true);
         final Bridge bridge = new Bridge(web, root, done);
         web.addJavascriptInterface(bridge, "Killa");
-        final String call = "engrave(" + JSONObject.quote(abc) + "," + STAFF_WIDTH + ")";
+        final String call = "engrave(" + JSONObject.quote(abc) + "," + STAFF_WIDTH + "," + (tablature != null ? tablature : "null") + ")";
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView v, String url) {

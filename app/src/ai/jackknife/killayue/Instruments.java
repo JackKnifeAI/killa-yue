@@ -12,6 +12,8 @@ class Instruments {
         final String id, name, shortName, keyLabel, group, clef;
         final int steps, semitones; // written = sounding + this interval (letter steps, semitones)
         final int low, high;        // written range, MIDI note numbers
+        String tab;                 // abcjs's tablature for a fretted instrument (its line count), or null
+        int[] strings;              // open strings as they sound, MIDI, the tab's bottom line first
 
         Instrument(String group, String id, String name, String shortName, String keyLabel, int steps, int semitones, String clef, int low, int high) {
             this.group = group;
@@ -30,12 +32,31 @@ class Instruments {
         String title() {
             return keyLabel.length() > 0 ? name + " " + keyLabel : name;
         }
+
+        /** The lowest open string, leaving out a re-entrant one (higher than the string above it). */
+        int lowestString() {
+            int low = Integer.MAX_VALUE;
+            for (int i = 0; i < strings.length; i++) {
+                if (i + 1 < strings.length && strings[i] > strings[i + 1]) continue;
+                low = Math.min(low, strings[i]);
+            }
+            return low;
+        }
+
+        /** A fretted instrument's strings for its tab, as they sound, the tab's bottom line first. */
+        Instrument tab(String abcjsTab, int... strings) {
+            this.tab = abcjsTab;
+            this.strings = strings;
+            return this;
+        }
     }
 
     static final ArrayList<Instrument> ALL = new ArrayList<Instrument>();
 
-    private static void add(String group, String id, String name, String shortName, String keyLabel, int steps, int semitones, String clef, int low, int high) {
-        ALL.add(new Instrument(group, id, name, shortName, keyLabel, steps, semitones, clef, low, high));
+    private static Instrument add(String group, String id, String name, String shortName, String keyLabel, int steps, int semitones, String clef, int low, int high) {
+        Instrument i = new Instrument(group, id, name, shortName, keyLabel, steps, semitones, clef, low, high);
+        ALL.add(i);
+        return i;
     }
 
     static {
@@ -67,11 +88,12 @@ class Instruments {
         add("Strings", "viola", "Viola", "Vla.", "", 0, 0, "alto", 48, 88);
         add("Strings", "cello", "Cello", "Vc.", "", 0, 0, "bass", 36, 81);
         add("Strings", "double-bass", "Double Bass", "Cb.", "", 7, 12, "bass", 40, 79);
-        add("Strings", "guitar", "Guitar", "Gtr.", "", 7, 12, "treble-8", 52, 95);
-        add("Strings", "bass-guitar", "Bass Guitar", "B. Gtr.", "", 7, 12, "bass", 40, 67);
-        add("Strings", "ukulele", "Ukulele", "Uke", "", 0, 0, "treble", 60, 81);
-        add("Strings", "mandolin", "Mandolin", "Mand.", "", 0, 0, "treble", 55, 88);
-        add("Strings", "banjo", "Banjo", "Bjo.", "", 7, 12, "treble-8", 62, 86);
+        // abcjs's tabs come in 6 (guitar), 5 (fiveString) and 4 (violin, mandolin) lines
+        add("Strings", "guitar", "Guitar", "Gtr.", "", 7, 12, "treble-8", 52, 95).tab("guitar", 40, 45, 50, 55, 59, 64);
+        add("Strings", "bass-guitar", "Bass Guitar", "B. Gtr.", "", 7, 12, "bass", 40, 67).tab("violin", 28, 33, 38, 43);
+        add("Strings", "ukulele", "Ukulele", "Uke", "", 0, 0, "treble", 60, 81).tab("mandolin", 67, 60, 64, 69); // high G
+        add("Strings", "mandolin", "Mandolin", "Mand.", "", 0, 0, "treble", 55, 88).tab("mandolin", 55, 62, 69, 76);
+        add("Strings", "banjo", "Banjo", "Bjo.", "", 7, 12, "treble-8", 62, 86).tab("fiveString", 67, 50, 55, 59, 62); // short 5th string g
         add("Strings", "harp", "Harp", "Hp.", "", 0, 0, "auto", 24, 103);
 
         add("Keys and mallets", "piano", "Piano", "Pno.", "", 0, 0, "auto", 21, 108);

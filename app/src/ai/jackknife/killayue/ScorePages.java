@@ -16,11 +16,17 @@ import java.io.FileOutputStream;
  */
 class ScorePages {
     static final float PAGE_W = 595, PAGE_H = 842, MARGIN = 40, FOOT = 26; // A4 in points
+    static final float LINE_GAP = 18; // the least space between lines of music, in abcjs units: its usual gap
 
     /** Writes the PDF and returns how many pages it has. */
     static int writePdf(SvgScore s, String footer, File out) throws Exception {
         float k = (PAGE_W - 2 * MARGIN) / drawnWidth(s);
         float[][] lines = lineSpans(s);
+        float[] shift = SvgScore.spread(lines, LINE_GAP);
+        for (int l = 0; l < lines.length; l++) {
+            lines[l][0] += shift[l];
+            lines[l][1] += shift[l];
+        }
         float[] top = topSpan(s);
         int[][] pages = SvgScore.paginate(top, lines, (PAGE_H - 2 * MARGIN - FOOT) / k);
         Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -43,7 +49,11 @@ class ScorePages {
                 c.translate(0, -start);
                 for (SvgScore.Item i : s.items) {
                     boolean mine = i.line < 0 ? p == 0 : i.line < on.length && on[i.line];
-                    if (mine) draw(c, i, fill, text);
+                    if (!mine) continue;
+                    float dy = i.line >= 0 ? shift[i.line] : 0;
+                    c.translate(0, dy);
+                    draw(c, i, fill, text);
+                    c.translate(0, -dy);
                 }
                 c.restore();
                 text.setTypeface(Typeface.SANS_SERIF);
@@ -73,6 +83,12 @@ class ScorePages {
         for (SvgScore.Item i : s.items) draw(c, i, fill, text);
     }
 
+    private static final Paint PAPER = new Paint();
+
+    static {
+        PAPER.setColor(Color.WHITE);
+    }
+
     static void draw(Canvas c, SvgScore.Item i, Paint fill, Paint text) {
         if (i.ops != null) {
             c.drawPath(path(i.ops), fill);
@@ -82,6 +98,8 @@ class ScorePages {
             text.setTypeface(Typeface.create(base, (i.bold ? Typeface.BOLD : 0) | (i.italic ? Typeface.ITALIC : 0)));
             text.setTextSize(i.size);
             text.setTextAlign(i.anchor == 1 ? Paint.Align.CENTER : i.anchor == 2 ? Paint.Align.RIGHT : Paint.Align.LEFT);
+            float[] gap = SvgScore.gap(i);
+            if (gap != null) c.drawRect(gap[0], gap[1], gap[2], gap[3], PAPER);
             c.drawText(i.text, i.x, i.y, text);
             if (i.has("abcjs-part")) { // a section label sits on a small plaque, as in printed music
                 float w = text.measureText(i.text), x0 = i.anchor == 1 ? i.x - w / 2 : i.anchor == 2 ? i.x - w : i.x, pad = i.size * 0.3f;

@@ -621,7 +621,11 @@ SOFTWARE.
 
 ## abcjs 6.7.1 (sheet music layout), by Paul Rosen and Gregory Dyke
 
-Bundled unmodified as `app/assets/abcjs/abcjs-basic-min.js`, run offline inside the app.
+Bundled as `app/assets/abcjs/abcjs-basic-min.js`, run offline inside the app. One change: tablature accepts a
+re-entrant tuning (a string higher than the one above it, as on a ukulele or a 5-string banjo) instead of
+rejecting it; in `tab-notes.js` the "Invalid string Instrument tuning" error became `return []`. That string's
+note list is then empty, and single notes never land on it, because abcjs picks the highest string that
+can play a note.
 
 ```
 Copyright (c) 2009-2026 Paul Rosen and Gregory Dyke

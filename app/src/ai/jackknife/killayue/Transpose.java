@@ -20,6 +20,7 @@ class Transpose {
         String key;       // the written key, e.g. C#m
         int octaves;      // whole octaves the line was moved to fit the instrument (0 if none)
         int outOfRange;   // notes still outside the instrument's range after that
+        int unplayable;   // notes below a fretted instrument's lowest string: its tab shows them as ?
         int notes;
     }
 
@@ -263,6 +264,7 @@ class Transpose {
             int x = out.written.get(i).intValue();
             sorted[i] = x;
             if (x < ins.low || x > ins.high) p.outOfRange++;
+            if (ins.strings != null && x - ins.semitones < ins.lowestString()) p.unplayable++;
         }
         Arrays.sort(sorted);
         String clef = ins.clef;

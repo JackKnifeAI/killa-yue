@@ -5,10 +5,13 @@
 <script>
 // Lays a prepared score out with abcjs and hands the SVG to the app (Engrave.java). Any warning means
 // abcjs did not understand part of the score, and the app reports it instead of printing a wrong sheet.
-function engrave(abc, staffwidth) {
+// tablature (or null) draws a tab under the staff; our abcjs is patched for re-entrant tunings (THIRD_PARTY_LICENSES.md).
+function engrave(abc, staffwidth, tablature) {
   try {
-    var tunes = ABCJS.renderAbc("paper", abc, { staffwidth: staffwidth, add_classes: true,
-      paddingtop: 0, paddingbottom: 0, paddingleft: 0, paddingright: 4 }); // the closing bar line sits just past staffwidth
+    var options = { staffwidth: staffwidth, add_classes: true,
+      paddingtop: 0, paddingbottom: 0, paddingleft: 0, paddingright: 4 }; // the closing bar line sits just past staffwidth
+    if (tablature) options.tablature = tablature;
+    var tunes = ABCJS.renderAbc("paper", abc, options);
     var warnings = (tunes[0] && tunes[0].warnings) || [];
     if (warnings.length) {
       Killa.fail(warnings.map(function (w) { return String(w).replace(/<[^>]+>/g, ""); }).join("\n"));

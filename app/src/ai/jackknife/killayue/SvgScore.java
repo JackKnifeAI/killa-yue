@@ -158,6 +158,17 @@ public class SvgScore {
         return out.toString();
     }
 
+    /**
+     * The gap a tab number clears in its string line, as printed tab has it (abcjs draws the number over the
+     * line): minX, minY, maxX, maxY. Null for anything else.
+     */
+    static float[] gap(Item i) {
+        if (i.text == null || !i.has("abcjs-tab-number")) return null;
+        float w = i.text.length() * 0.556f * i.size, pad = 0.12f * i.size; // Arial's figures are 0.556 em wide
+        float x0 = i.anchor == 1 ? i.x - w / 2 : i.anchor == 2 ? i.x - w : i.x;
+        return new float[] {x0 - pad, i.y - 0.8f * i.size, x0 + w + pad, i.y + 0.1f * i.size};
+    }
+
     // ---------- path data ----------
 
     private static final Pattern PATH_TOKEN = Pattern.compile("[MmLlHhVvCcSsQqTtZz]|[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?");
@@ -359,6 +370,23 @@ public class SvgScore {
         int n = 0;
         for (Item i : items) n = Math.max(n, i.line + 1);
         return n;
+    }
+
+    /**
+     * How far down each line of music must move so it starts at least gap below the line above it. abcjs
+     * spaces lines by their staves, so a line with notes high above its staff can run into the tab or low
+     * notes of the line above. Lines move down only, and every line below moves with them.
+     */
+    static float[] spread(float[][] lines, float gap) {
+        float[] shift = new float[lines.length];
+        float moved = 0;
+        for (int i = 1; i < lines.length; i++) {
+            boolean empty = lines[i][0] == lines[i - 1][0] && lines[i][1] == lines[i - 1][1]; // ScorePages gives it the line above's span
+            float need = empty ? 0 : lines[i - 1][1] + shift[i - 1] + gap - (lines[i][0] + moved);
+            if (need > 0) moved += need;
+            shift[i] = moved;
+        }
+        return shift;
     }
 
     /**

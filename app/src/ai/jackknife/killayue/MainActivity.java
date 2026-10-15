@@ -2675,8 +2675,9 @@ public class MainActivity extends Activity {
         if (ins.semitones % 12 != 0) sub.append(" (sounds in ").append(concert).append(")");
         if (p.octaves != 0) sub.append("  \u00b7  written ").append(Math.abs(p.octaves) == 1 ? "an octave" : Math.abs(p.octaves) + " octaves")
                 .append(p.octaves < 0 ? " lower" : " higher").append(" to fit");
+        if (ins.tab != null) sub.append("  \u00b7  tab for ").append(Tabs.tuningName(ins));
         toast("Writing the " + ins.name + " part...");
-        Engrave.run(this, ScorePrep.prepare(p.abc, title, sub.toString()), new Engrave.Done() {
+        Engrave.run(this, ScorePrep.prepare(p.abc, title, sub.toString()), Tabs.option(ins), new Engrave.Done() {
             public void failed(String why) {
                 alert("Could not write the part", why);
             }
@@ -2705,6 +2706,9 @@ public class MainActivity extends Activity {
                                         + name + ".abc, the part as a score";
                                 if (p.outOfRange > 0) msg += "\n\n" + p.outOfRange + " of its " + p.notes + " notes are outside the "
                                         + ins.name.toLowerCase() + "'s usual range. They are printed exactly as the song has them.";
+                                if (p.unplayable > 0) msg += "\n\n" + p.unplayable + (p.unplayable == 1 ? " note is" : " notes are")
+                                        + " lower than the " + ins.name.toLowerCase() + "'s lowest string, so the tab marks "
+                                        + (p.unplayable == 1 ? "it" : "them") + " with a question mark.";
                                 scoreReady("Part ready", msg, new String[] {name + ".pdf", name + ".abc"});
                             }
                         });

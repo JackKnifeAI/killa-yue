@@ -84,6 +84,27 @@ public class SvgScoreTest {
         int[][] tall = SvgScore.paginate(new float[] {0, 40}, new float[][] {{50, 400}}, 250);
         check("a line taller than a page still gets a page of its own", Arrays.deepEquals(new int[][] {{0}}, tall), Arrays.deepToString(tall));
 
+        SvgScore tab = SvgScore.parse("<svg width=\"800\" height=\"100\"><g class=\"abcjs-staff abcjs-l1 abcjs-v1\">"
+                + "<path d=\"M 77.56 346.55 L 775 346.55 L 775 347.25 L 77.56 347.25 z\"></path></g>"
+                + "<g class=\"abcjs-tabNumber abcjs-note abcjs-l1 abcjs-m0 abcjs-v0\"><text font-size=\"15\" font-family=\"Arial\" "
+                + "class=\"abcjs-tab-number\" text-anchor=\"middle\" x=\"207.81\" y=\"351.83\"><tspan x=\"207.81\">11</tspan></text></g>"
+                + "<text font-size=\"21\" class=\"abcjs-title\" x=\"10\" y=\"20\"><tspan>Song</tspan></text></svg>");
+        SvgScore.Item number = tab.items.get(1);
+        check("a tab number is read with its class and line", number.has("abcjs-tab-number") && number.line == 1 && "11".equals(number.text),
+                number.cls + " line " + number.line + " " + number.text);
+        float[] gap = SvgScore.gap(number);
+        check("a tab number clears its string line behind it",
+                gap != null && gap[1] < 346.55f && gap[3] > 347.25f && gap[0] < 207.81f - 7 && gap[2] > 207.81f + 7 && gap[2] - gap[0] < 22,
+                Arrays.toString(gap));
+        check("other text clears nothing", SvgScore.gap(tab.items.get(2)) == null, "");
+
+        float[] shift = SvgScore.spread(new float[][] {{0, 100}, {90, 200}, {220, 300}, {330, 400}}, 18);
+        ops("a line that runs into the one above moves down to the usual gap, and the lines below move with it",
+                new float[] {0, 28, 28, 28}, shift);
+        ops("an empty line, which takes the span of the line above, moves with that line and pushes nothing",
+                new float[] {0, 0, 0}, SvgScore.spread(new float[][] {{0, 100}, {0, 100}, {130, 200}}, 18));
+        ops("lines already apart stay where abcjs put them", new float[] {0, 0}, SvgScore.spread(new float[][] {{0, 100}, {130, 200}}, 18));
+
         System.out.println("SvgScoreTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
