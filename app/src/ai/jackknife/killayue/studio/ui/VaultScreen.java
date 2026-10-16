@@ -95,13 +95,29 @@ final class VaultScreen implements Screen {
             return;
         }
         DateFormat when = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT);
+        long all = 0;
+        for (Projects.Entry e : ps) all += e.bytes;
+        list.addView(Ui.text(a, ps.size() + (ps.size() == 1 ? " project uses " : " projects use ") + size(all) + " · the phone has "
+                + size(StudioSession.root(a).getUsableSpace()) + " free. Tap ⋯ to wrap up, compact or delete one.", Skin.DIM, 13), Ui.gap(a, 6));
         for (final Projects.Entry e : ps) {
+            LinearLayout line = Ui.row(a);
+            line.setGravity(android.view.Gravity.CENTER_VERTICAL);
             Button b = Ui.button(a, e.name, false);
             b.setText(e.name + "\n" + when.format(new Date(e.modified)) + " · " + size(e.bytes) + (e.problem != null ? " · opened from a backup" : ""));
             b.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
             b.setTextSize(14);
             if (a.session.dir() != null && a.session.dir().equals(e.dir)) b.setTextColor(Skin.ACCENT);
-            list.addView(b, Ui.gap(a, 8));
+            line.addView(b, new LinearLayout.LayoutParams(0, -2, 1f));
+            Button more = RoundFace.button(a, "⋯");
+            more.setContentDescription("What to do with " + e.name);
+            ((LinearLayout.LayoutParams) more.getLayoutParams()).leftMargin = Ui.dp(a, 6);
+            more.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    menu(e);
+                }
+            });
+            line.addView(more);
+            list.addView(line, Ui.gap(a, 8));
             b.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
                     openProject(e.dir);
@@ -132,12 +148,14 @@ final class VaultScreen implements Screen {
     }
 
     private void menu(final Projects.Entry e) {
-        final String[] items = {"Open", "Rename", "Compact (free unused audio)", "Delete"};
-        new Lux.Builder(a).setTitle(e.name).setItems(items, new DialogInterface.OnClickListener() {
+        final String[] items = {"Open", "Rename", "Wrap up (the mix into my library, then free the space)", "Compact (free unused audio)",
+            "Delete"};
+        new Lux.Builder(a).setTitle(e.name + " · " + size(e.bytes)).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (w == 0) openProject(e.dir);
                 else if (w == 1) rename(e);
-                else if (w == 2) compact(e);
+                else if (w == 2) wrapUp(e);
+                else if (w == 3) compact(e);
                 else delete(e);
             }
         }).show();
@@ -172,6 +190,35 @@ final class VaultScreen implements Screen {
             Ui.toast(a, String.valueOf(x.getMessage()));
         }
         refresh();
+    }
+
+    /** Finishing a project: its mix becomes a song in the library, then it can be deleted to give the space back. */
+    private void wrapUp(final Projects.Entry e) {
+        try {
+            a.session.open(e.dir);
+            a.projectChanged();
+        } catch (Exception x) {
+            new Lux.Builder(a).setTitle("Could not open it").setMessage(String.valueOf(x.getMessage())).setPositiveButton("OK", null).show();
+            return;
+        }
+        ExportDialog.run(a, ExportJob.LIBRARY, new Runnable() {
+            public void run() {
+                new Lux.Builder(a).setTitle("Wrapped up")
+                        .setMessage("The mix of " + e.name + " is in your library now. Delete the project to free " + size(e.bytes)
+                                + "? Its tracks, stems and recordings go; the song in your library stays.")
+                        .setPositiveButton("Delete the project", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                if (a.session.dir() != null && a.session.dir().equals(e.dir)) a.session.close();
+                                Projects.delete(e.dir);
+                                refresh();
+                            }
+                        }).setNegativeButton("Keep it", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                refresh();
+                            }
+                        }).show();
+            }
+        });
     }
 
     private void delete(final Projects.Entry e) {
