@@ -45,6 +45,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     private int shown = -1;
     private VaultScreen vault;
     private PlayAlongScreen playAlong;
+    private SamplerScreen sampler;
     private boolean visible;
 
     private final Choreographer.FrameCallback frame = new Choreographer.FrameCallback() {
@@ -99,7 +100,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         vault = new VaultScreen(this);
         playAlong = new PlayAlongScreen(this);
         screens = new Screen[] {
-            vault, new ArrangeScreen(this), new MixerScreen(this), new SplitterScreen(this), playAlong, new SamplerScreen(this)};
+            vault, new ArrangeScreen(this), new MixerScreen(this), new SplitterScreen(this), playAlong, sampler = new SamplerScreen(this)};
         LinearLayout bar = Ui.row(this);
         bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 8));
         tabs = new Button[screens.length];
@@ -197,5 +198,6 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         super.onActivityResult(request, result, data);
         vault.result(request, result, data);
         playAlong.result(request, result, data);
+        sampler.result(request, result, data);
     }
 }

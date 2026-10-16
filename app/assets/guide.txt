@@ -137,10 +137,15 @@ In Navigate mode, hold a clip to open its menu. Move to playhead uses the beat g
 Stretch / pitch renders a new file. Choose 25–400% of the original length, then a pitch shift from −24 to +24 semitones. These controls are independent. The original clip remains in undo history. A long clip can take time; do not start this while recording or generating a song.
 
 # Studio — The Chamber
+## Put a sound on a pad
+1. Tap a pad to choose it. The chosen pad glows.
+2. Press Sample, then pick a clip from this project, or "A sound file on the phone…" to bring in any audio file.
+3. Tap the pad to hear it. Hold it, or press Shape, to tune and shape it.
+To fill all sixteen pads at once, press Chop and pick one sound: it is cut at its hits and spread across the pads. Kit puts the built-in drums back.
 ## Pads
 Pads opens sixteen playable pads. A fresh bank uses drums synthesized inside the app. Tap a pad to play it and select its pattern row. Multiple pads can be held together. Hold a pad, or press Shape, to edit it. The bank has a 128 MB sample-memory budget; use short slices for large recordings.
 ## Sample, Chop and Kit
-Sample assigns an existing project clip to the selected pad. Chop finds transients in a clip and spreads up to sixteen slices across the bank; it divides long sustained gaps when fewer transients are found. Kit restores the synthesized drums. Bank edits are saved with the project and can be undone.
+Sample puts a project clip, or a sound file from the phone, on the selected pad. Chop finds transients in a clip and spreads up to sixteen slices across the bank; it divides long sustained gaps when fewer transients are found. Kit restores the synthesized drums. Bank edits are saved with the project and can be undone.
 ## Shape
 Playback mode is One-shot by default: a hit plays to the end. Gate plays while held, then releases. Loop repeats while held. Tune shifts playback by −24 to +24 semitones and changes its speed. Reverse plays backwards.
 Attack, decay and release are in milliseconds; sustain is a percentage. Defaults are 2 ms attack, 80 ms decay, 100% sustain and 80 ms release. Low-pass defaults to 20000 Hz. Choke group 0 is off; pads in the same nonzero group cut each other off with a short fade.

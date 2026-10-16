@@ -21,7 +21,8 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         root.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 10), 0);
         TextView title = Ui.text(a, "THE CHAMBER", Skin.HI, 20);
         root.addView(title);
-        root.addView(Ui.text(a, "Tap to play · hold to shape · slice any clip into the pads", Skin.DIM, 13));
+        root.addView(Ui.text(a, "1. Tap a pad to choose it (it glows).\n2. Sample puts a sound on it: a clip from this project, or a sound file on the phone.\n"
+                + "3. Hold a pad to shape it. Chop slices one sound across all 16 pads; Kit brings the drums back.", Skin.TEXT, 13));
         for (int row = 0; row < 4; row++) {
             LinearLayout line = Ui.row(a);
             line.setMotionEventSplittingEnabled(true);
@@ -109,9 +110,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
             }
         });
         steps = Ui.column(a);
-        HorizontalScrollView scroll = new HorizontalScrollView(a);
-        scroll.addView(steps);
-        root.addView(scroll);
+        root.addView(steps, new LinearLayout.LayoutParams(-1, -2));
         a.session.listen(this);
     }
     Project p() { return a.session.project(); }
@@ -140,63 +139,115 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                 clips.add(c);
                 names.add(t.name + " · " + String.format(java.util.Locale.ROOT, "%.1fs", c.length / (double)p().rate));
             }
+        names.add("A sound file on the phone…");
         new Lux.Builder(a)
-            .setTitle(chop ? "Slice a clip into 16 pads" : "Audio for pad " + (selected + 1))
+            .setTitle(chop ? "Slice a sound into 16 pads" : "Sound for pad " + (selected + 1))
             .setItems(names.toArray(new String[0]),
                       new DialogInterface.OnClickListener() {
                           public void onClick(DialogInterface d, int w) {
-                              final Clip c = clips.get(w);
-                              if (chop) {
-                                  final Project before = p();
-                                  final String text = before.toText();
-                                  final java.io.File dir = a.session.dir();
-                                  Ui.toast(a, "Finding transients…");
-                                  new Thread(new Runnable() {
-                                      public void run() {
-                                          try {
-                                              final long[] slices =
-                                                  TransientSlices.find(new java.io.File(dir, c.file), c.offset, c.length, 16);
-                                              a.runOnUiThread(new Runnable() {
-                                                  public void run() {
-                                                      if (a.session.project() != before || !before.toText().equals(text)) {
-                                                          Ui.toast(a, "The project changed; choose the clip again.");
-                                                          return;
-                                                      }
-                                                      Project q = before.copy();
-                                                      for (int i = 0; i < slices.length - 1; i++) {
-                                                          Performance.Pad z = q.performance.pads[i];
-                                                          z.file = c.file;
-                                                          z.offset = c.offset + slices[i];
-                                                          z.length = slices[i + 1] - slices[i];
-                                                          z.name = "Slice " + (i + 1);
-                                                      }
-                                                      save(q, "Chop transients into pads");
-                                                  }
-                                              });
-                                          } catch (final Exception e) {
-                                              a.runOnUiThread(new Runnable() {
-                                                  public void run() { Ui.toast(a, e.getMessage()); }
-                                              });
-                                          }
-                                      }
-                                  }, "studio-slices").start();
-                                  return;
-                              }
-                              Project q = p().copy();
-                              int first = chop ? 0 : selected, count = chop ? 16 : 1;
-                              for (int i = 0; i < count; i++) {
-                                  Performance.Pad pad = q.performance.pads[first + i];
-                                  pad.file = c.file;
-                                  pad.offset = c.offset + c.length * i / count;
-                                  pad.length = c.length * (i + 1) / count - c.length * i / count;
-                                  pad.name = chop ? "Slice " + (i + 1) : "Sample";
-                                  pad.attack = .002f;
-                                  pad.release = .02f;
-                              }
-                              save(q, chop ? "Chop clip into pads" : "Assign sample");
+                              if (w == clips.size()) pickFile(chop);
+                              else use(clips.get(w), chop);
                           }
                       })
             .show();
+    }
+
+    /** Puts a clip's audio on the chosen pad, or slices it across all sixteen. */
+    void use(final Clip c, final boolean chop) {
+        if (chop) {
+            final Project before = p();
+            final String text = before.toText();
+            final java.io.File dir = a.session.dir();
+            Ui.toast(a, "Finding transients…");
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        final long[] slices =
+                            TransientSlices.find(new java.io.File(dir, c.file), c.offset, c.length, 16);
+                        a.runOnUiThread(new Runnable() {
+                            public void run() {
+                                if (a.session.project() != before || !before.toText().equals(text)) {
+                                    Ui.toast(a, "The project changed; choose the clip again.");
+                                    return;
+                                }
+                                Project q = before.copy();
+                                for (int i = 0; i < slices.length - 1; i++) {
+                                    Performance.Pad z = q.performance.pads[i];
+                                    z.file = c.file;
+                                    z.offset = c.offset + slices[i];
+                                    z.length = slices[i + 1] - slices[i];
+                                    z.name = "Slice " + (i + 1);
+                                }
+                                save(q, "Chop transients into pads");
+                            }
+                        });
+                    } catch (final Exception e) {
+                        a.runOnUiThread(new Runnable() {
+                            public void run() { Ui.toast(a, e.getMessage()); }
+                        });
+                    }
+                }
+            }, "studio-slices").start();
+            return;
+        }
+        Project q = p().copy();
+        int first = chop ? 0 : selected, count = chop ? 16 : 1;
+        for (int i = 0; i < count; i++) {
+            Performance.Pad pad = q.performance.pads[first + i];
+            pad.file = c.file;
+            pad.offset = c.offset + c.length * i / count;
+            pad.length = c.length * (i + 1) / count - c.length * i / count;
+            pad.name = chop ? "Slice " + (i + 1) : "Sample";
+            pad.attack = .002f;
+            pad.release = .02f;
+        }
+        save(q, chop ? "Chop clip into pads" : "Assign sample");
+    }
+
+    static final int PICK_SOUND = 62;
+    private boolean pickChop;
+
+    void pickFile(boolean chop) {
+        pickChop = chop;
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("audio/*");
+        a.startActivityForResult(i, PICK_SOUND);
+    }
+
+    /** The picked file comes into the project's audio folder, then onto the pads like any clip. */
+    void result(int request, int result, Intent data) {
+        if (request != PICK_SOUND || result != android.app.Activity.RESULT_OK || data == null || data.getData() == null || p() == null)
+            return;
+        final android.net.Uri uri = data.getData();
+        final boolean chop = pickChop;
+        final java.io.File dir = a.session.dir();
+        final int rate = p().rate;
+        final String rel = "audio/pad-" + System.currentTimeMillis() + ".wav";
+        Ui.toast(a, "Bringing the sound in…");
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    final long frames = ImportJob.run(a, uri, new java.io.File(dir, rel), rate, new ImportJob.Progress() {
+                        public void at(float fraction) {}
+                    }, new java.util.concurrent.atomic.AtomicBoolean());
+                    a.runOnUiThread(new Runnable() {
+                        public void run() {
+                            if (p() == null || a.session.dir() == null || !a.session.dir().equals(dir)) return;
+                            Clip c = new Clip();
+                            c.file = rel;
+                            c.offset = 0;
+                            c.length = frames;
+                            use(c, chop);
+                        }
+                    });
+                } catch (final Exception e) {
+                    a.runOnUiThread(new Runnable() {
+                        public void run() { Ui.toast(a, "That sound could not be brought in: " + e.getMessage()); }
+                    });
+                }
+            }
+        }, "studio-pad-import").start();
     }
     void shape() {
         final String[] labels = {"One-shot / gate / loop", "Tune (semitones)", "Attack (ms)",         "Decay (ms)", "Sustain (%)",
@@ -264,21 +315,40 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                       })
             .show();
     }
+    /** The chosen pad glows, so it is clear which one Sample, Shape and the steps work on. */
+    void highlight() {
+        for (int i = 0; i < 16; i++) {
+            boolean on = i == selected;
+            pads[i].setTextColor(on ? Skin.HI : Skin.TEXT);
+            pads[i].setShadowLayer(on ? Ui.dp(a, 8) : 0, 0, 0, on ? (0xEE << 24) | Skin.GLOW : 0);
+        }
+    }
+
     void pattern() {
+        highlight();
         steps.removeAllViews();
         if (p() == null)
             return;
         steps.addView(Ui.text(a, "Pad " + (selected + 1) + " · steps: off / soft / hard" + (p().performance.pattern ? " · PLAYING" : ""),
                               Skin.HI, 12));
-        for (int row = 0; row < 2; row++) {
+        // eight steps a row, each an equal share of the width, so 16 and 32 both fit the screen
+        int rows = p().performance.patternLength / 8;
+        for (int row = 0; row < rows; row++) {
             LinearLayout line = Ui.row(a);
-            steps.addView(line);
-            for (int col = 0; col < p().performance.patternLength / 2; col++) {
-                final int step = row * (p().performance.patternLength / 2) + col;
+            steps.addView(line, new LinearLayout.LayoutParams(-1, -2));
+            for (int col = 0; col < 8; col++) {
+                final int step = row * 8 + col;
                 float v = p().performance.steps[selected][step];
                 Button b = Ui.button(a, "" + (step + 1), v > 0);
                 b.setAlpha(v == 0 ? .45f : v < 1 ? .7f : 1);
-                line.addView(b, new LinearLayout.LayoutParams(Ui.dp(a, 48), Ui.dp(a, 48)));
+                b.setSingleLine(true);
+                b.setTextSize(11);
+                b.setPadding(0, 0, 0, 0);
+                b.setMinWidth(0);
+                b.setMinimumWidth(0);
+                LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, Ui.dp(a, 44), 1);
+                sp.setMargins(2, 2, 2, 2);
+                line.addView(b, sp);
                 b.setOnClickListener(new View.OnClickListener() {
                     public void onClick(View v) {
                         Project q = p().copy();
