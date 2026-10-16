@@ -8,7 +8,8 @@ public class ProjectV2Test {
     private static int failed, passed;
 
     static void same(String name, Object want, Object got) {
-        if (String.valueOf(want).equals(String.valueOf(got))) passed++;
+        if (String.valueOf(want).equals(String.valueOf(got)))
+            passed++;
         else {
             failed++;
             System.out.println("FAIL " + name + "\n  want: " + want + "\n  got:  " + got);
@@ -25,8 +26,8 @@ public class ProjectV2Test {
     }
 
     static final String V1 = "{\"version\":1,\"name\":\"Old\",\"rate\":48000,\"nextId\":3,\"masterDb\":0,\"tracks\":[{\"id\":\"t1\","
-            + "\"name\":\"Song\",\"gainDb\":-6,\"pan\":0,\"mute\":false,\"solo\":false,\"clips\":[{\"id\":\"c2\",\"file\":\"audio/song.wav\","
-            + "\"start\":0,\"offset\":0,\"length\":1000,\"gainDb\":0}]}]}";
+        + "\"name\":\"Song\",\"gainDb\":-6,\"pan\":0,\"mute\":false,\"solo\":false,\"clips\":[{\"id\":\"c2\",\"file\":\"audio/song.wav\","
+        + "\"start\":0,\"offset\":0,\"length\":1000,\"gainDb\":0}]}]}";
 
     static void write(File f, String s) throws Exception {
         FileOutputStream o = new FileOutputStream(f);
@@ -44,7 +45,7 @@ public class ProjectV2Test {
     public static void main(String[] a) throws Exception {
         // an old project opens as the new format, with defaults
         Project old = Project.fromText(V1);
-        same("a format 1 project opens as format 2", Project.VERSION + " 2", old.version + " " + Project.VERSION);
+        same("a format 1 project opens as format 2", Project.VERSION + " " + Project.VERSION, old.version + " " + Project.VERSION);
         same("with no loop yet", "0 0 false", old.loopStart + " " + old.loopEnd + " " + old.loopOn);
         same("its tracks get a colour", true, old.track("t1").color != 0);
         same("and no role", null, old.track("t1").role);
@@ -65,7 +66,8 @@ public class ProjectV2Test {
         same("negative colours (ARGB) round-trip", 0xffcc8800, Project.fromText(p.toText()).track(t.id).color);
 
         // what a project must never hold
-        same("a newer format is refused, saying so", true, refused(p.toText().replace("\"version\":2", "\"version\":3")).contains("newer"));
+        same("a newer format is refused, saying so", true,
+            refused(p.toText().replace("\"version\":" + Project.VERSION, "\"version\":" + (Project.VERSION + 1))).contains("newer"));
         p.loopEnd = 1000;
         same("a loop that ends before it starts is refused", true, refused(p.toText()).contains("loop"));
         p.loopEnd = 96000;
@@ -83,7 +85,8 @@ public class ProjectV2Test {
         back.undo();
         same("undo a colour after saving", 0xffcc8800, back.project().track(t.id).color);
         back.undo();
-        same("undo the loop after saving", "48000 96000 true", back.project().loopStart + " " + back.project().loopEnd + " " + back.project().loopOn);
+        same("undo the loop after saving", "48000 96000 true",
+            back.project().loopStart + " " + back.project().loopEnd + " " + back.project().loopOn);
         same("labels", "Colour Loop", h.undoLabel() + " " + (h.undo() ? h.undoLabel() : ""));
 
         // a track added with a role keeps it through undo, redo and saving
@@ -100,9 +103,11 @@ public class ProjectV2Test {
         File dir = new File(System.getProperty("java.io.tmpdir"), "v2test-" + System.nanoTime());
         dir.mkdirs();
         write(new File(dir, ProjectStore.MAIN), V1);
-        write(new File(dir, ProjectStore.HISTORY), "{\"version\":1,\"fingerprint\":\"" + sha(V1) + "\",\"current\":1,\"steps\":["
+        write(new File(dir, ProjectStore.HISTORY),
+            "{\"version\":1,\"fingerprint\":\"" + sha(V1) + "\",\"current\":1,\"steps\":["
                 + "{\"id\":0,\"parent\":-1,\"when\":1,\"redo\":1},"
-                + "{\"id\":1,\"parent\":0,\"when\":2,\"redo\":null,\"edit\":{\"kind\":\"gain\",\"track\":\"t1\",\"value\":-6,\"old\":0}}]}");
+                + ("{\"id\":1,\"parent\":0,\"when\":2,\"redo\":null,\"edit\":{\"kind\":\"gain\",\"track\":\"t1\",\"value\":-6,\"old\":0}}]"
+                   + "}"));
         ProjectStore.Loaded l = ProjectStore.load(dir);
         ProjectStore.LoadedHistory lh = ProjectStore.loadHistory(dir, l.project, l.originalText);
         same("an old history belongs to the upgraded project", null, lh.problem);
@@ -113,6 +118,7 @@ public class ProjectV2Test {
         dir.delete();
 
         System.out.println("ProjectV2Test: " + passed + " passed, " + failed + " failed");
-        if (failed > 0) System.exit(1);
+        if (failed > 0)
+            System.exit(1);
     }
 }

@@ -144,6 +144,7 @@ public final class AiJobs {
     /** Runs (or carries on) a job in the ":ai" process. Null when it started; otherwise why it did not. */
     static String start(Context c, AiJob job) {
         if (running != null) return "A job is already running.";
+        if (StudioSession.recordingBusy()) return "Finish the recording before starting stems.";
         if (MainActivity.jobBusy) return "A song is being made: the stems can start when it is done.";
         if (!installed(c, job.kind())) return "The model is not downloaded yet.";
         job.uncancel();

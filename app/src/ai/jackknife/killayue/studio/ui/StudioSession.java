@@ -1,20 +1,5 @@
 package ai.jackknife.killayue.studio.ui;
 
-import android.content.Context;
-import android.media.AudioManager;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.Looper;
-
-import org.json.JSONObject;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import ai.jackknife.killayue.Covers;
 import ai.jackknife.killayue.Store;
 import ai.jackknife.killayue.studio.Autosave;
@@ -26,6 +11,18 @@ import ai.jackknife.killayue.studio.ProjectStore;
 import ai.jackknife.killayue.studio.Projects;
 import ai.jackknife.killayue.studio.SessionDiff;
 import ai.jackknife.killayue.studio.Track;
+import android.content.Context;
+import android.media.AudioManager;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONObject;
 
 /**
  * The open Studio: the audio engine on the phone's device, the project and its undo tree, autosave, and the
@@ -35,13 +32,18 @@ import ai.jackknife.killayue.studio.Track;
  */
 public final class StudioSession implements SessionDiff.Target {
     public interface Listener {
-        void projectChanged();  // an edit, undo, redo or jump, or another project opened
+        void projectChanged(); // an edit, undo, redo or jump, or another project opened
     }
 
     private static StudioSession inst;
 
+    public static boolean recordingBusy() {
+        return inst != null && inst.recording.busy();
+    }
+
     public static StudioSession get(Context c) {
-        if (inst == null) inst = new StudioSession(c.getApplicationContext());
+        if (inst == null)
+            inst = new StudioSession(c.getApplicationContext());
         return inst;
     }
 
@@ -58,9 +60,12 @@ public final class StudioSession implements SessionDiff.Target {
     private History history;
     private Autosave autosave;
     private boolean ticking;
+    final Recording recording;
+    private String performanceText;
 
     private StudioSession(Context app) {
         this.app = app;
+        recording = new Recording(this, app);
         worker.start();
         work = new Handler(worker.getLooper());
     }
@@ -107,17 +112,51 @@ public final class StudioSession implements SessionDiff.Target {
     }
 
     public void listen(Listener l) {
-        if (!listeners.contains(l)) listeners.add(l);
+        if (!listeners.contains(l))
+            listeners.add(l);
     }
 
     public void unlisten(Listener l) {
         listeners.remove(l);
     }
 
+    void report(final String text) {
+        ui.post(new Runnable() {
+            public void run() {
+                engineError = text;
+            }
+        });
+    }
+    void afterSave(Runnable r) {
+        work.post(r);
+    }
+    void input(boolean mic, int device) throws IOException {
+        if (recording.busy())
+            throw new IOException("Stop the take first.");
+        long pos = engine == null ? 0 : engine.status().position;
+        if (engine != null)
+            engine.close();
+        engine = null;
+        engineError = null;
+        try {
+            engine = NativeEngine.onDevice(mic, device);
+            engine.start();
+            diff.forget();
+            performanceText = null;
+            changed(false);
+            engine.seek(pos);
+        } catch (IOException ex) {
+            engineError = ex.getMessage();
+            throw ex;
+        }
+    }
+
     // ---------- projects ----------
 
     /** Opens a project folder: the project (or its backup), its undo tree, and plays it from its position. */
     public void open(File d) throws IOException {
+        if (recording.busy())
+            throw new IOException("Stop recording before opening another project.");
         close();
         ProjectStore.Loaded l = ProjectStore.load(d);
         ProjectStore.LoadedHistory h = ProjectStore.loadHistory(d, l.project, l.originalText);
@@ -125,15 +164,18 @@ public final class StudioSession implements SessionDiff.Target {
         project = l.project;
         history = h.history;
         final File where = d;
-        autosave = new Autosave(new Autosave.Saver() {
-            public void save(String p, String hist) throws Exception {
-                ProjectStore.saveSnapshot(where, new String[] {p, hist});
-            }
-        }, 1000, new Autosave.Clock() {
-            public long now() {
-                return System.currentTimeMillis();
-            }
-        });
+        autosave = new Autosave(
+            new Autosave.Saver() {
+                public void save(String p, String hist) throws Exception {
+                    ProjectStore.saveSnapshot(where, new String[] {p, hist});
+                }
+            },
+            1000,
+            new Autosave.Clock() {
+                public long now() {
+                    return System.currentTimeMillis();
+                }
+            });
         diff.forget();
         if (engine() != null) {
             engine.stop();
@@ -141,10 +183,15 @@ public final class StudioSession implements SessionDiff.Target {
         }
         changed(false);
         startTicking();
+        recording.recover();
     }
 
-    /** Saves and lets go of the open project (the engine stays, silent). */
+    /** Saves and lets go of the open project and its audio inputs. */
     public void close() {
+        if (recording.busy()) {
+            report("Finish the take before closing this project.");
+            return;
+        }
         if (autosave != null) {
             final Autosave a = autosave;
             work.post(new Runnable() {
@@ -153,7 +200,12 @@ public final class StudioSession implements SessionDiff.Target {
                 }
             });
         }
-        if (engine != null) engine.stop();
+        recording.clearInput();
+        if (engine != null)
+            engine.close();
+        engine = null;
+        engineError = null;
+        performanceText = null;
         project = null;
         history = null;
         dir = null;
@@ -164,7 +216,8 @@ public final class StudioSession implements SessionDiff.Target {
 
     /** Writes now (the screen going away). */
     public void flush() {
-        if (autosave == null) return;
+        if (autosave == null)
+            return;
         final Autosave a = autosave;
         work.post(new Runnable() {
             public void run() {
@@ -174,23 +227,25 @@ public final class StudioSession implements SessionDiff.Target {
     }
 
     private void startTicking() {
-        if (ticking) return;
+        if (ticking)
+            return;
         ticking = true;
         work.post(new Runnable() {
             public void run() {
                 Autosave a = autosave;
-                if (a != null) a.tick();
+                if (a != null)
+                    a.tick();
                 work.postDelayed(this, 250);
             }
         });
     }
 
     public interface Progress {
-        void at(String what, float fraction);  // UI thread
+        void at(String what, float fraction); // UI thread
     }
 
     public interface Done {
-        void done(File project, String error);  // UI thread; error is null when it worked
+        void done(File project, String error); // UI thread; error is null when it worked
     }
 
     /**
@@ -207,7 +262,8 @@ public final class StudioSession implements SessionDiff.Target {
                     JSONObject m = new JSONObject(new String(Store.read(meta), "UTF-8"));
                     String title = m.optString("_title", meta.getName().replaceAll("\\.json$", ""));
                     File audio = new File(Store.library(app), m.optString("_audio"));
-                    if (!audio.isFile()) throw new IOException("The song's audio is missing (" + audio.getName() + ").");
+                    if (!audio.isFile())
+                        throw new IOException("The song's audio is missing (" + audio.getName() + ").");
                     d = Projects.create(root(app), title + " (remix)", rate, meta.getName(), title, System.currentTimeMillis());
                     File out = new File(d, "audio/song.wav");
                     long frames = ImportJob.run(app, audio, out, rate, new ImportJob.Progress() {
@@ -220,15 +276,26 @@ public final class StudioSession implements SessionDiff.Target {
                         }
                     }, cancel);
                     Project p = ProjectStore.load(d).project;
+                    try {
+                        ai.jackknife.killayue.Abc.Score score = ai.jackknife.killayue.Abc.parse(m.optString("abc"));
+                        p.performance.tempo = Math.max(20, Math.min(400, score.bpm));
+                        p.performance.beats = score.meterNum;
+                        p.performance.beatUnit = score.meterDen;
+                        p.performance.validate();
+                    } catch (Exception ignored) {
+                        p.performance = new ai.jackknife.killayue.studio.Performance();
+                    }
                     Track t = p.addTrack(title);
                     t.role = "song";
                     p.addClip(t, "audio/song.wav", 0, 0, frames);
                     ProjectStore.save(p, d);
                     File cover = Covers.coverFor(app, m);
-                    if (cover.isFile()) copy(cover, new File(d, "cover.jpg"));
+                    if (cover.isFile())
+                        copy(cover, new File(d, "cover.jpg"));
                 } catch (Exception e) {
                     error = e.getMessage() == null ? e.toString() : e.getMessage();
-                    if (d != null) Projects.delete(d);
+                    if (d != null)
+                        Projects.delete(d);
                     d = null;
                 }
                 final File made = d;
@@ -247,7 +314,7 @@ public final class StudioSession implements SessionDiff.Target {
         FileOutputStream out = new FileOutputStream(to);
         try {
             byte[] b = new byte[65536];
-            for (int n; (n = in.read(b)) > 0; ) out.write(b, 0, n);
+            for (int n; (n = in.read(b)) > 0;) out.write(b, 0, n);
         } finally {
             in.close();
             out.close();
@@ -256,37 +323,64 @@ public final class StudioSession implements SessionDiff.Target {
 
     // ---------- edits: every change goes through here, so the engine and the saved project follow ----------
 
+    private boolean editBlocked() {
+        if (!recording.busy()) return false;
+        report("Finish the take before editing the project.");
+        return true;
+    }
+
     public void run(Edit e) {
-        if (history == null) return;
+        if (editBlocked()) return;
+        if (history == null)
+            return;
         history.run(e);
         changed(true);
     }
 
     public void drag(Edit e, Object gesture) {
-        if (history == null) return;
+        if (editBlocked()) return;
+        if (history == null)
+            return;
         history.drag(e, gesture);
         changed(true);
     }
 
     public boolean undo() {
-        if (history == null || !history.undo()) return false;
+        if (editBlocked()) return false;
+        if (history == null || !history.undo())
+            return false;
         changed(true);
         return true;
     }
 
     public boolean redo(int choice) {
-        if (history == null) return false;
+        if (editBlocked()) return false;
+        if (history == null)
+            return false;
         boolean ok = choice < 0 ? history.redo() : history.redo(choice);
-        if (ok) changed(true);
+        if (ok)
+            changed(true);
         return ok;
     }
 
     public void jumpTo(int step) {
-        if (history != null && history.jumpTo(step)) changed(true);
+        if (editBlocked()) return;
+        if (history != null && history.jumpTo(step))
+            changed(true);
     }
 
     private void changed(boolean save) {
-        if (project != null && engine() != null) diff.sync(project, this);
+        if (project != null && engine() != null) {
+            diff.sync(project, this);
+            String config = ai.jackknife.killayue.studio.Json.write(project.performance.json());
+            if (!config.equals(performanceText))
+                try {
+                    engine.performance(project, dir);
+                    performanceText = config;
+                } catch (IOException ex) {
+                    engineError = ex.getMessage();
+                }
+        }
         if (save && autosave != null) {
             try {
                 String[] s = ProjectStore.snapshot(project, history);
@@ -302,17 +396,27 @@ public final class StudioSession implements SessionDiff.Target {
 
     public void play() {
         NativeEngine e = engine();
-        if (e == null || project == null) return;
-        requestFocus();
+        if (e == null || project == null)
+            return;
+        if (!(recording.active() && recording.external))
+            requestFocus();
         e.play();
     }
 
     public void stop() {
-        if (engine != null) engine.stop();
+        if (recording.calibrating && engine != null) engine.cancelLatency();
+        recording.stop();
+        if (engine != null)
+            engine.stop();
     }
 
     public void seek(long frame) {
-        if (engine != null) engine.seek(frame);
+        if (recording.busy()) {
+            report("Finish the take before moving the playhead.");
+            return;
+        }
+        if (engine != null)
+            engine.seek(frame);
     }
 
     private AudioManager.OnAudioFocusChangeListener focus;
@@ -323,7 +427,8 @@ public final class StudioSession implements SessionDiff.Target {
         if (focus == null)
             focus = new AudioManager.OnAudioFocusChangeListener() {
                 public void onAudioFocusChange(int change) {
-                    if (change == AudioManager.AUDIOFOCUS_LOSS) stop();
+                    if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+                        stop();
                 }
             };
         am.requestAudioFocus(focus, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
@@ -331,8 +436,10 @@ public final class StudioSession implements SessionDiff.Target {
 
     /** Each track's meter since the last call, by track ID (cleared on read). */
     public void meters(java.util.Map<String, float[]> out) {
-        if (engine != null && project != null) engine.meters(out);
-        else out.clear();
+        if (engine != null && project != null)
+            engine.meters(out);
+        else
+            out.clear();
     }
 
     public NativeEngine.Status status() {
@@ -343,8 +450,8 @@ public final class StudioSession implements SessionDiff.Target {
 
     public void reload(Project p) {
         try {
-            engine.load(p, dir);
             engine.loop(p.loopStart, p.loopEnd, p.loopOn);
+            engine.load(p, dir);
         } catch (IOException e) {
             engineError = e.getMessage();
         }
@@ -377,7 +484,8 @@ public final class StudioSession implements SessionDiff.Target {
     /** The last thing that went wrong (cleared when read), for the screen to say. */
     public String takeError() {
         String e = engineError;
-        if (engine != null) engineError = null;
+        if (engine != null)
+            engineError = null;
         return e;
     }
 }

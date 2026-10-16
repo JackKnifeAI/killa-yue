@@ -7,10 +7,12 @@
 #include <memory>
 #include <string>
 #include <vector>
+
 #include "studio/device.h"
 #include "studio/disk.h"
 #include "studio/engine.h"
 #include "studio/latency.h"
+#include "studio/recorder.h"
 #include "studio/wav.h"
 
 namespace studio {
@@ -19,6 +21,7 @@ struct ClipSpec {
     std::string file;  // a WAV at the Studio's rate
     long start, offset, length;
     float gainDb;
+    long fadeIn = 0, fadeOut = 0;
 };
 
 struct TrackSpec {
@@ -28,7 +31,7 @@ struct TrackSpec {
 };
 
 class Host : public Renderer, public InputSink {
-public:
+   public:
     static constexpr int kBlock = 512;  // the engine's block; bigger device callbacks are rendered in pieces
 
     // A Studio playing through a device (owned), at the device's own rate, with the microphone when mic.
@@ -37,6 +40,28 @@ public:
     static Host* offline(int rate);
     ~Host() override;
 
+    PerformanceAudio& performance() { return engine_->performance(); }
+    bool record(const char* path, long countIn, bool external, std::string& err) {
+        if (recorder_.active()) { err = "A take is already open."; return false; }
+        external_.store(external);
+        recordDelay_.store(countIn);
+        recordAnchor_.store(-1);
+        return recorder_.start(path, rate_, err);
+    }
+    long stopRecord(std::string& err) { return recorder_.stop(err); }
+    int processingLatency() const { return engine_->latency(); }
+    long recordFirst() const { return recorder_.first(); }
+    long recordAnchor() const { return recordAnchor_.load(); }
+    long recordFrames() const { return recorder_.frames(); }
+    float inputPeak() { return inputPeak_.exchange(0); }
+    int recordFailure() const { return recorder_.failure(); }
+    void pushExternal(const float* in, int n, long at) {
+        if (external_.load()) {
+            recorder_.input(in, n, 1, at);
+            performance().input(in, n, 1);
+        }
+    }
+    static bool recover(const char* path, std::string& err) { return WavWriter::recover(path, err); }
     int rate() const { return rate_; }
     bool hasDevice() const { return device_ != nullptr; }
     bool start(std::string& err);  // starts the device (nothing to start without one)
@@ -52,8 +77,8 @@ public:
     Status status();  // also frees the tracks the engine has let go of
     DeviceStats deviceStats();
     int meters(float* out, int max) { return engine_->meters(out, max); }  // per track (L, R); clears them
-    int sessionsHeld() const { return (int)gens_.size(); }  // the current one plus any not yet let go of
-    int filesOpen() const;  // over every session held
+    int sessionsHeld() const { return (int)gens_.size(); }                 // the current one plus any not yet let go of
+    int filesOpen() const;                                                 // over every session held
 
     // Off-line hosts only (call it on a worker thread): renders the whole session from frame 0 into a float
     // WAV. limiter false bypasses the master limiter (stems). exportProgress() is the frames written so far;
@@ -66,7 +91,10 @@ public:
     void render(float* out, int frames, long position) override;
     void input(const float* in, int frames, int channels, long position) override;
     // Off-line: render by hand (a host with no device; never while a device is calling render()).
-    void render(float* out, int frames) { render(out, frames, offlinePos_); offlinePos_ += frames; }
+    void render(float* out, int frames) {
+        render(out, frames, offlinePos_);
+        offlinePos_ += frames;
+    }
 
     // Plays `probes` probes (0.4 s apart, each its own noise) and finds them in the microphone; round trips up
     // to a second are measured. Blocks for about probes * 0.4 + 1.6 s. Needs a device opened with the
@@ -78,7 +106,7 @@ public:
     // the thread that ran measureLatency, after it returned.
     std::string latencyReport() const { return calReport_; }
 
-private:
+   private:
     Host(int rate, Device* d, bool mic);
     void reap();
     bool calibrating(bool startHere, long position);
@@ -90,6 +118,10 @@ private:
         std::vector<std::unique_ptr<Streamer>> streams;
     };
 
+    Recorder recorder_;
+    std::atomic<bool> external_{false};
+    std::atomic<long> recordAnchor_{-1}, recordDelay_{0};
+    std::atomic<float> inputPeak_{0};
     int rate_;
     std::unique_ptr<Device> device_;
     bool mic_;

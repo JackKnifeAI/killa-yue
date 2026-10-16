@@ -1311,6 +1311,10 @@ public class MainActivity extends Activity {
     }
 
     void startJob(String msg, final Task t) {
+        if (ai.jackknife.killayue.studio.ui.StudioSession.recordingBusy()) {
+            toast("Finish the recording before starting a song job.");
+            return;
+        }
         if (jobBusy) {
             toast("The engine is busy with another job");
             return;

@@ -1,4 +1,5 @@
 #include "studio/streamer.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -16,7 +17,7 @@ Streamer::Streamer(const std::vector<ClipRef>& clips, int ringFrames)
     bool first = true;
     for (const auto& c : clips) {
         if (c.length <= 0) continue;
-        clips_.push_back({c.reader, c.start, c.offset, c.length, dbToGain(c.gainDb)});
+        clips_.push_back({c.reader, c.start, c.offset, c.length, c.fadeIn, c.fadeOut, dbToGain(c.gainDb)});
         start_ = first ? c.start : std::min(start_, c.start);
         end_ = first ? c.start + c.length : std::max(end_, c.start + c.length);
         first = false;
@@ -41,9 +42,7 @@ void Streamer::stopThread() {
     fed_.store(false);
 }
 
-long Streamer::overlap(long from, long to) const {
-    return std::max(0L, std::min(to, clipEnd()) - std::max(from, start_));
-}
+long Streamer::overlap(long from, long to) const { return std::max(0L, std::min(to, clipEnd()) - std::max(from, start_)); }
 
 long Streamer::audible(const Order& o, long from, long to) const {
     long n = 0;
@@ -181,8 +180,12 @@ bool Streamer::fill() {
         const int got = c.reader->read(from - c.start + c.offset, raw_.data(), (int)(to - from));
         float* o = chunk_.data() + 2 * (from - f);
         for (int k = 0; k < got; k++) {
-            o[2 * k] += c.gain * raw_[(size_t)k * ch];
-            o[2 * k + 1] += c.gain * raw_[(size_t)k * ch + (ch > 1 ? 1 : 0)];
+            long local = from - c.start + k;
+            float fade = 1.f;
+            if (c.fadeIn > 0) fade *= std::min(1.f, (float)local / c.fadeIn);
+            if (c.fadeOut > 0) fade *= std::min(1.f, (float)(c.length - 1 - local) / c.fadeOut);
+            o[2 * k] += fade * c.gain * raw_[(size_t)k * ch];
+            o[2 * k + 1] += fade * c.gain * raw_[(size_t)k * ch + (ch > 1 ? 1 : 0)];
         }
     }
     if (generation_.load(std::memory_order_acquire) != g) return true;  // a seek arrived meanwhile: drop it

@@ -12,6 +12,7 @@ add_subdirectory(${OBOE_DIR} oboe EXCLUDE_FROM_ALL)
 
 file(GLOB STUDIO_SRC ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp ${CMAKE_CURRENT_SOURCE_DIR}/jni/*.cpp)
 add_library(studio SHARED ${STUDIO_SRC})
+target_include_directories(studio SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 target_include_directories(studio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # no -ffast-math: the mixer's NaN guards and the limiter's exact ceiling depend on IEEE arithmetic
 target_compile_options(studio PRIVATE -Wall -Wextra -Werror -O2)

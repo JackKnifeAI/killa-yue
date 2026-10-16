@@ -6,7 +6,6 @@ import android.util.Log;
 import android.view.WindowManager;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
@@ -48,14 +47,28 @@ public class StudioTestActivity extends Activity {
         final float master = getIntent().getFloatExtra("master", -40f);
         report = new File(getFilesDir(), "studio-test.txt");
         report.delete();
+        if (test.equals("playalong-recover")) {
+            ai.jackknife.killayue.studio.ui.PlayAlongProof.recover(this);
+            return;
+        }
+        if (test.equals("playalong-ui") || test.equals("playalong-crash")) {
+            ai.jackknife.killayue.studio.ui.PlayAlongProof.start(this);
+            return;
+        }
         new Thread(new Runnable() {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("stress")) stress(seconds, master);
-                    else if (test.equals("latency")) latency();
-                    else if (test.equals("route")) route(seconds, master);
-                    else log("RESULT unknown test \"" + test + "\" (stress, latency or route)");
+                    if (test.equals("playalong"))
+                        playAlong(seconds);
+                    else if (test.equals("stress"))
+                        stress(seconds, master);
+                    else if (test.equals("latency"))
+                        latency();
+                    else if (test.equals("route"))
+                        route(seconds, master);
+                    else
+                        log("RESULT unknown test \"" + test + "\" (stress, latency or route)");
                 } catch (Throwable t) {
                     log("RESULT FAIL " + t);
                 }
@@ -87,8 +100,58 @@ public class StudioTestActivity extends Activity {
 
     private static String device(NativeEngine.Status s) {
         return String.format(java.util.Locale.ROOT,
-                "device %d Hz, burst %d, buffer %d, %s, callback policy %d priority %d, output latency %.1f ms", s.deviceRate, s.burst,
-                s.bufferFrames, s.exclusive ? "exclusive" : "shared", s.callbackPolicy, s.callbackPriority, s.outputLatencyMs);
+            "device %d Hz, burst %d, buffer %d, %s, callback policy %d priority %d, output latency %.1f ms", s.deviceRate, s.burst,
+            s.bufferFrames, s.exclusive ? "exclusive" : "shared", s.callbackPolicy, s.callbackPriority, s.outputLatencyMs);
+    }
+
+    private void playAlong(int seconds) throws Exception {
+        File dir = new File(getFilesDir(), "playalong-proof");
+        new File(dir, "takes").mkdirs();
+        NativeEngine e = NativeEngine.onDevice(true);
+        try {
+            e.start();
+            Project p = tracks(e.rate(), Math.max(seconds, 10), dir);
+            p.masterDb = -24;
+            e.loop(0, 2L * p.rate, true);
+            e.load(p, dir);
+            e.record(new File(dir, "takes/proof.wav"), 0, false);
+            e.play();
+            long before = e.status().underruns;
+            long began = System.currentTimeMillis();
+            int voices = Math.max(2, Math.min(64, getIntent().getIntExtra("voices", 2)));
+            log("playalong starting: " + seconds + " seconds, " + voices + " pad triggers per half second");
+            for (int i = 0; i < Math.max(seconds, 10) * 20 && alive; i++) {
+                if (i % 10 == 0) {
+                    for (int v = 0; v < voices; v++)
+                        e.pad((i + v) % 16, voices > 2 ? .03f : .2f, true);
+                }
+                Thread.sleep(50);
+            }
+            e.stop();
+            long[] result = new long[3];
+            String err = e.stopRecord(result);
+            if (err != null)
+                throw new IOException(err);
+            WavIn wav = WavIn.open(new File(dir, "takes/proof.wav"));
+            long frames = wav.frames;
+            wav.close();
+            if (frames < 8L * p.rate || result[1] < 0 || result[2] < 0)
+                throw new IOException("Recording or anchors missing.");
+            NativeStretch.peaks(new File(dir, "takes/proof.wav"));
+            NativeEngine.Status status = e.status();
+            log(device(status));
+            log("recorded frames=" + frames + " first=" + result[1] + " outputAnchor=" + result[2]);
+            log("dropouts during mixed recording=" + (status.underruns - before) + " xruns=" + status.xruns
+                + " callbackMaxMs=" + status.callbackMaxMs);
+            if (status.underruns > before)
+                throw new IOException("Audio underruns during recording.");
+            if (!new File(dir, "takes/proof.wav.kpk").isFile())
+                throw new IOException("Waveform peaks missing.");
+            log("RESULT PASS playalong: microphone + 16 tracks + pads + durable WAV + peaks, " + (System.currentTimeMillis() - began)
+                + " ms");
+        } finally {
+            e.close();
+        }
     }
 
     // a mono float WAV of a sine
@@ -96,8 +159,14 @@ public class StudioTestActivity extends Activity {
         int data = frames * 4;
         ByteBuffer b = ByteBuffer.allocate(44 + data).order(ByteOrder.LITTLE_ENDIAN);
         b.put("RIFF".getBytes("US-ASCII")).putInt(36 + data).put("WAVE".getBytes("US-ASCII"));
-        b.put("fmt ".getBytes("US-ASCII")).putInt(16).putShort((short) 3).putShort((short) 1).putInt(rate).putInt(rate * 4)
-                .putShort((short) 4).putShort((short) 32);
+        b.put("fmt ".getBytes("US-ASCII"))
+            .putInt(16)
+            .putShort((short) 3)
+            .putShort((short) 1)
+            .putInt(rate)
+            .putInt(rate * 4)
+            .putShort((short) 4)
+            .putShort((short) 32);
         b.put("data".getBytes("US-ASCII")).putInt(data);
         for (int i = 0; i < frames; i++) b.putFloat((float) (level * Math.sin(2 * Math.PI * hz * i / rate)));
         FileOutputStream o = new FileOutputStream(f);
@@ -135,13 +204,22 @@ public class StudioTestActivity extends Activity {
             NativeEngine.Status s = e.status();
             while (alive) {
                 long ms = (System.nanoTime() - t0) / 1000000;
-                if (ms >= seconds * 1000L) break;
+                if (ms >= seconds * 1000L)
+                    break;
                 String id = p.tracks.get(rng.nextInt(16)).id;
                 switch (rng.nextInt(4)) {
-                    case 0: e.gain(id, -20f * rng.nextFloat()); break;
-                    case 1: e.pan(id, 2f * rng.nextFloat() - 1f); break;
-                    case 2: e.mute(id, rng.nextInt(10) == 0); break;
-                    default: e.solo(id, rng.nextInt(50) == 0); break;
+                    case 0:
+                        e.gain(id, -20f * rng.nextFloat());
+                        break;
+                    case 1:
+                        e.pan(id, 2f * rng.nextFloat() - 1f);
+                        break;
+                    case 2:
+                        e.mute(id, rng.nextInt(10) == 0);
+                        break;
+                    default:
+                        e.solo(id, rng.nextInt(50) == 0);
+                        break;
                 }
                 if (ms - lastSeek >= 20000) {
                     e.seek((long) (rng.nextDouble() * seconds / 2 * e.rate()));
@@ -150,19 +228,26 @@ public class StudioTestActivity extends Activity {
                 if (ms - lastStatus >= 100) {
                     s = e.status();
                     long du = s.underruns - prevUnder, dx = s.xruns - prevXruns;
-                    if (ms - lastSeek < 300) afterSeek += du;
-                    else bad += du;
-                    if (ms < 2000) xrunsEarly += dx;
-                    else xrunsBad += dx;
+                    if (ms - lastSeek < 300)
+                        afterSeek += du;
+                    else
+                        bad += du;
+                    if (ms < 2000)
+                        xrunsEarly += dx;
+                    else
+                        xrunsBad += dx;
                     prevUnder = s.underruns;
                     prevXruns = s.xruns;
                     lastStatus = ms;
-                    if (s.error != null) log("device: " + s.error);
+                    if (s.error != null)
+                        log("device: " + s.error);
                 }
                 if (ms - lastLine >= 10000) {
-                    log(String.format(java.util.Locale.ROOT, "t=%ds pos=%.1fs underruns %d (+%d after seeks), xruns %d (+%d at start), callbacks %d, max %.2f ms, avg %.3f ms, slow %d",
-                            ms / 1000, s.position / (double) e.rate(), bad, afterSeek, xrunsBad, xrunsEarly, s.callbacks, s.callbackMaxMs,
-                            s.callbackAvgMs, s.slowCallbacks));
+                    log(String.format(java.util.Locale.ROOT,
+                        "t=%ds pos=%.1fs underruns %d (+%d after seeks), xruns %d (+%d at start), callbacks %d, max %.2f ms, avg %.3f ms, "
+                        + "slow %d",
+                        ms / 1000, s.position / (double) e.rate(), bad, afterSeek, xrunsBad, xrunsEarly, s.callbacks, s.callbackMaxMs,
+                        s.callbackAvgMs, s.slowCallbacks));
                     lastLine = ms;
                 }
                 Thread.sleep(5);
@@ -170,10 +255,11 @@ public class StudioTestActivity extends Activity {
             e.stop();
             s = e.status();
             log(device(s));
-            log(String.format(java.util.Locale.ROOT, "callbacks %d, slowest %.2f ms (a burst is %.2f ms), average %.3f ms, %d slower than a burst",
-                    s.callbacks, s.callbackMaxMs, 1000.0 * s.burst / s.deviceRate, s.callbackAvgMs, s.slowCallbacks));
+            log(String.format(java.util.Locale.ROOT,
+                "callbacks %d, slowest %.2f ms (a burst is %.2f ms), average %.3f ms, %d slower than a burst", s.callbacks, s.callbackMaxMs,
+                1000.0 * s.burst / s.deviceRate, s.callbackAvgMs, s.slowCallbacks));
             log("RESULT " + (bad == 0 && xrunsBad == 0 ? "PASS" : "FAIL") + " stress: underruns " + bad + " (+" + afterSeek
-                    + " within 300 ms of a seek), device xruns " + xrunsBad + " (+" + xrunsEarly + " in the first 2 s)");
+                + " within 300 ms of a seek), device xruns " + xrunsBad + " (+" + xrunsEarly + " in the first 2 s)");
         } finally {
             e.close();
             for (File f : new File(dir, "audio").listFiles()) f.delete();
@@ -184,7 +270,7 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(true);
         try {
             e.start();
-            Thread.sleep(700);  // let both streams settle
+            Thread.sleep(700); // let both streams settle
             long[] got = new long[3];
             for (int k = 0; k < 3; k++) {
                 try {
@@ -199,7 +285,7 @@ public class StudioTestActivity extends Activity {
             log(device(s) + ", microphone channels " + s.inputChannels);
             long lo = Math.min(got[0], Math.min(got[1], got[2])), hi = Math.max(got[0], Math.max(got[1], got[2]));
             log("RESULT " + (hi - lo <= e.rate() / 1000 ? "PASS" : "FAIL") + " latency: " + got[0] + ", " + got[1] + ", " + got[2]
-                    + " frames (spread " + (hi - lo) + ")");
+                + " frames (spread " + (hi - lo) + ")");
         } catch (IOException x) {
             log("RESULT FAIL latency: " + x.getMessage());
         } finally {
@@ -231,10 +317,12 @@ public class StudioTestActivity extends Activity {
                     reopened = s.reopened;
                     log("reopened (" + reopened + "): " + device(s));
                 }
-                if (s.error != null) log("device: " + s.error);
+                if (s.error != null)
+                    log("device: " + s.error);
                 lastPos = s.position;
             }
-            log("RESULT " + (s.running && lastPos > 0 ? "PASS" : "FAIL") + " route: reopened " + reopened + " times, still running " + s.running);
+            log("RESULT " + (s.running && lastPos > 0 ? "PASS" : "FAIL") + " route: reopened " + reopened + " times, still running "
+                + s.running);
         } finally {
             e.close();
             for (File f : new File(dir, "audio").listFiles()) f.delete();

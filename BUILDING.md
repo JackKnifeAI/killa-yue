@@ -4,7 +4,7 @@ There are three parts: the engine, the GPU driver, and the app. Release 1.1.0 is
 
 ## On a PC with the Android NDK (how 1.1.0 is built)
 
-Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, `d8`, `zipalign`, `apksigner`) and `platforms;android-23`, a JDK, CMake, Ninja, Meson, Python with Mako and PyYAML, `glslc`, and the Khronos Vulkan-Headers and SPIRV-Headers sources. Below, `$NDK` is the NDK folder and `$TC` is `$NDK/toolchains/llvm/prebuilt/linux-x86_64`.
+Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, `d8`, `zipalign`, `apksigner`) and `platforms;android-35`, a JDK, CMake, Ninja, Meson, Python with Mako and PyYAML, `glslc`, and the Khronos Vulkan-Headers and SPIRV-Headers sources. Below, `$NDK` is the NDK folder and `$TC` is `$NDK/toolchains/llvm/prebuilt/linux-x86_64`.
 
 ### Engine
 
@@ -98,7 +98,7 @@ Set `STUDIO_LIB` to `build-studio/libstudio.so` (stripped, about 270 KB). `studi
 
 ### App
 
-As in section 3, with the SDK's `d8` in place of `dalvik-exchange`: set `DX` to `app/dx-d8.sh` and `D8` to the build-tools `d8` in `local.env`, `ANDROID_JAR` to the API 23 `android.jar`, and `STRIP` to any strip that handles arm64 ELF (`llvm-strip` from the NDK, or `eu-strip`).
+As in section 3, with the SDK's `d8` in place of `dalvik-exchange`: set `DX` to `app/dx-d8.sh` and `D8` to the build-tools `d8` in `local.env`, `ANDROID_JAR` to the API 35 `android.jar`, and `STRIP` to any strip that handles arm64 ELF (`llvm-strip` from the NDK, or `eu-strip`).
 
 ## On the phone (how 1.0.0 was built)
 
@@ -155,7 +155,7 @@ Android's kernel GPU driver (KGSL) treats a GPU job that runs for several second
 
 ## 3. App
 
-Needs `aapt2`, `javac`, `dalvik-exchange` (dx), `zipalign`, `apksigner` and an `android.jar` (API 23 or later; newer calls are made by reflection). On Debian or Ubuntu:
+Needs `aapt2`, `javac`, `dalvik-exchange` (dx), `zipalign`, `apksigner` and an `android.jar` (API 35 or later; newer calls are made by reflection). On Debian or Ubuntu:
 
 ```
 apt install aapt apksigner zipalign default-jdk-headless dalvik-exchange android-sdk-platform-23

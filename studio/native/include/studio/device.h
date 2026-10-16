@@ -23,19 +23,19 @@ struct InputSink {  // audio thread: what the microphone heard during this callb
 struct DeviceStats {
     int rate = 0, burst = 0, bufferFrames = 0, inputChannels = 0;
     bool running = false, exclusive = false;
-    long xruns = 0;               // as the device counts them, summed over every stream it opened
+    long xruns = 0;                         // as the device counts them, summed over every stream it opened
     long callbacks = 0, slowCallbacks = 0;  // slow: longer than one burst
     double callbackMaxMs = 0, callbackAvgMs = 0;
     double outputLatencyMs = -1;  // the device's estimate (-1 when it cannot say)
     int reopened = 0;             // times the stream came back after a route change
     int callbackPolicy = -1;      // the audio callback thread's scheduling policy (1 = SCHED_FIFO: real time)
     int callbackPriority = -1;
-    std::string error;            // the last thing that went wrong, in words
+    std::string error;  // the last thing that went wrong, in words
 };
 
 class Device {
-public:
-    static Device* create();  // nullptr where there is no device layer (host builds)
+   public:
+    static Device* create(int inputDevice = 0);  // nullptr where there is no device layer (host builds)
     virtual ~Device() {}
 
     // Opens the stream at the device's own rate (and the microphone at the same rate when withInput). Does not start.

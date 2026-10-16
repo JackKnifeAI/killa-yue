@@ -1,9 +1,11 @@
 // JNI for ai.jackknife.killayue.studio.NativeEngine: a thin layer over studio::Host, which holds the logic
 // (and its tests).
 #include <jni.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
+
 #include "studio/host.h"
 #include "studio/import.h"
 
@@ -24,9 +26,10 @@ void throwIo(JNIEnv* e, const std::string& m) { throwAs(e, "java/io/IOException"
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nOpen(JNIEnv* e, jclass, jboolean device, jboolean mic, jint rate) {
+JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nOpen(JNIEnv* e, jclass, jboolean device, jboolean mic, jint rate,
+                                                                             jint input) {
     std::string err;
-    Host* h = device ? Host::withDevice(studio::Device::create(), mic, err) : Host::offline(rate);
+    Host* h = device ? Host::withDevice(studio::Device::create(input), mic, err) : Host::offline(rate);
     if (!h) throwIo(e, err.empty() ? "The audio device could not be opened." : err);
     return reinterpret_cast<jlong>(h);
 }
@@ -41,14 +44,15 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nStart(JNI
 }
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIEnv* e, jclass, jlong h, jfloatArray gain, jfloatArray pan,
-                                                                          jbooleanArray mute, jbooleanArray solo, jintArray clipTrack,
-                                                                          jobjectArray files, jlongArray start, jlongArray offset,
-                                                                          jlongArray length, jfloatArray clipGain, jfloat masterDb) {
+                                                                            jbooleanArray mute, jbooleanArray solo, jintArray clipTrack,
+                                                                            jobjectArray files, jlongArray start, jlongArray offset,
+                                                                            jlongArray length, jfloatArray clipGain, jlongArray fadeIn,
+                                                                            jlongArray fadeOut, jfloat masterDb) {
     const jsize tracks = e->GetArrayLength(gain), clips = e->GetArrayLength(clipTrack);
     std::vector<jfloat> g(tracks), p(tracks), cg(clips);
     std::vector<jboolean> m(tracks), s(tracks);
     std::vector<jint> ct(clips);
-    std::vector<jlong> st(clips), of(clips), ln(clips);
+    std::vector<jlong> st(clips), of(clips), ln(clips), fi(clips), fo(clips);
     e->GetFloatArrayRegion(gain, 0, tracks, g.data());
     e->GetFloatArrayRegion(pan, 0, tracks, p.data());
     e->GetBooleanArrayRegion(mute, 0, tracks, m.data());
@@ -57,6 +61,8 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIE
     e->GetLongArrayRegion(start, 0, clips, st.data());
     e->GetLongArrayRegion(offset, 0, clips, of.data());
     e->GetLongArrayRegion(length, 0, clips, ln.data());
+    e->GetLongArrayRegion(fadeIn, 0, clips, fi.data());
+    e->GetLongArrayRegion(fadeOut, 0, clips, fo.data());
     e->GetFloatArrayRegion(clipGain, 0, clips, cg.data());
     std::vector<studio::TrackSpec> spec;
     for (jsize i = 0; i < tracks; i++) spec.push_back({g[i], p[i], m[i] != 0, s[i] != 0, {}});
@@ -73,32 +79,51 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIE
             e->GetByteArrayRegion(jb, 0, (jsize)path.size(), reinterpret_cast<jbyte*>(&path[0]));
             e->DeleteLocalRef(jb);
         }
-        spec[ct[k]].clips.push_back({path, (long)st[k], (long)of[k], (long)ln[k], cg[k]});
+        spec[ct[k]].clips.push_back({path, (long)st[k], (long)of[k], (long)ln[k], cg[k], (long)fi[k], (long)fo[k]});
     }
     std::string err;
     if (!host(h)->load(spec, masterDb, err)) throwIo(e, err);
 }
 
-JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPost(JNIEnv*, jclass, jlong h, jint kind, jint track, jfloat value,
-                                                                              jlong frame) {
+JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPost(JNIEnv*, jclass, jlong h, jint kind, jint track,
+                                                                                jfloat value, jlong frame) {
     using studio::Msg;
     // only the edits Java may send: never Swap (sessions come from load) or Offline (export owns it)
     static const Msg kinds[] = {Msg::Gain, Msg::Pan, Msg::Mute, Msg::Solo, Msg::Master, Msg::Play, Msg::Stop, Msg::Seek};
     Msg m;
-    if (kind >= 0 && kind < (jint)(sizeof kinds / sizeof kinds[0])) m = kinds[kind];
-    else if (kind == (jint)Msg::Reset) m = Msg::Reset;
-    else return JNI_FALSE;
+    if (kind >= 0 && kind < (jint)(sizeof kinds / sizeof kinds[0]))
+        m = kinds[kind];
+    else if (kind == (jint)Msg::Reset)
+        m = Msg::Reset;
+    else
+        return JNI_FALSE;
     return host(h)->post({m, track, value, (long)frame, nullptr}) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nStatus(JNIEnv* e, jclass, jlong h, jdoubleArray out) {
     const studio::Status s = host(h)->status();
     const studio::DeviceStats d = host(h)->deviceStats();
-    const jdouble v[] = {(double)s.position, (double)s.underruns, (double)s.refused, (double)s.playing, s.peakL, s.peakR,
-                         (double)d.rate, (double)d.burst, (double)d.bufferFrames, (double)d.inputChannels, (double)d.reopened,
-                         d.running ? 1.0 : 0.0, d.exclusive ? 1.0 : 0.0, (double)d.xruns, (double)d.callbacks,
-                         (double)d.slowCallbacks, d.callbackMaxMs, d.callbackAvgMs, d.outputLatencyMs,
-                         (double)d.callbackPolicy, (double)d.callbackPriority};
+    const jdouble v[] = {(double)s.position,
+                         (double)s.underruns,
+                         (double)s.refused,
+                         (double)s.playing,
+                         s.peakL,
+                         s.peakR,
+                         (double)d.rate,
+                         (double)d.burst,
+                         (double)d.bufferFrames,
+                         (double)d.inputChannels,
+                         (double)d.reopened,
+                         d.running ? 1.0 : 0.0,
+                         d.exclusive ? 1.0 : 0.0,
+                         (double)d.xruns,
+                         (double)d.callbacks,
+                         (double)d.slowCallbacks,
+                         d.callbackMaxMs,
+                         d.callbackAvgMs,
+                         d.outputLatencyMs,
+                         (double)d.callbackPolicy,
+                         (double)d.callbackPriority};
     const jsize n = (jsize)(sizeof v / sizeof v[0]);
     if (e->GetArrayLength(out) >= n) e->SetDoubleArrayRegion(out, 0, n, v);
     return d.error.empty() ? nullptr : e->NewStringUTF(d.error.c_str());
@@ -128,7 +153,8 @@ JNIEXPORT jstring JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLatenc
     return e->NewStringUTF(host(h)->latencyReport().c_str());  // plain ASCII
 }
 
-JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoop(JNIEnv*, jclass, jlong h, jlong start, jlong end, jboolean on) {
+JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoop(JNIEnv*, jclass, jlong h, jlong start, jlong end,
+                                                                                jboolean on) {
     return host(h)->post({studio::Msg::Loop, on ? 1 : 0, 0.f, (long)start, nullptr, (long)end}) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -142,20 +168,24 @@ JNIEXPORT jint JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nMeters(JN
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }
 
-JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExport(JNIEnv* e, jclass, jlong h, jbyteArray path, jlong frames, jboolean limiter) {
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExport(JNIEnv* e, jclass, jlong h, jbyteArray path, jlong frames,
+                                                                              jboolean limiter) {
     std::string p((size_t)e->GetArrayLength(path), '\0');
     e->GetByteArrayRegion(path, 0, (jsize)p.size(), reinterpret_cast<jbyte*>(&p[0]));
     std::string err;
     if (!host(h)->exportMix(p.c_str(), (long)frames, limiter != JNI_FALSE, err)) throwIo(e, err);
 }
 
-JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExportProgress(JNIEnv*, jclass, jlong h) { return host(h)->exportProgress(); }
+JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExportProgress(JNIEnv*, jclass, jlong h) {
+    return host(h)->exportProgress();
+}
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nExportCancel(JNIEnv*, jclass, jlong h) { host(h)->cancelExport(); }
 
 // ---------- NativeImport ----------
 
-JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nOpen(JNIEnv* e, jclass, jint rateIn, jint ch, jint rateOut, jbyteArray path) {
+JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nOpen(JNIEnv* e, jclass, jint rateIn, jint ch, jint rateOut,
+                                                                             jbyteArray path) {
     std::string p((size_t)e->GetArrayLength(path), '\0');
     e->GetByteArrayRegion(path, 0, (jsize)p.size(), reinterpret_cast<jbyte*>(&p[0]));
     std::string err;
@@ -183,8 +213,12 @@ JNIEXPORT jlong JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nFinish(J
     return im->frames();
 }
 
-JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nCancel(JNIEnv*, jclass, jlong h) { reinterpret_cast<studio::Importer*>(h)->cancel(); }
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nCancel(JNIEnv*, jclass, jlong h) {
+    reinterpret_cast<studio::Importer*>(h)->cancel();
+}
 
-JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nClose(JNIEnv*, jclass, jlong h) { delete reinterpret_cast<studio::Importer*>(h); }
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeImport_nClose(JNIEnv*, jclass, jlong h) {
+    delete reinterpret_cast<studio::Importer*>(h);
+}
 
 }  // extern "C"

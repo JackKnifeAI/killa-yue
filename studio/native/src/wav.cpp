@@ -1,19 +1,29 @@
 #include "studio/wav.h"
-#include <cstdint>
-#include <cstring>
+
 #include <fcntl.h>
 #include <unistd.h>
+
+#include <cstdint>
+#include <cstring>
 
 namespace studio {
 
 static uint32_t u32(const unsigned char* p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
 static uint64_t u64(const unsigned char* p) { return u32(p) | (uint64_t)u32(p + 4) << 32; }
-static void put32(unsigned char* p, uint32_t v) { for (int i = 0; i < 4; i++) p[i] = (unsigned char)(v >> (8 * i)); }
-static void put64(unsigned char* p, uint64_t v) { put32(p, (uint32_t)v); put32(p + 4, (uint32_t)(v >> 32)); }
+static void put32(unsigned char* p, uint32_t v) {
+    for (int i = 0; i < 4; i++) p[i] = (unsigned char)(v >> (8 * i));
+}
+static void put64(unsigned char* p, uint64_t v) {
+    put32(p, (uint32_t)v);
+    put32(p + 4, (uint32_t)(v >> 32));
+}
 
 WavReader* WavReader::open(const char* path, std::string& error) {
     FILE* f = std::fopen(path, "rb");
-    if (!f) { error = std::string("cannot open ") + path; return nullptr; }
+    if (!f) {
+        error = std::string("cannot open ") + path;
+        return nullptr;
+    }
     WavReader* w = new WavReader();
     w->f_ = f;
     unsigned char h[12];
@@ -57,7 +67,8 @@ WavReader* WavReader::open(const char* path, std::string& error) {
     const bool ok = fmt && data && (w->channels_ == 1 || w->channels_ == 2) &&
                     ((w->format_ == 3 && w->bits_ == 32) || (w->format_ == 1 && (w->bits_ == 16 || w->bits_ == 24)));
     if (!ok) {
-        error = !fmt || !data ? "a WAV file without its format or data" : "a WAV format the Studio does not read (it reads 32-bit float and 16- or 24-bit PCM, mono or stereo)";
+        error = !fmt || !data ? "a WAV file without its format or data"
+                              : "a WAV format the Studio does not read (it reads 32-bit float and 16- or 24-bit PCM, mono or stereo)";
         delete w;
         return nullptr;
     }
@@ -100,7 +111,11 @@ WavWriter* WavWriter::create(const char* path, int rate, int channels, std::stri
     w->path_ = path;
     w->channels_ = channels;
     w->f_ = std::fopen((w->path_ + ".part").c_str(), "wb");
-    if (!w->f_) { error = std::string("cannot write ") + path; delete w; return nullptr; }
+    if (!w->f_) {
+        error = std::string("cannot write ") + path;
+        delete w;
+        return nullptr;
+    }
     unsigned char h[kHeader] = {0};
     std::memcpy(h, "RIFF", 4);
     std::memcpy(h + 8, "WAVE", 4);
@@ -115,14 +130,18 @@ WavWriter* WavWriter::create(const char* path, int rate, int channels, std::stri
     h[68] = (unsigned char)(channels * 4);
     h[70] = 32;
     std::memcpy(h + 72, "data", 4);
-    if (std::fwrite(h, 1, kHeader, w->f_) != (size_t)kHeader) { error = "cannot write the WAV header"; delete w; return nullptr; }
+    if (std::fwrite(h, 1, kHeader, w->f_) != (size_t)kHeader) {
+        error = "cannot write the WAV header";
+        delete w;
+        return nullptr;
+    }
     return w;
 }
 
 WavWriter::~WavWriter() {
     if (f_) {
         std::fclose(f_);
-        if (!done_) std::remove((path_ + ".part").c_str());
+        if (!done_ && !keep_) std::remove((path_ + ".part").c_str());
     }
 }
 
@@ -133,7 +152,7 @@ bool WavWriter::write(const float* x, int frames) {
     return true;
 }
 
-bool WavWriter::finish() {
+bool WavWriter::checkpoint() {
     // the header is rewritten in place: RIFF sizes, or RF64 with its ds64 where JUNK held the room
     const uint64_t riff = dataBytes_ + kHeader - 8;
     unsigned char top[12], junk[36], data[8];
@@ -161,6 +180,44 @@ bool WavWriter::finish() {
     bool ok = !fseeko(f_, 0, SEEK_SET) && std::fwrite(top, 1, 12, f_) == 12 && std::fwrite(junk, 1, 36, f_) == 36 &&
               !fseeko(f_, 72, SEEK_SET) && std::fwrite(data, 1, 8, f_) == 8;
     ok = ok && std::fflush(f_) == 0 && fsync(fileno(f_)) == 0;
+    return ok && !fseeko(f_, 0, SEEK_END);
+}
+
+bool WavWriter::recover(const char* path, std::string& error) {
+    WavWriter w;
+    w.path_ = path;
+    w.keep_ = true;
+    w.f_ = std::fopen((w.path_ + ".part").c_str(), "r+b");
+    if (!w.f_) {
+        error = "No interrupted take to recover.";
+        return false;
+    }
+    unsigned char h[80];
+    if (std::fread(h, 1, 80, w.f_) != 80 || std::memcmp(h + 8, "WAVE", 4) || std::memcmp(h + 48, "fmt ", 4) || h[56] != 3 || h[70] != 32 ||
+        (h[58] != 1 && h[58] != 2) || std::memcmp(h + 72, "data", 4)) {
+        error = "The interrupted take has an invalid header.";
+        return false;
+    }
+    w.channels_ = h[58];
+    if (fseeko(w.f_, 0, SEEK_END)) {
+        error = "Cannot read the interrupted take.";
+        return false;
+    }
+    long bytes = (long)ftello(w.f_) - 80;
+    if (bytes < 0) {
+        error = "Incomplete take header.";
+        return false;
+    }
+    w.dataBytes_ = (unsigned long long)(bytes / (4 * w.channels_)) * (4 * w.channels_);
+    if (ftruncate(fileno(w.f_), 80 + (off_t)w.dataBytes_)) {
+        error = "Cannot repair the take length.";
+        return false;
+    }
+    return w.finish();
+}
+
+bool WavWriter::finish() {
+    bool ok = checkpoint();
     ok = std::fclose(f_) == 0 && ok;
     f_ = nullptr;
     ok = ok && std::rename((path_ + ".part").c_str(), path_.c_str()) == 0;
@@ -174,7 +231,7 @@ bool WavWriter::finish() {
         }
     }
     done_ = ok;
-    if (!ok) std::remove((path_ + ".part").c_str());
+    if (!ok && !keep_) std::remove((path_ + ".part").c_str());
     return ok;
 }
 

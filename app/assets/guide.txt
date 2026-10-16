@@ -109,3 +109,48 @@ Splits a track into four tracks: drums, bass, other and vocals. It runs on the p
 - M4A: small, for sharing.
 - To the library: the mix becomes a song in your library.
 - Stems: every track as its own file.
+
+# Studio — Play Along
+## Record
+Open a project, then open Record. Add a track with + Track and tap its round arm indicator. Arming asks for microphone permission the first time. Press Record to play the backing tracks and capture your input; Finish take stops and adds the take to the timeline. A recording uses float WAV at the project's rate. Its waveform is prepared when it finishes. The original audio file remains available through undo.
+## Inputs and monitoring
+Input offers the default microphone, connected USB audio devices, and Another app's audio. Use headphones when recording a microphone, especially with Input monitoring enabled. Monitoring is off by default. USB devices must be attached before choosing them.
+Another app's audio asks Android for screen/audio capture consent. Only apps which allow playback capture can supply sound. A silent source and an app that forbids capture can both produce silence; check the result before keeping a take. Playback capture currently needs manual timing checks and may need a clip nudge.
+## Recording compensation
+Calibrate measures the current route with audible probes, using a speaker or a physical loopback cable. Use Enter compensation for a known delay or to adjust a Bluetooth route. A saved setting belongs to the connected route and selected input; check it again after changing headphones or interfaces. The recorder also accounts for the Studio limiter's processing delay.
+## Tempo, metre and click
+New projects use the song score's tempo and metre when available, otherwise 120 BPM and 4/4. Tempo changes the starting tempo; Tap estimates it from successive taps. Metre offers 3/4, 4/4, 6/8 and 7/8. Click toggles the metronome, off by default. Count-in cycles through zero, one and two bars. A count-in clicks before the song starts even when the ordinary metronome is off.
+Tempo change at playhead adds a tempo change at the current position. The sequencer follows these changes. Changes can be undone.
+## Punch and loop takes
+Mark a range by holding and dragging the Arrange ruler. Punch uses that range to keep only the part of a recording inside it; press Punch again to turn it off. Loop uses the Arrange loop region. Recording across loops creates separate takes: the first is audible and subsequent takes start muted. Listen buttons in Record toggle each track's mute state.
+## Interrupted takes
+The recorder checkpoints the file while recording. Reopening a project recovers an interrupted take and adds it through undo history. If its clock receipt was not saved before interruption, its timing must be checked. A storage or input discontinuity stops the take with an error; recorded audio is retained where possible.
+## Markers
+Marker at playhead adds a named marker. Jump to marker seeks to one of the saved markers. Markers also appear on the Arrange ruler.
+
+# Studio — Clip editing
+## Timeline modes
+The extra Arrange transport button cycles Navigate, Move clips and Swipe comp. Navigate keeps scrolling and seeking. Move clips lets you drag a clip to a new position, snapped to a sixteenth-note grid that follows the tempo map. One completed drag is one undo step. Swipe comp copies a selected range from a take into a Comp track, replacing any older comp in that range and muting its source track.
+## Clip menu
+In Navigate mode, hold a clip to open its menu. Move to playhead uses the beat grid. Nudge accepts positive milliseconds to move later or negative to move earlier. Trim start/end uses the point held inside the clip. Split here makes two clips; Duplicate places a copy after the original. Fade in/out sets both ends in milliseconds. Remove removes the clip from the arrangement, retaining its audio for undo.
+## Stretch and pitch
+Stretch / pitch renders a new file. Choose 25–400% of the original length, then a pitch shift from −24 to +24 semitones. These controls are independent. The original clip remains in undo history. A long clip can take time; do not start this while recording or generating a song.
+
+# Studio — The Chamber
+## Pads
+Pads opens sixteen playable pads. A fresh bank uses drums synthesized inside the app. Tap a pad to play it and select its pattern row. Multiple pads can be held together. Hold a pad, or press Shape, to edit it. The bank has a 128 MB sample-memory budget; use short slices for large recordings.
+## Sample, Chop and Kit
+Sample assigns an existing project clip to the selected pad. Chop finds transients in a clip and spreads up to sixteen slices across the bank; it divides long sustained gaps when fewer transients are found. Kit restores the synthesized drums. Bank edits are saved with the project and can be undone.
+## Shape
+Playback mode is One-shot by default: a hit plays to the end. Gate plays while held, then releases. Loop repeats while held. Tune shifts playback by −24 to +24 semitones and changes its speed. Reverse plays backwards.
+Attack, decay and release are in milliseconds; sustain is a percentage. Defaults are 2 ms attack, 80 ms decay, 100% sustain and 80 ms release. Low-pass defaults to 20000 Hz. Choke group 0 is off; pads in the same nonzero group cut each other off with a short fade.
+## Rhythm steps
+Select a pad, then tap its numbered steps to cycle off, soft (50%) and hard (100%) velocity. Pattern toggles pattern playback and starts the transport when enabled. 16 / 32 switches pattern length. Swing delays odd sixteenth notes by 0–75% of a step, with 0% as the default. The pattern follows project tempo changes and is included in a mix export. Live taps are auditioned; use the steps to save a beat.
+
+During a take, finish recording before editing the project, changing its loop or tempo, or using undo. Pads remain playable. Other-app capture leaves the other player’s audio focus alone.
+
+Export includes the enabled sampler pattern. A pattern-only project exports one cycle; with audio it repeats across the song. Stem export writes a separate Sampler.wav. The practice click is excluded from exports.
+
+Moving clips into a partial overlap on the same track adds matching fades across the overlap. Undo restores the previous fades. Playback capture stops if the first five seconds stay silent; the source may be paused or may prohibit capture.
+
+Long loop recordings reserve the last of the 64 playback tracks for “More takes (in order)”: later passes are kept as separate clips in sequence on that muted track. Move a wanted pass back to the loop position before comping it. No recorded audio is discarded. Loop recording needs one free track.
