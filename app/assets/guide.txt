@@ -1,0 +1,111 @@
+# How Killa YuE works
+Everything in the app, what it does and when to touch it. Open this page again from Engine > How everything works.
+
+# Create
+## Song title
+The name the song gets in your library.
+## Style
+The genre, mood, instruments and voice, in plain words ("smooth neo-soul, warm female vocals, 90 bpm"). The chips under it add common styles.
+## Lyrics
+The words, in sections. The section buttons add [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge] and [Outro] tags; each section is sung in turn.
+## Length
+How long the song is. Longer songs take longer to make and need more memory (see Engine > Memory for song length).
+## Score
+How much of a written score the engine plans before it sings:
+- Full score (melody and chords): the most structured songs.
+- Melody only: a written melody, the chords left free.
+- No score: the engine goes straight to sound. Fastest, least structured.
+Show score editor shows the score (ABC notation) so you can read or change it before a song is made.
+## Use a recording: cover it or continue it
+Pick a recording to cover (sing your lyrics over its music) or continue (carry on from where it ends).
+## Generate song / Add to queue
+Generate song starts making it now. Add to queue saves it to be made later, one after another; Queue shows what is waiting.
+
+# Advanced settings (Create)
+Leave them empty for the defaults; every one is optional.
+- Render steps: how many passes turn the plan into sound. More is cleaner and slower.
+- Variations (1-4): how many takes of the same song to make at once. Each extra take costs time and memory.
+- Melody seed: a number that fixes the melody and score. Use the same seed to get the same tune again; "random" picks a new one each time.
+- Sound seed: a number that fixes the sound (the singing and the mix) the same way.
+- Score creativity: how adventurous the written score is. Lower keeps it safe and simple; higher (the default is 0.7) brings surprises.
+- Song creativity: how adventurous the singing and sound are. Lower is steadier; higher (the default is 1.0) is wilder.
+- Guidance: how closely the song follows your style and lyrics. Higher follows them more strictly; too high can sound harsh.
+- MP3 kbps: the MP3's quality (128 by default). Higher is better sound and a bigger file.
+- File format: MP3 (small), WAV 16-bit (CD quality) or WAV 24-bit (studio quality, the biggest).
+- Style adapters (LoRA): extra style files that steer the sound, written as file:strength, separated by commas, for example mystyle.safetensors:1.0.
+
+# Library
+Every song you have made. Tap a song to play it; the three dots open its options (play, share, lyrics, sheet music, ringtone, lyric video, Open in Studio and more). Albums groups songs; Share the app and Open a recipe are at the top.
+## The player
+Previous, rewind, play/pause, fast forward and next. Drag the bar to move through the song. The sleep timer stops playback after a while.
+
+# Lyrics
+Write and keep lyrics apart from songs. Sync matches the words of a song to the music, so they light up in time and can print under sheet music; Share sends them.
+
+# Engine
+## Start engine
+Loads the song engine. It starts by itself when you make a song; starting it early saves a wait.
+## Skin
+The look of the whole app. Install a skin adds one from a file, Remove a skin deletes one you added, Make your own explains how.
+## Queue: battery
+The queue only starts its next song when the battery is at least this full.
+## Wake-up song
+An alarm that plays your newest song, the last one the queue made overnight.
+## Run on
+GPU (Adreno, Vulkan) is fast. CPU is a slow fallback for when the GPU will not work.
+## Model quality
+Small (2.6 GB), Balanced (2.9 GB) or Best (3.8 GB). Larger is closer to the original model, and slower to load.
+## Memory for song length
+Short songs, Normal, Long songs or Maximum. Longer songs need this set higher, and higher uses more of the phone's memory.
+## Keep everything loaded
+Keeps the engine in memory between songs: faster, but it needs much more memory.
+## Gentle mode
+Songs take longer, and the phone stays smooth while one is made.
+## Studio jobs at full speed
+Studio jobs such as splitting stems run on the phone's fast cores instead of in the background. Faster, but music may stutter while one runs. Off by default.
+## Run the engine in its own app process
+Runs the engine apart from the app, so Android's limits on child processes no longer apply. Takes effect with the next song.
+## Allow in background
+Lets Android keep the engine running while the app is closed, so songs finish when the screen is off.
+## Downloads
+Share the models by QR sends the models to another phone on the same Wi-Fi. Album covers, the GPU cover model and the lyric sync model download here; each file is checked against its published checksum.
+## Developer options and Device report
+Details about the phone and the engine, for reporting problems.
+
+# Studio
+A small music studio inside the app. Open it from the Studio tab, or from a song's options with Open in Studio. The round button at the top left goes back.
+## The tabs
+Vault, Arrange, Mixer and Stems along the bottom. The tab you are on is pressed in and lit.
+## Vault
+- New from a song: start a project from a song in your library.
+- Bring in a file: start a project from any audio file.
+- Projects: tap to open. Each one can be renamed, compacted (unused audio removed to save space) or deleted.
+## Arrange
+The tracks laid out in time.
+- ⏮ goes back to the start.
+- ▶ plays and ■ stops.
+- ↻ turns the loop on and off. To mark a loop, touch and hold the ruler, then drag.
+- ↶ undoes the last change and ↷ redoes it. A whole drag counts as one change.
+- ☰ shows the history of changes, to go back to any point.
+- ⤓ exports the song.
+- Tap the timeline to move the playhead; pinch to zoom.
+- M mutes a track; S solos it (only soloed tracks are heard).
+## Mixer
+A strip for every track, and the master at the end.
+- The chips across the top jump to a track's strip.
+- The gold knob pans the track left or right; drag up or down. Double-tap to put it back in the centre.
+- The fader sets the track's volume; drag it. Double-tap to put it back at 0 dB.
+- The meter beside the fader shows how loud the track is playing.
+- M mutes and S solos, as in Arrange.
+## Stems
+Splits a track into four tracks: drums, bass, other and vocals. It runs on the phone, in the background, while you work.
+- Download the stems model: about 414 MB, once.
+- Split: starts splitting that track. A three-minute song takes roughly 15 to 25 minutes.
+- Cancel stops it; Carry on picks up from where it stopped.
+- When it is done the four stems join the project as one step and the original is muted, so one Undo takes them away.
+## Export
+- WAV (float): the full quality the Studio works in.
+- WAV 16-bit: CD quality.
+- M4A: small, for sharing.
+- To the library: the mix becomes a song in your library.
+- Stems: every track as its own file.

@@ -3558,6 +3558,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        c.addView(chipRow(new String[] {"How everything works"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    Guide.show(MainActivity.this);
+                }
+            }
+        }), gap(8));
         c.addView(label("Skin"));
         final ArrayList<String> skinIds = Skin.ids(this);
         final Spinner skinSpin = spinner(Skin.names(this).toArray(new String[0]));
