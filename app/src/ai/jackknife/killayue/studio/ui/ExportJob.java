@@ -137,7 +137,7 @@ final class ExportJob {
     }
 
     /** The project through a fresh off-line engine into a float WAV. */
-    private static void render(Project p, File dir, File out, long frames, boolean limiter, final String what, final Progress prog, final AtomicBoolean cancel)
+    static void render(Project p, File dir, File out, long frames, boolean limiter, final String what, final Progress prog, final AtomicBoolean cancel)
             throws IOException {
         final NativeEngine e = NativeEngine.offline(p.rate);
         final long total = Math.max(1, frames);

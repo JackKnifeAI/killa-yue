@@ -42,7 +42,9 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                             return false;
                         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
                             selected = k;
-                            a.session.engine().pad(k, Math.max(.2f, Math.min(1, e.getPressure())), true);
+                            float vel = Math.max(.2f, Math.min(1, e.getPressure()));
+                            a.session.engine().pad(k, vel, true);
+                            if (recording) recordHit(k, vel);
                             pattern();
                         }
                         if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL)
@@ -82,6 +84,21 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         });
         LinearLayout rhythm = Ui.row(a);
         root.addView(rhythm);
+        LinearLayout perform = Ui.row(a);
+        root.addView(perform);
+        recordBtn = add(perform, "● Record pads", new Runnable() {
+            public void run() { setRecording(!recording); }
+        });
+        add(perform, "Clear pad", new Runnable() {
+            public void run() {
+                Project q = p().copy();
+                java.util.Arrays.fill(q.performance.steps[selected], 0f);
+                save(q, "Clear pad " + (selected + 1));
+            }
+        });
+        add(perform, "Bounce to a track", new Runnable() {
+            public void run() { bounce(); }
+        });
         add(rhythm, "Pattern", new Runnable() {
             public void run() {
                 Project q = p().copy();
@@ -115,7 +132,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
     }
     Project p() { return a.session.project(); }
     void save(Project q, String name) { a.session.run(ClipEdits.change(p(), q, name)); }
-    void add(LinearLayout row, String name, final Runnable run) {
+    Button add(LinearLayout row, String name, final Runnable run) {
         Button b = Ui.button(a, name, false);
         b.setTextSize(12);
         b.setMinHeight(Ui.dp(a, 48));
@@ -130,6 +147,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                     }
             }
         });
+        return b;
     }
     void source(final boolean chop) {
         final ArrayList<Clip> clips = new ArrayList<Clip>();
@@ -320,6 +338,104 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                       })
             .show();
     }
+    // ---------- performing: record hits onto the grid, then bounce the pads to their own track ----------
+
+    boolean recording;
+    Button recordBtn;
+    private Object pass;  // one recording pass is one undo step
+
+    void setRecording(boolean on) {
+        if (p() == null) return;
+        recording = on;
+        recordBtn.setText(on ? "■ Stop recording" : "● Record pads");
+        recordBtn.setTextColor(on ? 0xffe0607e : Skin.TEXT);
+        if (!on) {
+            pass = null;
+            return;
+        }
+        pass = new Object();
+        if (!p().performance.pattern) {
+            Project q = p().copy();
+            q.performance.pattern = true;
+            save(q, "Pattern playback");
+        }
+        NativeEngine.Status st = a.session.status();
+        if (st == null || !st.playing) a.session.play();
+        Ui.toast(a, "Recording: play the pads; each hit lands on the nearest step.");
+    }
+
+    /** A live hit onto the nearest step of the pattern, swing and tempo changes included; soft or hard by touch. */
+    void recordHit(int pad, float vel) {
+        NativeEngine.Status st = a.session.status();
+        Project cur = p();
+        if (st == null || !st.playing || cur == null) return;
+        int len = cur.performance.patternLength;
+        double sixteenth = new TempoMap(cur.rate, cur.performance).beatAt(st.position) * 4;
+        long base = (long) Math.floor(sixteenth);
+        double swing = cur.performance.swing, best = Double.MAX_VALUE;
+        long at = base;
+        for (long s = base - 1; s <= base + 1; s++) {  // the swung grid: odd steps sit late
+            double d = Math.abs(sixteenth - (s + ((s & 1) != 0 ? swing : 0)));
+            if (d < best) {
+                best = d;
+                at = s;
+            }
+        }
+        int step = (int) (((at % len) + len) % len);
+        Project q = cur.copy();
+        float v = vel >= .75f ? 1f : .5f;
+        q.performance.steps[pad][step] = Math.max(q.performance.steps[pad][step], v);
+        if (q.performance.steps[pad][step] == cur.performance.steps[pad][step]) return;
+        a.session.drag(ClipEdits.change(cur, q, "Record pads"), pass);
+    }
+
+    /** The pads, rendered alone into a new track, and the pattern switched off so it is not heard twice: one undo. */
+    void bounce() {
+        final Project snap = p();
+        if (snap == null) return;
+        boolean any = false;
+        for (float[] row : snap.performance.steps) for (float x : row) any |= x > 0;
+        if (!any) {
+            Ui.toast(a, "There is nothing in the pattern yet: record some pads, or tap the steps.");
+            return;
+        }
+        if (recording) setRecording(false);
+        final java.io.File dir = a.session.dir();
+        final Project pads = snap.copy();
+        pads.tracks.clear();
+        pads.masterDb = 0;
+        pads.performance.pattern = true;
+        long songEnd = ExportJob.length(snap);
+        final long frames = Math.max(songEnd, ExportJob.length(pads));
+        final String rel = "audio/pads-" + System.currentTimeMillis() + ".wav";
+        final java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean();
+        Ui.toast(a, "Bouncing the pads…");
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    ExportJob.render(pads, dir, new java.io.File(dir, rel), frames, false, "Pads", new ExportJob.Progress() {
+                        public void at(String what, float f) {}
+                    }, cancel);
+                    a.runOnUiThread(new Runnable() {
+                        public void run() {
+                            Project cur = p();
+                            if (cur == null || a.session.dir() == null || !a.session.dir().equals(dir)) return;
+                            Project off = cur.copy();
+                            off.performance.pattern = false;
+                            a.session.run(Edit.compound("Bounce pads to a track", ClipEdits.change(cur, off, "Pattern off"),
+                                    Edit.addTrack("Pads", rel, frames, "pads")));
+                            Ui.toast(a, "The pads are a track now: mix, move, edit or delete it like any other.");
+                        }
+                    });
+                } catch (final Exception e) {
+                    a.runOnUiThread(new Runnable() {
+                        public void run() { Ui.toast(a, "The bounce did not work: " + e.getMessage()); }
+                    });
+                }
+            }
+        }, "studio-bounce").start();
+    }
+
     /** Which part of its sound the chosen pad plays: where it starts, or how long it runs, in seconds. */
     void trim(final boolean start) {
         Performance.Pad pad = p().performance.pads[selected];
