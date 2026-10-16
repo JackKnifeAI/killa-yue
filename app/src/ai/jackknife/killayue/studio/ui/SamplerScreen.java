@@ -321,6 +321,14 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
             boolean on = i == selected;
             pads[i].setTextColor(on ? Skin.HI : Skin.TEXT);
             pads[i].setShadowLayer(on ? Ui.dp(a, 8) : 0, 0, 0, on ? (0xEE << 24) | Skin.GLOW : 0);
+            if (on) {  // a lit ring in the skin's accent, clear on every skin
+                android.graphics.drawable.GradientDrawable ring = new android.graphics.drawable.GradientDrawable();
+                ring.setCornerRadius(Ui.dp(a, 12));
+                ring.setStroke(Ui.dp(a, 3), Skin.ACCENT);
+                pads[i].setForeground(ring);
+            } else {
+                pads[i].setForeground(null);
+            }
         }
     }
 
