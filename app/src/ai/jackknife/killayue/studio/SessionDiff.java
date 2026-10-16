@@ -10,7 +10,7 @@ import java.util.HashMap;
 public final class SessionDiff {
     /** Where the changes go: the engine (NativeEngine) in the app, a recorder in tests. */
     public interface Target {
-        void reload(Project p);  // the whole project: tracks, clips, levels, master and loop
+        void reload(Project p); // the whole project: tracks, clips, levels, master and loop
 
         void gain(String id, float db);
 
@@ -25,8 +25,8 @@ public final class SessionDiff {
         void loop(long start, long end, boolean on);
     }
 
-    private String structure;  // null: nothing sent yet (or forgotten)
-    private final HashMap<String, float[]> sent = new HashMap<String, float[]>();  // id -> gain, pan, mute, solo
+    private String structure; // null: nothing sent yet (or forgotten)
+    private final HashMap<String, float[]> sent = new HashMap<String, float[]>(); // id -> gain, pan, mute, solo
     private float master;
     private long loopStart, loopEnd;
     private boolean loopOn;
@@ -40,13 +40,19 @@ public final class SessionDiff {
         }
         for (Track tr : p.tracks) {
             float[] was = sent.get(tr.id);
-            if (was[0] != tr.gainDb) t.gain(tr.id, tr.gainDb);
-            if (was[1] != tr.pan) t.pan(tr.id, tr.pan);
-            if ((was[2] != 0) != tr.mute) t.mute(tr.id, tr.mute);
-            if ((was[3] != 0) != tr.solo) t.solo(tr.id, tr.solo);
+            if (was[0] != tr.gainDb)
+                t.gain(tr.id, tr.gainDb);
+            if (was[1] != tr.pan)
+                t.pan(tr.id, tr.pan);
+            if ((was[2] != 0) != tr.mute)
+                t.mute(tr.id, tr.mute);
+            if ((was[3] != 0) != tr.solo)
+                t.solo(tr.id, tr.solo);
         }
-        if (master != p.masterDb) t.master(p.masterDb);
-        if (loopStart != p.loopStart || loopEnd != p.loopEnd || loopOn != p.loopOn) t.loop(p.loopStart, p.loopEnd, p.loopOn);
+        if (master != p.masterDb)
+            t.master(p.masterDb);
+        if (loopStart != p.loopStart || loopEnd != p.loopEnd || loopOn != p.loopOn)
+            t.loop(p.loopStart, p.loopEnd, p.loopOn);
         remember(p, s);
     }
 
@@ -73,8 +79,22 @@ public final class SessionDiff {
         for (Track t : p.tracks) {
             b.append('|').append(t.id);
             for (Clip c : t.clips)
-                b.append(';').append(c.id).append(',').append(c.file).append(',').append(c.start).append(',').append(c.offset).append(',')
-                        .append(c.length).append(',').append(Float.floatToIntBits(c.gainDb));
+                b.append(';')
+                    .append(c.id)
+                    .append(',')
+                    .append(c.file)
+                    .append(',')
+                    .append(c.start)
+                    .append(',')
+                    .append(c.offset)
+                    .append(',')
+                    .append(c.length)
+                    .append(',')
+                    .append(Float.floatToIntBits(c.gainDb))
+                    .append(',')
+                    .append(c.fadeIn)
+                    .append(',')
+                    .append(c.fadeOut);
         }
         return b.toString();
     }

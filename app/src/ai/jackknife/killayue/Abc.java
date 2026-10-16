@@ -49,8 +49,8 @@ public class Abc {
         }
     }
 
-    static class Score {
-        int meterNum = 4, meterDen = 4, bpm = 120;
+    public static class Score {
+        public int meterNum = 4, meterDen = 4, bpm = 120;
         String key = "C";
         int fifths;          // sharps (above 0) or flats (below 0) in the key signature
         boolean minor;
@@ -430,7 +430,7 @@ public class Abc {
         }
     }
 
-    static Score parse(String abc) {
+    public static Score parse(String abc) {
         Reader r = new Reader();
         String[] rows = abc.replace("\r", "").split("\n");
         for (int i = 0; i < rows.length; i++) {

@@ -5,12 +5,13 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+
 #include "studio/streamer.h"
 
 namespace studio {
 
 class WavReader : public Reader {
-public:
+   public:
     static WavReader* open(const char* path, std::string& error);  // nullptr and a reason if not a WAV it reads
     ~WavReader() override;
     long frames() const override { return frames_; }
@@ -18,7 +19,7 @@ public:
     int rate() const { return rate_; }
     int read(long at, float* out, int frames) override;  // disk thread only
 
-private:
+   private:
     WavReader() {}
     FILE* f_ = nullptr;
     long frames_ = 0, dataStart_ = 0;
@@ -27,19 +28,22 @@ private:
 };
 
 class WavWriter {
-public:
+   public:
     static WavWriter* create(const char* path, int rate, int channels, std::string& error, unsigned long long rf64Above = 0xFFFFFFFFull);
     ~WavWriter();
     bool write(const float* interleaved, int frames);
+    void keepPartial() { keep_ = true; }
+    bool checkpoint();
+    static bool recover(const char* path, std::string& error);
     bool finish();  // sizes patched (RF64 past 4 GB), flushed, fsynced, renamed into place
 
-private:
+   private:
     WavWriter() {}
     FILE* f_ = nullptr;
     std::string path_;
     int channels_ = 0;
     unsigned long long dataBytes_ = 0, rf64Above_ = 0xFFFFFFFFull;
-    bool done_ = false;
+    bool done_ = false, keep_ = false;
 };
 
 }  // namespace studio

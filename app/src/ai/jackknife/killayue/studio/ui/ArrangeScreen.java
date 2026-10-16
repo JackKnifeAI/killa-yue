@@ -1,5 +1,12 @@
 package ai.jackknife.killayue.studio.ui;
 
+import ai.jackknife.killayue.Lux;
+import ai.jackknife.killayue.Skin;
+import ai.jackknife.killayue.Ui;
+import ai.jackknife.killayue.studio.Edit;
+import ai.jackknife.killayue.studio.History;
+import ai.jackknife.killayue.studio.NativeEngine;
+import ai.jackknife.killayue.studio.Project;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.Canvas;
@@ -10,16 +17,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-
 import java.util.List;
-
-import ai.jackknife.killayue.Lux;
-import ai.jackknife.killayue.Skin;
-import ai.jackknife.killayue.Ui;
-import ai.jackknife.killayue.studio.Edit;
-import ai.jackknife.killayue.studio.History;
-import ai.jackknife.killayue.studio.NativeEngine;
-import ai.jackknife.killayue.studio.Project;
 
 /** Arrange: the transport, then the timeline of tracks, with the playhead moving over it. */
 final class ArrangeScreen implements Screen, StudioSession.Listener {
@@ -81,14 +79,17 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         play.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 NativeEngine.Status s = a.session.status();
-                if (s != null && s.playing) a.session.stop();
-                else a.session.play();
+                if (s != null && s.playing)
+                    a.session.stop();
+                else
+                    a.session.play();
             }
         });
         loop.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 Project p = a.session.project();
-                if (p == null) return;
+                if (p == null)
+                    return;
                 if (p.loopEnd <= p.loopStart) {
                     Ui.toast(a, "Touch and hold the ruler, then drag, to mark a loop.");
                     return;
@@ -104,7 +105,8 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         redo.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 History h = a.session.history();
-                if (h == null) return;
+                if (h == null)
+                    return;
                 List<String> choices = h.redoChoices();
                 if (choices.size() <= 1) {
                     a.session.redo(-1);
@@ -113,11 +115,15 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
                 // more than one way forward: which branch?
                 String[] items = new String[choices.size()];
                 for (int i = 0; i < items.length; i++) items[i] = (i + 1) + ". " + choices.get(i);
-                new Lux.Builder(a).setTitle("Redo which?").setItems(items, new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int w) {
-                        a.session.redo(w);
-                    }
-                }).show();
+                new Lux.Builder(a)
+                    .setTitle("Redo which?")
+                    .setItems(items,
+                        new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                a.session.redo(w);
+                            }
+                        })
+                    .show();
             }
         });
         export.setOnClickListener(new View.OnClickListener() {
@@ -128,6 +134,18 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         hist.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 HistoryDialog.show(a);
+            }
+        });
+        final Button mode = RoundFace.button(a, "✥");
+        mode.setContentDescription("Timeline mode: navigate");
+        row.addView(mode);
+        mode.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                timeline.editMode = (timeline.editMode + 1) % 3;
+                String label = new String[] {"Navigate", "Move clips", "Swipe comp"}[timeline.editMode];
+                mode.setText(new String[] {"✥", "↔", "✂"}[timeline.editMode]);
+                mode.setContentDescription("Timeline mode: " + label);
+                Ui.toast(a, label);
             }
         });
         a.session.listen(this);
@@ -158,7 +176,8 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
     public void projectChanged() {
         History h = a.session.history();
         Project p = a.session.project();
-        if (p == null) fitted = false;
+        if (p == null)
+            fitted = false;
         undo.setEnabled(h != null && h.canUndo());
         undo.setContentDescription(h != null && h.undoLabel() != null ? "Undo " + h.undoLabel() : "Undo");
         undo.setAlpha(undo.isEnabled() ? 1f : 0.45f);
@@ -170,7 +189,8 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
     }
 
     public void frame(NativeEngine.Status s) {
-        if (s == null) return;
+        if (s == null)
+            return;
         Project p = a.session.project();
         int rate = p == null ? 48000 : p.rate;
         double sec = s.position / (double) rate;
@@ -179,8 +199,10 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         play.setText(s.playing ? "■" : "▶");
         play.setContentDescription(s.playing ? "Stop" : "Play");
         // health: green, amber after a dropout from the disk, red after one from the device
-        if (underruns >= 0 && s.underruns > underruns && s.playing) health.setTextColor(0xffe0b04a);
-        if (xruns >= 0 && s.xruns > xruns) health.setTextColor(0xffe05050);
+        if (underruns >= 0 && s.underruns > underruns && s.playing)
+            health.setTextColor(0xffe0b04a);
+        if (xruns >= 0 && s.xruns > xruns)
+            health.setTextColor(0xffe05050);
         underruns = s.underruns;
         xruns = s.xruns;
         playhead.at(s.position, s.playing);
@@ -199,7 +221,7 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         }
 
         void at(long frame, boolean playing) {
-            if (playing) {  // keep it in view: page on when it reaches the right edge
+            if (playing) { // keep it in view: page on when it reaches the right edge
                 float x = t.xAt(frame);
                 if (x > t.getWidth() - Ui.dp(getContext(), 24) || x < t.header) {
                     t.left = Math.max(0, frame - Ui.dp(getContext(), 24) * t.fpp);
@@ -214,9 +236,11 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
 
         @Override
         protected void onDraw(Canvas c) {
-            if (pos < 0) return;
+            if (pos < 0)
+                return;
             float x = t.xAt(pos);
-            if (x < t.header || x > getWidth()) return;
+            if (x < t.header || x > getWidth())
+                return;
             p.setColor(Skin.ACCENT);
             c.drawLine(x, 0, x, getHeight(), p);
         }

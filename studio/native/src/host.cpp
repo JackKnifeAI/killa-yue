@@ -1,11 +1,13 @@
 #include "studio/host.h"
-#include "studio/export.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
 #include <thread>
+
+#include "studio/export.h"
 
 namespace studio {
 
@@ -85,7 +87,7 @@ bool Host::load(const std::vector<TrackSpec>& tracks, float masterDb, std::strin
                 r = fresh.get();
                 g.readers.push_back(std::move(fresh));
             }
-            clips.push_back({r, c.start, c.offset, c.length, c.gainDb});
+            clips.push_back({r, c.start, c.offset, c.length, c.gainDb, c.fadeIn, c.fadeOut});
         }
         g.streams.emplace_back(new Streamer(clips));
         session->tracks.push_back({g.streams.back().get(), t.gainDb, t.pan, t.mute, t.solo});
@@ -139,6 +141,7 @@ void Host::reap() {
 
 Status Host::status() {
     reap();
+    performance().collect();
     flushMaster();
     return engine_->status();
 }
@@ -165,6 +168,15 @@ bool Host::calibrating(bool startHere, long position) {
 }
 
 void Host::input(const float* in, int frames, int channels, long position) {
+    float peak = 0;
+    for (int i = 0; i < frames; i++) peak = std::max(peak, std::fabs(in[(size_t)i * channels]));
+    float old = inputPeak_.load();
+    while (peak > old && !inputPeak_.compare_exchange_weak(old, peak)) {
+    }
+    if (!external_.load()) {
+        recorder_.input(in, frames, channels, position);
+        performance().input(in, frames, channels);
+    }
     if (!calibrating(true, position)) return;
     // by the microphone's own position, so a backlog in reading it changes nothing
     for (int i = 0; i < frames; i++) {
@@ -176,6 +188,9 @@ void Host::input(const float* in, int frames, int channels, long position) {
 
 void Host::render(float* out, int frames, long position) {
     engine_->process(out, frames);
+    // Capture the first callback that actually plays, after queued transport commands take effect.
+    if (recorder_.active() && recordAnchor_.load() < 0 && engine_->playing())
+        recordAnchor_.store(position + recordDelay_.load());
     if (!calibrating(false, position)) return;
     if (calOutBase_ < 0) calOutBase_ = position;
     calOut_ = position - calOutBase_;  // the probes go by the output's own position too
@@ -219,6 +234,7 @@ bool Host::exportMix(const char* path, long frames, bool limiter, std::string& e
         return false;
     }
     reap();
+    performance().collect();
     flushMaster();
     exportCancel_.store(false);
     exportDone_.store(0);
@@ -235,7 +251,8 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
     }
     int st = kIdle;
     // just after a cancel the audio thread lets go on its next callback: give it a moment
-    for (int i = 0; i < 50 && cal_.load(std::memory_order_acquire) == kWithdrawn; i++) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (int i = 0; i < 50 && cal_.load(std::memory_order_acquire) == kWithdrawn; i++)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (!cal_.compare_exchange_strong(st, kPreparing, std::memory_order_acq_rel)) {
         err = st == kWithdrawn ? "The audio device has not come back since the last measurement." : "A measurement is already running.";
         return {false, 0};
@@ -269,7 +286,8 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
         sum += (double)heard_[(size_t)i] * heard_[(size_t)i];
     }
     char line[160];
-    if (peak <= 0.f) calReport_ = "microphone silent: every sample it sent was zero";
+    if (peak <= 0.f)
+        calReport_ = "microphone silent: every sample it sent was zero";
     else {
         std::snprintf(line, sizeof line, "microphone peak %.1f dBFS, average %.1f dBFS", 20.0 * std::log10(peak),
                       10.0 * std::log10(sum / (double)std::max(calIn_, 1L) + 1e-20));
@@ -286,8 +304,10 @@ RoundTrip Host::measureLatency(int probes, std::string& err) {
         const Found f = to - from >= P ? findProbe(heard_.data() + from, to - from, probes_[k]) : Found{-1, false, 0.f, 0.f};
         const long rt = f.delay < 0 ? -1 : calInBase_ + from + f.delay - played;
         delays.push_back(f.sure ? rt : kNotFound);
-        if (f.sure) std::snprintf(line, sizeof line, "; probe %zu: %ld (match %.2f, clarity %.0f)", k + 1, rt, f.score, f.clarity);
-        else std::snprintf(line, sizeof line, "; probe %zu: not found (best %.2f at %ld, clarity %.0f)", k + 1, f.score, rt, f.clarity);
+        if (f.sure)
+            std::snprintf(line, sizeof line, "; probe %zu: %ld (match %.2f, clarity %.0f)", k + 1, rt, f.score, f.clarity);
+        else
+            std::snprintf(line, sizeof line, "; probe %zu: not found (best %.2f at %ld, clarity %.0f)", k + 1, f.score, rt, f.clarity);
         calReport_ += line;
     }
     cal_.store(kIdle, std::memory_order_release);

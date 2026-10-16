@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 2;
+    public static final int VERSION = 3;
 
     public int version = VERSION;
     public String name;
@@ -23,6 +23,7 @@ public final class Project {
     public String sourceSong, sourceTitle;  // the library song it was made from (its meta file name), or null
     public long loopStart, loopEnd;         // the loop region in frames; loopOn plays it round
     public boolean loopOn;
+    public Performance performance = new Performance();
 
     public Project(String name, int rate) {
         this.name = name;
@@ -78,6 +79,7 @@ public final class Project {
         if (rate < 8000 || rate > 384000) throw new IllegalArgumentException("The project's sample rate " + rate + " is not possible.");
         if (name == null) throw new IllegalArgumentException("The project has no name.");
         finite("master level", masterDb);
+        performance.validate();
         HashSet<String> ids = new HashSet<String>();
         for (Track t : tracks) {
             id(ids, t.id);
@@ -88,6 +90,9 @@ public final class Project {
                 id(ids, c.id);
                 finite("clip " + c.id + " level", c.gainDb);
                 if (c.start < 0 || c.offset < 0 || c.length < 0) throw new IllegalArgumentException("Clip " + c.id + " has a negative position or length.");
+                if (c.start > Long.MAX_VALUE - c.length || c.offset > Long.MAX_VALUE - c.length || c.fadeIn < 0 || c.fadeOut < 0
+                    || c.fadeIn > c.length || c.fadeOut > c.length)
+                    throw new IllegalArgumentException("Invalid clip range or fade.");
                 if (!insideProject(c.file)) throw new IllegalArgumentException("Clip " + c.id + " points outside the project folder (" + c.file + ").");
             }
         }
@@ -131,6 +136,7 @@ public final class Project {
         ArrayList<Object> ts = new ArrayList<Object>();
         for (Track t : tracks) ts.add(trackJson(t));
         p.put("tracks", ts);
+        p.put("performance", performance.json());
         return p;
     }
 
@@ -149,6 +155,7 @@ public final class Project {
         out.loopStart = (long) num(p, "loopStart", false);
         out.loopEnd = (long) num(p, "loopEnd", false);
         out.loopOn = bool(p, "loopOn");
+        out.performance = Performance.read(p.get("performance"));
         for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
         out.validate();
         return out;
@@ -174,6 +181,8 @@ public final class Project {
             k.put("offset", Long.valueOf(c.offset));
             k.put("length", Long.valueOf(c.length));
             k.put("gainDb", Float.valueOf(c.gainDb));
+            k.put("fadeIn", c.fadeIn);
+            k.put("fadeOut", c.fadeOut);
             cs.add(k);
         }
         j.put("clips", cs);
@@ -201,6 +210,8 @@ public final class Project {
             c.offset = (long) num(cj, "offset", false);
             c.length = (long) num(cj, "length", false);
             c.gainDb = (float) num(cj, "gainDb", true);
+            c.fadeIn = cj.get("fadeIn") == null ? 0 : (long) num(cj, "fadeIn", false);
+            c.fadeOut = cj.get("fadeOut") == null ? 0 : (long) num(cj, "fadeOut", false);
             t.clips.add(c);
         }
         return t;

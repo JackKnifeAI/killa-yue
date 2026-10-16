@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 [ -f local.env ] && . ./local.env
-: "${ANDROID_JAR:?set ANDROID_JAR to an android.jar (API 23 or later)}"
+: "${ANDROID_JAR:?set ANDROID_JAR to an android.jar (API 35 or later)}"
 : "${ENGINE_BIN:?set ENGINE_BIN to the yue-server binary built for Android}"
 : "${DRIVER_DIR:?set DRIVER_DIR to the folder with libvkloader.so, libturnip.so, libz.so.1, libzstd.so.1, libexpat.so.1}"
 : "${LIBCXX:?set LIBCXX to libc++_shared.so for arm64 Android}"
@@ -23,7 +23,9 @@ if [ -n "$STUDIO_TEST" ]; then
 import re
 m = open('AndroidManifest.xml').read()
 assert m.count('<application ') == 1 and m.count('</application>') == 1, 'the manifest changed: update the STUDIO_TEST edit'
-m = m.replace('<application ', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application ', 1)
+if 'android.permission.RECORD_AUDIO' not in m:
+    m = m.replace('<application ', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application ', 1)
+m = m.replace('<application ', '<application android:debuggable="true" ', 1)
 m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/>\n    </application>', 1)
 open('out/AndroidManifest.xml', 'w').write(m)
 PY
@@ -35,7 +37,7 @@ aapt2 compile --dir res -o out/res.zip
 aapt2 link -o out/base.apk -I "$ANDROID_JAR" -A assets --manifest $MANIFEST --java out/gen \
     --min-sdk-version 28 --target-sdk-version 28 $LINK_EXTRA out/res.zip
 # Java 8 bytecode and no lambdas, so the classic dx tool can convert it
-javac -nowarn --release 8 -cp "$ANDROID_JAR" -d out/classes $(find $JAVA_DIRS -name '*.java') 2>&1 | grep -v '^warning: \[options\]' || true
+javac -Xlint:-options --release 8 -cp "$ANDROID_JAR" -d out/classes $(find $JAVA_DIRS -name '*.java')
 [ -f out/classes/ai/jackknife/killayue/MainActivity.class ]
 (cd out && $DX --dex --min-sdk-version=26 --output=apk/classes.dex classes)
 

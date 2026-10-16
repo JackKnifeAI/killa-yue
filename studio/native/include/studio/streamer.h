@@ -6,6 +6,7 @@
 #include <atomic>
 #include <thread>
 #include <vector>
+
 #include "studio/engine.h"
 
 namespace studio {
@@ -23,10 +24,11 @@ struct ClipRef {
     Reader* reader;
     long start, offset, length;
     float gainDb;
+    long fadeIn = 0, fadeOut = 0;
 };
 
 class Streamer : public Source {
-public:
+   public:
     // A track: its clips are mixed into one ring by the feeding thread (where clips overlap, both are heard),
     // so the audio thread reads one ring however many clips there are. Clips may share a reader as long as one
     // thread reads them all (one Disk feeds them, as in the Studio).
@@ -52,14 +54,14 @@ public:
     long starved() const { return starved_.load(); }
     size_t ringBytes() const { return ring_.size() * sizeof(float); }
 
-private:
+   private:
     friend class Disk;
     void run();
     bool fill();  // the feeding thread: one step of reading ahead; false when there was nothing to do
     long clipEnd() const { return end_; }
     long overlap(long from, long to) const;  // frames of [from, to) between the first clip's start and the last's end
     long take(long play, float* out, long frames);
-    void regenerate(long projectFrame);       // audio thread: a new generation from here, with the current loop
+    void regenerate(long projectFrame);  // audio thread: a new generation from here, with the current loop
 
     // Playing order: a generation starts at project frame s0; with a loop [ls, le) on and s0 before le, play
     // index i is s0 + i up to the loop's end, then goes round the loop. Both threads map with their own copy.
@@ -82,10 +84,11 @@ private:
     struct Clip {
         Reader* reader;
         long start, offset, length;
+        long fadeIn, fadeOut;
         float gain;  // the clip's own level, applied on the feeding thread
     };
     std::vector<Clip> clips_;
-    long start_ = 0, end_ = 0;                // from the first clip's start to the last one's end
+    long start_ = 0, end_ = 0;  // from the first clip's start to the last one's end
     int panChannels_ = 1;
     const long cap_;                          // ring frames, a power of two
     std::vector<float> ring_;                 // 2 * cap_
@@ -94,16 +97,16 @@ private:
     std::atomic<long> generation_{1}, ringGeneration_{0}, seekTo_{0};
     std::atomic<long> genLoopStart_{0}, genLoopEnd_{0};  // the new generation's loop, published with it
     std::atomic<bool> genLoopOn_{false};
-    Order fill_;                              // the feeding thread's copy of the playing order
+    Order fill_;  // the feeding thread's copy of the playing order
     std::atomic<bool> stop_{false}, offline_{false};
-    std::atomic<bool> fed_{false};            // a thread is feeding this clip (off-line reads wait only then)
-    std::vector<float> chunk_, raw_;          // the feeding thread's buffers, made once
+    std::atomic<bool> fed_{false};    // a thread is feeding this clip (off-line reads wait only then)
+    std::vector<float> chunk_, raw_;  // the feeding thread's buffers, made once
     std::atomic<long> starved_{0};
-    long pos_ = 0;                            // project frame of the next read (audio thread only)
-    long play_ = 0;                           // play index of the next read in this generation (audio thread only)
-    long wanted_ = 1;                         // generation the audio thread is waiting for (audio thread only)
-    Order order_;                             // the audio thread's copy of the playing order
-    long loopStart_ = 0, loopEnd_ = 0;        // the loop asked for (audio thread only)
+    long pos_ = 0;                      // project frame of the next read (audio thread only)
+    long play_ = 0;                     // play index of the next read in this generation (audio thread only)
+    long wanted_ = 1;                   // generation the audio thread is waiting for (audio thread only)
+    Order order_;                       // the audio thread's copy of the playing order
+    long loopStart_ = 0, loopEnd_ = 0;  // the loop asked for (audio thread only)
     bool loopOn_ = false;
     std::thread thread_;
 };

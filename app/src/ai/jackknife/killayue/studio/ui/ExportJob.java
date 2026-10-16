@@ -65,12 +65,15 @@ final class ExportJob {
         for (Track t : p.tracks)
             if (p.audible(t))
                 for (Clip c : t.clips) end = Math.max(end, c.start + c.length);
+        if (p.performance.pattern)
+            end = Math.max(end, new ai.jackknife.killayue.studio.TempoMap(p.rate, p.performance).frameAt(p.performance.patternLength / 4.0));
         return end;
     }
 
     /** Runs one export; returns the files it made. */
     static ArrayList<File> run(Context c, Project project, File dir, int kind, Progress p, AtomicBoolean cancel) throws IOException {
         Project snap = project.copy();
+        snap.performance.click = false;
         ArrayList<File> out = new ArrayList<File>();
         File folder = folder(snap);
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
@@ -99,7 +102,7 @@ final class ExportJob {
             } else {
                 File stems = new File(folder, base + " " + stamp + " stems");
                 stems.mkdirs();
-                long len = 0;
+                long len = length(snap);
                 for (Track t : snap.tracks)
                     for (Clip cl : t.clips) len = Math.max(len, cl.start + cl.length);
                 for (int i = 0; i < snap.tracks.size(); i++) {
@@ -110,8 +113,17 @@ final class ExportJob {
                     keep.solo = false;
                     one.tracks.add(keep);
                     one.masterDb = 0;
+                    one.performance.pattern = false;
                     File f = new File(stems, String.format(Locale.ROOT, "%02d ", i + 1) + safe(keep.name) + ".wav");
                     render(one, dir, f, len, false, "Stem " + (i + 1) + " of " + snap.tracks.size(), p, cancel);
+                    out.add(f);
+                }
+                if (snap.performance.pattern) {
+                    Project pads = snap.copy();
+                    pads.tracks.clear();
+                    pads.masterDb = 0;
+                    File f = new File(stems, "Sampler.wav");
+                    render(pads, dir, f, len, false, "Sampler stem", p, cancel);
                     out.add(f);
                 }
             }
@@ -125,7 +137,7 @@ final class ExportJob {
     }
 
     /** The project through a fresh off-line engine into a float WAV. */
-    private static void render(Project p, File dir, File out, long frames, boolean limiter, final String what, final Progress prog, final AtomicBoolean cancel)
+    static void render(Project p, File dir, File out, long frames, boolean limiter, final String what, final Progress prog, final AtomicBoolean cancel)
             throws IOException {
         final NativeEngine e = NativeEngine.offline(p.rate);
         final long total = Math.max(1, frames);

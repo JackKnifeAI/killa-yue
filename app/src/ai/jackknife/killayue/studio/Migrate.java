@@ -38,6 +38,8 @@ final class Migrate {
                 m.put("tracks", out);
             }
         }
+        if (version < 3)
+            m.put("performance", new Performance().json());
         m.put("version", Integer.valueOf(Project.VERSION));
         return m;
     }

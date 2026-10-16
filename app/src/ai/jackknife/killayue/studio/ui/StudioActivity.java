@@ -1,5 +1,8 @@
 package ai.jackknife.killayue.studio.ui;
 
+import ai.jackknife.killayue.Skin;
+import ai.jackknife.killayue.Ui;
+import ai.jackknife.killayue.studio.NativeEngine;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -13,12 +16,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import java.io.File;
-
-import ai.jackknife.killayue.Skin;
-import ai.jackknife.killayue.Ui;
-import ai.jackknife.killayue.studio.NativeEngine;
 
 /**
  * The Studio: its own screen in the app, in the skin's dress, portrait or landscape. The Vault (projects),
@@ -26,7 +24,7 @@ import ai.jackknife.killayue.studio.NativeEngine;
  * (engine, project, undo tree) outlives the screen, so rotating or leaving and coming back never stops it.
  */
 public class StudioActivity extends Activity implements StudioSession.Listener {
-    static final String SONG = "song";  // a library song's meta file name: open it as a new project
+    static final String SONG = "song"; // a library song's meta file name: open it as a new project
 
     public static void open(Context c) {
         c.startActivity(new Intent(c, StudioActivity.class));
@@ -46,15 +44,20 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     private Button[] tabs;
     private int shown = -1;
     private VaultScreen vault;
+    private PlayAlongScreen playAlong;
+    private SamplerScreen sampler;
     private boolean visible;
 
     private final Choreographer.FrameCallback frame = new Choreographer.FrameCallback() {
         public void doFrame(long t) {
-            if (!visible) return;
+            if (!visible)
+                return;
             NativeEngine.Status s = session.status();
-            if (shown >= 0) screens[shown].frame(s);
+            if (shown >= 0)
+                screens[shown].frame(s);
             String err = session.takeError();
-            if (err != null) Ui.toast(StudioActivity.this, err);
+            if (err != null)
+                Ui.toast(StudioActivity.this, err);
             Choreographer.getInstance().postFrameCallback(this);
         }
     };
@@ -87,7 +90,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         });
         head.addView(back);
         head.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
-        View balance = new View(this);  // keeps the title centred on the screen
+        View balance = new View(this); // keeps the title centred on the screen
         head.addView(balance, new LinearLayout.LayoutParams(Ui.dp(this, 54), 1));
         root.addView(head);
 
@@ -95,7 +98,9 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
 
         vault = new VaultScreen(this);
-        screens = new Screen[] {vault, new ArrangeScreen(this), new MixerScreen(this), new SplitterScreen(this)};
+        playAlong = new PlayAlongScreen(this);
+        screens = new Screen[] {
+            vault, new ArrangeScreen(this), new MixerScreen(this), new SplitterScreen(this), playAlong, sampler = new SamplerScreen(this)};
         LinearLayout bar = Ui.row(this);
         bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 8));
         tabs = new Button[screens.length];
@@ -105,7 +110,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
             final int idx = i;
             tabs[i] = Ui.button(this, screens[i].name(), false);
             tabs[i].setTextSize(13);
-            LinearLayout.LayoutParams lp = Ui.weight();
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(this, 80), -2);
             lp.leftMargin = Ui.dp(this, 3);
             lp.rightMargin = Ui.dp(this, 3);
             bar.addView(tabs[i], lp);
@@ -115,11 +120,15 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
                 }
             });
         }
-        root.addView(bar);
+        android.widget.HorizontalScrollView tabsScroll = new android.widget.HorizontalScrollView(this);
+        tabsScroll.setFillViewport(true);
+        tabsScroll.addView(bar);
+        root.addView(tabsScroll);
         setContentView(root);
         session.listen(this);
 
-        if (session.engine() == null) Ui.toast(this, "The Studio's audio could not start: " + session.error());
+        if (session.engine() == null)
+            Ui.toast(this, "The Studio's audio could not start: " + session.error());
         String song = getIntent().getStringExtra(SONG);
         if (song != null && b == null) {
             show(0);
@@ -131,7 +140,8 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     }
 
     void show(int i) {
-        if (i == shown) return;
+        if (i == shown)
+            return;
         if (i > 0 && session.project() == null) {
             Ui.toast(this, "Open a project first, or make one from a song.");
             i = 0;
@@ -177,7 +187,9 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     @Override
     protected void onDestroy() {
         session.unlisten(this);
-        for (Screen s : screens) if (s instanceof StudioSession.Listener) session.unlisten((StudioSession.Listener) s);
+        for (Screen s : screens)
+            if (s instanceof StudioSession.Listener)
+                session.unlisten((StudioSession.Listener) s);
         super.onDestroy();
     }
 
@@ -185,5 +197,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         vault.result(request, result, data);
+        playAlong.result(request, result, data);
+        sampler.result(request, result, data);
     }
 }
