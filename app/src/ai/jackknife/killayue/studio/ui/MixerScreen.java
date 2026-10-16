@@ -30,6 +30,8 @@ import ai.jackknife.killayue.studio.Track;
 final class MixerScreen implements Screen, StudioSession.Listener {
     private final StudioActivity a;
     private final HorizontalScrollView view;
+    private final LinearLayout root, rail;  // rail: a chip per strip, tap to glide to it
+    private final HorizontalScrollView railScroll;
     private final LinearLayout strips;
     private final ArrayList<Strip> list = new ArrayList<Strip>();
     private final HashMap<String, float[]> meters = new HashMap<String, float[]>();
@@ -40,9 +42,17 @@ final class MixerScreen implements Screen, StudioSession.Listener {
 
     MixerScreen(StudioActivity a) {
         this.a = a;
+        root = Ui.column(a);
+        root.setBackground(Skin.background(a));
+        railScroll = new HorizontalScrollView(a);
+        railScroll.setHorizontalScrollBarEnabled(false);
+        rail = Ui.row(a);
+        rail.setPadding(Ui.dp(a, 8), Ui.dp(a, 2), Ui.dp(a, 8), Ui.dp(a, 4));
+        railScroll.addView(rail);
+        root.addView(railScroll);
         view = new HorizontalScrollView(a);
         view.setFillViewport(true);
-        view.setBackground(Skin.background(a));
+        root.addView(view, new LinearLayout.LayoutParams(-1, 0, 1f));
         if (knobArt == null) {
             try (java.io.InputStream in = a.getAssets().open("studio/gold-knob.png")) {
                 knobArt = android.graphics.BitmapFactory.decodeStream(in);
@@ -61,7 +71,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
     }
 
     public View view() {
-        return view;
+        return root;
     }
 
     public void shown() {
@@ -73,24 +83,36 @@ final class MixerScreen implements Screen, StudioSession.Listener {
     public void projectChanged() {
         Project p = a.session.project();
         StringBuilder key = new StringBuilder();
-        if (p != null) for (Track t : p.tracks) key.append(t.id).append(',');
+        if (p != null) for (Track t : p.tracks) key.append(t.id).append(':').append(t.name).append(',');
         if (!key.toString().equals(layoutKey)) {
             layoutKey = key.toString();
             strips.removeAllViews();
             list.clear();
+            rail.removeAllViews();
             if (p != null) {
-                for (Track t : p.tracks) add(new Strip(a, t.id));
-                add(new Strip(a, null));
+                for (Track t : p.tracks) add(new Strip(a, t.id), t.name, t.color);
+                add(new Strip(a, null), "Master", Skin.ACCENT);
             }
         }
         for (Strip s : list) s.invalidate();
     }
 
-    private void add(Strip s) {
+    private void add(final Strip s, String name, int color) {
         list.add(s);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(a, 88), -1);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(a, 92), -1);
         lp.rightMargin = Ui.dp(a, 6);
         strips.addView(s, lp);
+        android.widget.Button chip = Ui.chip(a, name);
+        chip.setTextColor(color | 0xFF000000);
+        chip.setContentDescription("Go to " + name);
+        chip.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                view.smoothScrollTo(Math.max(0, s.getLeft() - Ui.dp(a, 8)), 0);
+            }
+        });
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2);
+        cp.rightMargin = Ui.dp(a, 6);
+        rail.addView(chip, cp);
     }
 
     public void frame(NativeEngine.Status s) {
@@ -115,6 +137,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         final String id;
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG), text = new Paint(Paint.ANTI_ALIAS_FLAG), line = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF r = new RectF();
+        private final ai.jackknife.killayue.LuxFrame panel = new ai.jackknife.killayue.LuxFrame(12, 6);
         private final GestureDetector taps;
         private float meterL, meterR, holdL, holdR;
         private long lastFrame;
@@ -263,19 +286,11 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             boolean heard = t == null || p.audible(t);
             // the strip's plate
             fill.setShader(null);
-            fill.setColor((Skin.CARD & 0x00FFFFFF) | 0x8C000000);  // translucent, so the leather shows through
-            r.set(0, 0, w, h);
-            c.drawRoundRect(r, Ui.dp(getContext(), 10), Ui.dp(getContext(), 10), fill);
-            fill.setStyle(Paint.Style.STROKE);
-            fill.setStrokeWidth(Ui.dp(getContext(), 1));
-            fill.setColor((Skin.ACCENT & 0x00FFFFFF) | 0x55000000);
-            float half = getResources().getDisplayMetrics().density * 0.5f;
-            r.inset(half, half);
-            c.drawRoundRect(r, Ui.dp(getContext(), 10), Ui.dp(getContext(), 10), fill);
-            fill.setStyle(Paint.Style.FILL);
+            panel.setBounds(0, 0, (int) w, (int) h);  // the song-options panel: leather, gold rims, a rivet in each corner
+            panel.draw(c);
             // name, with the track's colour above it
             fill.setColor(t == null ? Skin.ACCENT : t.color);
-            c.drawRect(Ui.dp(getContext(), 10), Ui.dp(getContext(), 4), w - Ui.dp(getContext(), 10), Ui.dp(getContext(), 7), fill);
+            c.drawRect(Ui.dp(getContext(), 16), Ui.dp(getContext(), 9), w - Ui.dp(getContext(), 16), Ui.dp(getContext(), 11), fill);
             text.setTextSize(Ui.dp(getContext(), 12));
             text.setColor(heard ? Skin.TEXT : Skin.DIM);
             String name = t == null ? "Master" : t.name;
