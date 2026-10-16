@@ -30,9 +30,9 @@ public class Skin {
     static final String[] NAMES = {"Killa Gold", "Neon District", "Foundry"};
 
     // palette of the loaded skin
-    static int ACCENT, HI, LO, GLOW, TEXT, DIM, FAINT, EDGE, OFF, DECK, CARD, PILL;
+    public static int ACCENT, HI, LO, GLOW, TEXT, DIM, FAINT, EDGE, OFF, DECK, CARD, PILL;
     /** Titles and main buttons use the gel script; other skins set them in the text face, in capitals. */
-    static boolean SCRIPT_TITLES;
+    public static boolean SCRIPT_TITLES;
     /**
      * Staff image measurements in its own pixels: width, height, left cap, right cap,
      * channel left, right, top, bottom, where notes enter and leave, then the five line centres.
@@ -45,7 +45,7 @@ public class Skin {
     private static final Bitmap[] notes = new Bitmap[6];
     private static Typeface script, text;
 
-    static String id(Context c) {
+    public static String id(Context c) {
         String want = c.getSharedPreferences("cfg", 0).getString("skin", IDS[0]);
         for (int i = 0; i < IDS.length; i++) if (IDS[i].equals(want)) return want;
         if (SkinPack.installed(c, want)) return want;
@@ -81,13 +81,13 @@ public class Skin {
      * The built-in skin a skin is based on: itself, or for a community skin the one it names
      * as its base, whose dialog colours and share page it borrows.
      */
-    static String base(Context c, String id) {
+    public static String base(Context c, String id) {
         if (!SkinPack.installed(c, id)) return builtin(id);
         JSONObject j = SkinPack.info(c, id);
         return builtin(j == null ? "" : j.optString("base"));
     }
 
-    static int themeFor(Context c, String id) {
+    public static int themeFor(Context c, String id) {
         return themeFor(base(c, id));
     }
 
@@ -124,17 +124,17 @@ public class Skin {
     private static final float[] STAFF_FOUNDRY = {1030, 164, 136, 100, 66, 972, 20, 141, 140, 958, 33.5f, 52f, 71f, 89.5f, 108f};
 
     /** The glow colour of the skin at the given opacity (0 to 255). */
-    static int glow(int alpha) {
+    public static int glow(int alpha) {
         return (alpha << 24) | GLOW;
     }
 
     /** The highlight colour of the skin at the given opacity. */
-    static int hi(int alpha) {
+    public static int hi(int alpha) {
         return (alpha << 24) | (HI & 0xFFFFFF);
     }
 
     /** The accent colour of the skin at the given opacity. */
-    static int accent(int alpha) {
+    public static int accent(int alpha) {
         return (alpha << 24) | (ACCENT & 0xFFFFFF);
     }
 
@@ -156,7 +156,7 @@ public class Skin {
         loaded = null;
     }
 
-    static synchronized void load(Context c) {
+    public static synchronized void load(Context c) {
         String id = id(c);
         if (id.equals(loaded)) return;
         try {
@@ -208,7 +208,7 @@ public class Skin {
     }
 
     /** The page background: tiled black leather for the gold skin, a darkened wallpaper for the others. */
-    static Drawable background(Context c) {
+    public static Drawable background(Context c) {
         if (tileBg) {
             BitmapDrawable d = new BitmapDrawable(c.getResources(), bg);
             d.setTileModeXY(Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
@@ -292,57 +292,75 @@ public class Skin {
         }
     }
 
-    static Bitmap round() {
+    public static Bitmap round() {
         return round;
     }
 
-    static Bitmap dial() {
+    public static Bitmap dial() {
         return dial;
     }
 
-    static Bitmap staff() {
+    public static Bitmap staff() {
         return staff;
     }
 
-    static Bitmap note(int i) {
+    public static Bitmap note(int i) {
         return notes[i % notes.length];
     }
 
     /** The face for titles and main buttons. */
-    static Typeface script() {
+    public static Typeface script() {
         return SCRIPT_TITLES ? script : text;
     }
 
-    static Typeface text() {
+    public static Typeface text() {
         return text;
     }
 
     /** A button plate stretched to any width: the skin's main button, or its quieter sibling. */
-    static class Plate extends Drawable {
-        private final boolean gold;
+    public static class Plate extends Drawable {
+        private final boolean gold, sunk;
         private final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
         private boolean pressed;
 
-        Plate(boolean gold) {
+        public Plate(boolean gold) {
+            this(gold, false);
+        }
+
+        /** sunk: the plate held down, for the selected tab of a row: pushed in, darker, shaded under its top edge. */
+        public Plate(boolean gold, boolean sunk) {
             this.gold = gold;
+            this.sunk = sunk;
         }
 
         @Override
         public void draw(Canvas canvas) {
             Rect b = getBounds();
+            if (sunk) {
+                int in = Math.max(1, b.height() / 22);
+                b = new Rect(b.left + in, b.top + in, b.right - in, b.bottom - in);
+            }
             Bitmap bmp = gold ? action : nav;
             Rect s = new Rect(0, 0, bmp.getWidth(), bmp.getHeight());
             float scale = b.height() / (float) s.height();
             // the rounded, knurled ends keep their shape; only the plain middle stretches
             int capSrc = Math.round(s.height() * 0.54f);
             int capDst = Math.min((int) (capSrc * scale), b.width() / 2);
-            p.setColorFilter(pressed ? new LightingColorFilter(0xFFFFFFFF, 0x00302410) : null);
+            p.setColorFilter(sunk ? new LightingColorFilter(0xFF8C8C8C, 0) : pressed ? new LightingColorFilter(0xFFFFFFFF, 0x00302410) : null);
             canvas.drawBitmap(bmp, new Rect(s.left, s.top, s.left + capSrc, s.bottom),
                     new Rect(b.left, b.top, b.left + capDst, b.bottom), p);
             canvas.drawBitmap(bmp, new Rect(s.left + capSrc, s.top, s.right - capSrc, s.bottom),
                     new Rect(b.left + capDst, b.top, b.right - capDst, b.bottom), p);
             canvas.drawBitmap(bmp, new Rect(s.right - capSrc, s.top, s.right, s.bottom),
                     new Rect(b.right - capDst, b.top, b.right, b.bottom), p);
+            if (sunk) {  // the shadow of the rim on the pushed-in face
+                Paint sh = new Paint(Paint.ANTI_ALIAS_FLAG);
+                sh.setShader(new android.graphics.LinearGradient(0, b.top, 0, b.top + b.height() * 0.45f, 0x99000000, 0x00000000,
+                        android.graphics.Shader.TileMode.CLAMP));
+                float r = b.height() / 2f;
+                canvas.drawRoundRect(new android.graphics.RectF(b.left + r * 0.35f, b.top + b.height() * 0.12f, b.right - r * 0.35f,
+                        b.bottom - b.height() * 0.12f), r, r, sh);
+            }
         }
 
         @Override

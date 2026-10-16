@@ -5,7 +5,9 @@
 #include <atomic>
 #include <cstdint>
 #include <vector>
+
 #include "studio/mix.h"
+#include "studio/performance.h"
 #include "studio/spsc.h"
 
 namespace studio {
@@ -22,6 +24,9 @@ struct Source {
     virtual void setOffline(bool) {}
     // Off-line only: waits up to ms for the read-ahead to hold data for the current position.
     virtual bool waitReady(int) { return true; }
+    // Called on the engine's thread; must not block. From the next seek on (or now), play [start, end) round
+    // and round once the playhead reaches it; off (on false) plays straight on.
+    virtual void setLoop(long, long, bool) {}
     virtual ~Source() {}
 };
 
@@ -37,7 +42,7 @@ struct Session {
     std::vector<TrackSlot> tracks;
 };
 
-enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset };
+enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset, Loop, Limiter, CountIn };
 
 struct Message {
     Msg kind;
@@ -45,6 +50,7 @@ struct Message {
     float value;
     long frame;
     Session* session;
+    long end = 0;  // Loop: the loop's end (frame is its start, track is 1 for on)
 };
 
 struct Status {
@@ -56,7 +62,7 @@ struct Status {
 };
 
 class Engine {
-public:
+   public:
     static constexpr int kMaxTracks = 64;
 
     Engine(int rate, int maxFrames);
@@ -65,7 +71,7 @@ public:
     // UI thread. Reset makes the limiter as new (exports post it so they never depend on what played before).
     bool post(const Message& m);
     void process(float* outStereo, int frames);  // audio thread
-    Session* takeRetired();                   // UI thread: a session the engine no longer uses, or nullptr
+    Session* takeRetired();                      // UI thread: a session the engine no longer uses, or nullptr
     // Peaks are the loudest moment since the last status() call (reading clears them), so a slow screen never
     // misses one.
     Status status() const;
@@ -75,10 +81,16 @@ public:
     bool setOffline(bool on);
     // Off-line use only, while process() is not running on another thread.
     bool waitSourcesReady(int ms);
-    int latency() const { return limiter_.latency(); }
+    int latency() const { return limiterOn_ ? limiter_.latency() : 0; }
+    bool playing() const { return playingFlag_.load(std::memory_order_relaxed) != 0; }
+    long position() const { return position_.load(std::memory_order_relaxed); }  // any thread; clears nothing
+    // Each track's loudest moment (left, right) since the last call, after its fader and pan; clears them. Any
+    // thread. Returns the number of tracks (out holds 2 x max).
+    int meters(float* out, int max);
     int rate() const { return rate_; }
+    PerformanceAudio& performance() { return performance_; }
 
-private:
+   private:
     void apply(const Message& m);
     bool swap(Session* s);
     void render(float* out, int frames, float& peakL, float& peakR);
@@ -86,17 +98,24 @@ private:
     Spsc<Message, 256> in_;
     Spsc<Session*, 64> retired_;
     Session* cur_ = nullptr;
-    Message pending_{};        // a Swap held over because retired_ was full
+    Message pending_{};  // a Swap held over because retired_ was full
     bool hasPending_ = false;
     int rate_, maxFrames_;
     std::vector<float> scratch_;
     Limiter limiter_;
+    PerformanceAudio performance_;
+    long countIn_ = 0;
     float master_ = 1.f;
     bool playing_ = false;
+    bool limiterOn_ = true;  // Msg::Limiter: off for stems (each track exactly as it sounds before the master)
     long pos_ = 0;
+    long loopStart_ = 0, loopEnd_ = 0;
+    bool loopOn_ = false;
     std::atomic<long> position_{0}, underruns_{0}, refused_{0};
     std::atomic<int> playingFlag_{0};
     mutable std::atomic<float> peakL_{0.f}, peakR_{0.f};
+    std::atomic<float> meter_[2 * kMaxTracks];  // per track, raised by the audio thread, cleared by meters()
+    std::atomic<int> meterTracks_{0};
 };
 
 }  // namespace studio

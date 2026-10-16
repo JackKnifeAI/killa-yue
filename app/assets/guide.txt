@@ -1,0 +1,179 @@
+# How Killa YuE works
+Everything in the app, what it does and when to touch it. Open this page again from Engine > How everything works.
+
+# Create
+## Song title
+The name the song gets in your library.
+## Style
+The genre, mood, instruments and voice, in plain words ("smooth neo-soul, warm female vocals, 90 bpm"). The chips under it add common styles.
+## Lyrics
+The words, in sections. The section buttons add [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge] and [Outro] tags; each section is sung in turn.
+## Write with AI
+The big gold button under the lyrics. A songwriter model on the phone writes the title, the style and the lyrics from your idea, straight into the song screen. Undo takes them back. The first time, it offers to download its model. It waits while a song is being made: the phone runs one big model at a time.
+- Rewrite style and Rewrite lyrics write that part again.
+- Sources shows what it looked up, when it is set to look things up first.
+- Songwriter model picks or downloads the model it uses.
+## Save these lyrics / My saved lyrics
+Keeps the lyrics to use again. The name offered is the song's title, or the first sung line when there is no title yet.
+## Length
+How long the song is. Longer songs take longer to make and need more memory (see Engine > Memory for song length).
+## Score
+How much of a written score the engine plans before it sings:
+- Full score (melody and chords): the most structured songs.
+- Melody only: a written melody, the chords left free.
+- No score: the engine goes straight to sound. Fastest, least structured.
+Show score editor shows the score (ABC notation) so you can read or change it before a song is made.
+## Use a recording: cover it or continue it
+Pick a recording to cover (sing your lyrics over its music) or continue (carry on from where it ends).
+## Generate song / Add to queue
+Generate song starts making it now. Add to queue saves it to be made later, one after another; Queue shows what is waiting.
+
+# Advanced settings (Create)
+Leave them empty for the defaults; every one is optional.
+- Render steps: how many passes turn the plan into sound. More is cleaner and slower.
+- Variations (1-4): how many takes of the same song to make at once. Each extra take costs time and memory.
+- Melody seed: a number that fixes the melody and score. Use the same seed to get the same tune again; "random" picks a new one each time.
+- Sound seed: a number that fixes the sound (the singing and the mix) the same way.
+- Score creativity: how adventurous the written score is. Lower keeps it safe and simple; higher (the default is 0.7) brings surprises.
+- Song creativity: how adventurous the singing and sound are. Lower is steadier; higher (the default is 1.0) is wilder.
+- Guidance: how closely the song follows your style and lyrics. Higher follows them more strictly; too high can sound harsh.
+- MP3 kbps: the MP3's quality (128 by default). Higher is better sound and a bigger file.
+- File format: MP3 (small), WAV 16-bit (CD quality) or WAV 24-bit (studio quality, the biggest).
+- Style adapters (LoRA): extra style files that steer the sound, written as file:strength, separated by commas, for example mystyle.safetensors:1.0.
+
+# Library
+Every song you have made. Tap a song to play it; the three dots open its options (play, share, lyrics, sheet music, ringtone, lyric video, Open in Studio and more). Albums groups songs; Share the app and Open a recipe are at the top.
+## The player
+Previous, rewind, play/pause, fast forward and next. Drag the bar to move through the song. The sleep timer stops playback after a while.
+
+# Lyrics
+Write and keep lyrics apart from songs. Sync matches the words of a song to the music, so they light up in time and can print under sheet music; Share sends them.
+
+# Engine
+## Start engine
+Loads the song engine. It starts by itself when you make a song; starting it early saves a wait.
+## Skin
+The look of the whole app. Install a skin adds one from a file, Remove a skin deletes one you added, Make your own explains how.
+## Queue: battery
+The queue only starts its next song when the battery is at least this full.
+## Wake-up song
+An alarm that plays your newest song, the last one the queue made overnight.
+## Run on
+GPU (Adreno, Vulkan) is fast. CPU is a slow fallback for when the GPU will not work.
+## Model quality
+Small (2.6 GB), Balanced (2.9 GB) or Best (3.8 GB). Larger is closer to the original model, and slower to load.
+## Memory for song length
+Short songs, Normal, Long songs or Maximum. Longer songs need this set higher, and higher uses more of the phone's memory.
+## Keep everything loaded
+Keeps the engine in memory between songs: faster, but it needs much more memory.
+## Gentle mode
+Songs take longer, and the phone stays smooth while one is made.
+## Studio jobs at full speed
+Studio jobs such as splitting stems run on the phone's fast cores instead of in the background. Faster, but music may stutter while one runs. Off by default.
+## Run the engine in its own app process
+Runs the engine apart from the app, so Android's limits on child processes no longer apply. Takes effect with the next song.
+## Allow in background
+Lets Android keep the engine running while the app is closed, so songs finish when the screen is off.
+## Downloads
+Share the models by QR sends the models to another phone on the same Wi-Fi. Album covers, the GPU cover model and the lyric sync model download here; each file is checked against its published checksum.
+## Developer options and Device report
+Details about the phone and the engine, for reporting problems.
+
+# Studio
+A small music studio inside the app. Open it from the Studio tab, or from a song's options with Open in Studio. The round button at the top left goes back.
+## The tabs
+Vault, Arrange, Mixer and Stems along the bottom. The tab you are on is pressed in and lit.
+## Vault
+- New from a song: start a project from a song in your library.
+- Bring in a file: start a project from any audio file.
+- Projects: tap to open. Each one can be renamed, compacted (unused audio removed to save space) or deleted.
+## Arrange
+The tracks laid out in time.
+- ⏮ goes back to the start.
+- ▶ plays and ■ stops.
+- ↻ turns the loop on and off. To mark a loop, touch and hold the ruler, then drag.
+- ↶ undoes the last change and ↷ redoes it. A whole drag counts as one change.
+- ☰ shows the history of changes, to go back to any point.
+- ⤓ exports the song.
+- Tap the timeline to move the playhead; pinch to zoom.
+- M mutes a track; S solos it (only soloed tracks are heard).
+## Mixer
+A strip for every track, and the master at the end.
+- Swipe left or right anywhere except on a control to move along the strips.
+- The gold knob pans the track left or right: touch the knob itself and drag up or down. Double-tap it to put it back in the centre.
+- The fader sets the track's volume: touch its gold cap and drag. Double-tap the cap to put it back at 0 dB.
+- The meter beside the fader shows how loud the track is playing.
+- M mutes and S solos, as in Arrange.
+## Stems
+Splits a track into four tracks: drums, bass, other and vocals. It runs on the phone, in the background, while you work.
+- Download the stems model: about 414 MB, once.
+- Split: starts splitting that track. A three-minute song takes roughly 15 to 25 minutes.
+- Cancel stops it; Carry on picks up from where it stopped.
+- When it is done the four stems join the project as one step and the original is muted, so one Undo takes them away.
+## Export
+- WAV (float): the full quality the Studio works in.
+- WAV 16-bit: CD quality.
+- M4A: small, for sharing.
+- To the library: the mix becomes a song in your library.
+- Stems: every track as its own file.
+
+# Studio — Play Along
+## Record
+Open a project, then open Record. Add a track with + Track and tap its round arm indicator. Arming asks for microphone permission the first time. Press Record to play the backing tracks and capture your input; Finish take stops and adds the take to the timeline. A recording uses float WAV at the project's rate. Its waveform is prepared when it finishes. The original audio file remains available through undo.
+## Inputs and monitoring
+Input offers the default microphone, connected USB audio devices, and Another app's audio. Use headphones when recording a microphone, especially with Input monitoring enabled. Monitoring is off by default. USB devices must be attached before choosing them.
+Another app's audio asks Android for screen/audio capture consent. Only apps which allow playback capture can supply sound. A silent source and an app that forbids capture can both produce silence; check the result before keeping a take. Playback capture currently needs manual timing checks and may need a clip nudge.
+## Recording compensation
+Calibrate measures the current route with audible probes, using a speaker or a physical loopback cable. Use Enter compensation for a known delay or to adjust a Bluetooth route. A saved setting belongs to the connected route and selected input; check it again after changing headphones or interfaces. The recorder also accounts for the Studio limiter's processing delay.
+## Tempo, metre and click
+New projects use the song score's tempo and metre when available, otherwise 120 BPM and 4/4. Tempo changes the starting tempo; Tap estimates it from successive taps. Metre offers 3/4, 4/4, 6/8 and 7/8. Click toggles the metronome, off by default. Count-in cycles through zero, one and two bars. A count-in clicks before the song starts even when the ordinary metronome is off.
+Tempo change at playhead adds a tempo change at the current position. The sequencer follows these changes. Changes can be undone.
+## Punch and loop takes
+Mark a range by holding and dragging the Arrange ruler. Punch uses that range to keep only the part of a recording inside it; press Punch again to turn it off. Loop uses the Arrange loop region. Recording across loops creates separate takes: the first is audible and subsequent takes start muted. Listen buttons in Record toggle each track's mute state.
+## Interrupted takes
+The recorder checkpoints the file while recording. Reopening a project recovers an interrupted take and adds it through undo history. If its clock receipt was not saved before interruption, its timing must be checked. A storage or input discontinuity stops the take with an error; recorded audio is retained where possible.
+## Markers
+Marker at playhead adds a named marker. Jump to marker seeks to one of the saved markers. Markers also appear on the Arrange ruler.
+
+# Studio — Clip editing
+## Timeline modes
+The extra Arrange transport button cycles Navigate, Move clips and Swipe comp. Navigate keeps scrolling and seeking. Move clips lets you drag a clip to a new position, snapped to a sixteenth-note grid that follows the tempo map. One completed drag is one undo step. Swipe comp copies a selected range from a take into a Comp track, replacing any older comp in that range and muting its source track.
+## Clip menu
+In Navigate mode, hold a clip to open its menu. Move to playhead uses the beat grid. Nudge accepts positive milliseconds to move later or negative to move earlier. Trim start/end uses the point held inside the clip. Split here makes two clips; Duplicate places a copy after the original. Fade in/out sets both ends in milliseconds. Remove removes the clip from the arrangement, retaining its audio for undo.
+## Stretch and pitch
+Stretch / pitch renders a new file. Choose 25–400% of the original length, then a pitch shift from −24 to +24 semitones. These controls are independent. The original clip remains in undo history. A long clip can take time; do not start this while recording or generating a song.
+
+# Studio — The Chamber
+## Your projects (Vault)
+The line above the projects shows how much space they use and how much the phone has free. The ⋯ beside a project opens what you can do with it:
+- Open, Rename.
+- Wrap up: the finished mix goes into your library as a song, then you can delete the project to give its space back.
+- Compact: removes audio files that neither the project nor its undo history uses any more. Nothing you can hear, or get back with Undo, goes.
+- Delete: the project and everything in it go; songs in your library stay.
+## Put a sound on a pad
+1. Tap a pad to choose it. The chosen pad lights up with a ring.
+2. Press Sample, then pick a clip from this project, or "A sound file on the phone…" to bring in any audio file.
+3. Tap the pad to hear it. Hold it, or press Shape, to tune and shape it.
+To play only part of a sound (one bar of a song, one word of a vocal), hold the pad, then set Start and Length in seconds: Start is where in the sound the pad begins, Length how long it plays.
+To fill all sixteen pads at once, press Chop and pick one sound: it is cut at its hits and spread across the pads. Kit puts the built-in drums back.
+## Pads
+Pads opens sixteen playable pads. A fresh bank uses drums synthesized inside the app. Tap a pad to play it and select its pattern row. Multiple pads can be held together. Hold a pad, or press Shape, to edit it. The bank has a 128 MB sample-memory budget; use short slices for large recordings.
+## Sample, Chop and Kit
+Sample puts a project clip, or a sound file from the phone, on the selected pad. Chop finds transients in a clip and spreads up to sixteen slices across the bank; it divides long sustained gaps when fewer transients are found. Kit restores the synthesized drums. Bank edits are saved with the project and can be undone.
+## Perform: Record pads, Clear pad, Bounce to a track
+- ● Record pads turns the pattern on and starts playback. Play the pads: each hit lands on the nearest step (swing and tempo changes included), soft or hard by how you touch. Keep it running and play again to add more; one recording pass is one Undo. ■ Stop recording ends it.
+- Clear pad empties the chosen pad's steps.
+- Bounce to a track renders the pads on their own into a new track called Pads, and switches the pattern off so it is not heard twice. The Pads track is a stem like any other: mix it, mute it, move or edit its clip, or delete it. One Undo brings the pattern back.
+## Shape
+Playback mode is One-shot by default: a hit plays to the end. Gate plays while held, then releases. Loop repeats while held. Tune shifts playback by −24 to +24 semitones and changes its speed. Reverse plays backwards.
+Attack, decay and release are in milliseconds; sustain is a percentage. Defaults are 2 ms attack, 80 ms decay, 100% sustain and 80 ms release. Low-pass defaults to 20000 Hz. Choke group 0 is off; pads in the same nonzero group cut each other off with a short fade.
+## Rhythm steps
+Select a pad, then tap its numbered steps to cycle off, soft (50%) and hard (100%) velocity. Pattern toggles pattern playback and starts the transport when enabled. 16 / 32 switches pattern length. Swing delays odd sixteenth notes by 0–75% of a step, with 0% as the default. The pattern follows project tempo changes and is included in a mix export. Live taps are auditioned; use the steps to save a beat.
+
+During a take, finish recording before editing the project, changing its loop or tempo, or using undo. Pads remain playable. Other-app capture leaves the other player’s audio focus alone.
+
+Export includes the enabled sampler pattern. A pattern-only project exports one cycle; with audio it repeats across the song. Stem export writes a separate Sampler.wav. The practice click is excluded from exports.
+
+Moving clips into a partial overlap on the same track adds matching fades across the overlap. Undo restores the previous fades. Playback capture stops if the first five seconds stay silent; the source may be paused or may prohibit capture.
+
+Long loop recordings reserve the last of the 64 playback tracks for “More takes (in order)”: later passes are kept as separate clips in sequence on that muted track. Move a wanted pass back to the loop position before comping it. No recorded audio is discarded. Loop recording needs one free track.

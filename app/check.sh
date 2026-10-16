@@ -1,9 +1,9 @@
 #!/bin/bash
-# Compile check without natives or signing: resources, all Java against the API 23 android.jar, and dex.
+# Compile check without natives or signing: resources, all Java against the API 35 android.jar, and dex.
 # Used by CI on every pull request; also handy before a commit. Needs ANDROID_JAR and BUILD_TOOLS (a build-tools folder).
 set -e
 cd "$(dirname "$0")"
-: "${ANDROID_JAR:?set ANDROID_JAR to an API 23 android.jar}"
+: "${ANDROID_JAR:?set ANDROID_JAR to an API 35 android.jar}"
 : "${BUILD_TOOLS:?set BUILD_TOOLS to an Android SDK build-tools folder (aapt2, d8)}"
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT

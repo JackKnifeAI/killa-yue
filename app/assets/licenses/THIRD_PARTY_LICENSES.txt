@@ -816,3 +816,6 @@ The app downloads Stable Diffusion 1.5, as compiled by Qualcomm for the Snapdrag
 ## YuE2 model weights (not included)
 
 The app downloads the YuE2 weights at the user's request from Hugging Face. They are the work of M-A-P and are licensed CC BY-NC 4.0 with the authors' additional creator permission. They are not part of this repository or of the APK.
+
+## Studio time and pitch processing
+Signalsmith Stretch and Signalsmith Linear by Signalsmith Audio, MIT. Pinned revisions and full texts are in studio/native/vendor/VERSIONS.txt and the adjacent LICENSE files. Copies are included in app/assets/licenses. Built-in drum samples are synthesized by this app.

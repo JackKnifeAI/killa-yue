@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
 
 
     // one job at a time, shared across activity restarts
-    static volatile boolean jobBusy;
+    public static volatile boolean jobBusy;
     static volatile String jobId, jobMsg = "", jobError = "";
     static volatile String runningCheckpoint = ""; // the checkpoint folder of the song being made
     static volatile boolean jobCancel, engineHealthy;
@@ -144,60 +144,29 @@ public class MainActivity extends Activity {
     String pickedName = "audio";
 
     int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+        return Ui.dp(this, v);
     }
 
-    // ---------- small view builders ----------
+    // ---------- small view builders (the shared ones live in Ui, so every screen wears the same dress) ----------
 
     GradientDrawable box(int color, int radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(radius));
-        return g;
+        return Ui.box(this, color, radius);
     }
 
     GradientDrawable glass(int edge) {
-        GradientDrawable g = box(CARD, 12);
-        g.setStroke(dp(2), edge);
-        return g;
+        return Ui.glass(this, edge);
     }
 
     TextView label(String s) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextColor(DIM);
-        t.setTextSize(13);
-        t.setTypeface(Skin.text(), Typeface.BOLD);
-        t.setShadowLayer(4, 0, 1, 0x99000000);
-        t.setPadding(0, dp(16), 0, dp(5));
-        return t;
+        return Ui.label(this, s);
     }
 
     TextView text(String s, int color, int size) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextColor(color);
-        t.setTextSize(size);
-        return t;
+        return Ui.text(this, s, color, size);
     }
 
     EditText edit(String hint, int minLines) {
-        EditText e = new EditText(this);
-        e.setHint(hint);
-        e.setHintTextColor(Skin.FAINT);
-        e.setTextColor(TEXT);
-        e.setTextSize(15);
-        e.setBackground(glass(EDGE));
-        e.setPadding(dp(12), dp(10), dp(12), dp(10));
-        e.setGravity(Gravity.TOP | Gravity.START);
-        if (minLines > 1) {
-            e.setMinLines(minLines);
-            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
-                    | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        } else {
-            e.setSingleLine(true);
-        }
-        return e;
+        return Ui.edit(this, hint, minLines);
     }
 
     EditText numEdit(String hint) {
@@ -207,79 +176,27 @@ public class MainActivity extends Activity {
     }
 
     Button button(String s, boolean primary) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextColor(Color.WHITE);
-        b.setShadowLayer(5, 0, 2, 0xCC000000);
-        b.setStateListAnimator(null);
-        if (primary) {
-            b.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
-            b.setTextSize(Skin.SCRIPT_TITLES ? 24 : 18);
-            if (!Skin.SCRIPT_TITLES) {
-                b.setAllCaps(true);
-                b.setLetterSpacing(0.1f);
-            }
-            b.setTextColor(Skin.ACCENT);
-            b.setBackground(new Skin.Plate(true));
-            b.setPadding(dp(30), 0, dp(30), dp(2));
-            b.setMinHeight(dp(64));
-            b.setMinimumHeight(dp(64));
-        } else {
-            b.setTypeface(Skin.text(), Typeface.BOLD);
-            b.setTextSize(15);
-            b.setTextColor(Skin.TEXT);
-            b.setBackground(new Skin.Plate(false));
-            b.setPadding(dp(18), 0, dp(18), dp(1));
-            b.setMinHeight(dp(50));
-            b.setMinimumHeight(dp(50));
-        }
-        return b;
+        return Ui.button(this, s, primary);
     }
 
     Button chip(String s) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextColor(Skin.ACCENT);
-        b.setTextSize(13);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setStateListAnimator(null);
-        GradientDrawable pill = box(Skin.PILL, 18);
-        pill.setStroke(dp(1), EDGE);
-        b.setBackground(pill);
-        b.setMinHeight(dp(36));
-        b.setMinimumHeight(dp(36));
-        b.setMinWidth(0);
-        b.setMinimumWidth(0);
-        b.setPadding(dp(14), 0, dp(14), 0);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(36));
-        lp.rightMargin = dp(8);
-        b.setLayoutParams(lp);
-        return b;
+        return Ui.chip(this, s);
     }
 
     LinearLayout column() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        return l;
+        return Ui.column(this);
     }
 
     LinearLayout row() {
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.HORIZONTAL);
-        l.setGravity(Gravity.CENTER_VERTICAL);
-        return l;
+        return Ui.row(this);
     }
 
     LinearLayout.LayoutParams weight() {
-        return new LinearLayout.LayoutParams(0, -2, 1f);
+        return Ui.weight();
     }
 
     LinearLayout.LayoutParams gap(int top) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.topMargin = dp(top);
-        return lp;
+        return Ui.gap(this, top);
     }
 
     Spinner spinner(String[] items) {
@@ -316,22 +233,7 @@ public class MainActivity extends Activity {
     }
 
     HorizontalScrollView chipRow(String[] names, final Runnable[] actions) {
-        HorizontalScrollView h = new HorizontalScrollView(this);
-        h.setHorizontalScrollBarEnabled(false);
-        LinearLayout l = row();
-        for (int i = 0; i < names.length; i++) {
-            Button c = chip(names[i]);
-            final Runnable r = actions[i];
-            c.setOnClickListener(new View.OnClickListener() {
-                public void onClick(View v) {
-                    r.run();
-                }
-            });
-            l.addView(c);
-        }
-        h.addView(l);
-        h.setPadding(0, dp(8), 0, 0);
-        return h;
+        return Ui.chipRow(this, names, actions);
     }
 
     View labelled(String name, View field) {
@@ -411,6 +313,21 @@ public class MainActivity extends Activity {
                 }
             });
         }
+        // the Studio has a screen of its own: this tab opens it
+        Button studio = button("Studio", false);
+        studio.setTextSize(14);
+        studio.setBackground(new Skin.Plate(true));
+        studio.setTextColor(Skin.LO);
+        studio.setPadding(dp(12), 0, dp(12), dp(2));
+        LinearLayout.LayoutParams slp = weight();
+        slp.leftMargin = dp(3);
+        slp.rightMargin = dp(3);
+        tabRow.addView(studio, slp);
+        studio.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                ai.jackknife.killayue.studio.ui.StudioActivity.open(MainActivity.this);
+            }
+        });
         root.addView(tabRow);
 
         FrameLayout content = new FrameLayout(this);
@@ -661,13 +578,16 @@ public class MainActivity extends Activity {
         }
         c.addView(chipRow(SECTIONS, la));
         c.addView(savedRow("lyrics", "lyrics", lyrics));
-        // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter)
-        c.addView(chipRow(new String[] {"Write with AI", "Rewrite style", "Rewrite lyrics", "Sources", "Songwriter model"}, new Runnable[] {
-            new Runnable() {
-                public void run() {
-                    Songwriter.write(MainActivity.this);
-                }
-            },
+        // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter).
+        // A headline feature, so it gets the big gold button; its helpers stay in the chip row under it.
+        Button writeBtn = button("Write with AI", true);
+        writeBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Songwriter.write(MainActivity.this);
+            }
+        });
+        c.addView(writeBtn, gap(14));
+        c.addView(chipRow(new String[] {"Rewrite style", "Rewrite lyrics", "Sources", "Songwriter model"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     Songwriter.rewrite(MainActivity.this, "style");
@@ -972,7 +892,8 @@ public class MainActivity extends Activity {
             toast("There is no " + word + " to save yet");
             return;
         }
-        String guess = "";
+        // lyrics are named after the song when it has a title; otherwise, as for a style, after the first sung line
+        String guess = "lyrics".equals(word) && songTitle != null ? songTitle.getText().toString().trim() : "";
         String[] lines = body.split("\n");
         for (int i = 0; i < lines.length && guess.length() == 0; i++) {
             String l = lines[i].trim();
@@ -1394,6 +1315,10 @@ public class MainActivity extends Activity {
     }
 
     void startJob(String msg, final Task t) {
+        if (ai.jackknife.killayue.studio.ui.StudioSession.recordingBusy()) {
+            toast("Finish the recording before starting a song job.");
+            return;
+        }
         if (jobBusy) {
             toast("The engine is busy with another job");
             return;
@@ -1913,7 +1838,7 @@ public class MainActivity extends Activity {
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
-            "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
+            "Open in Studio", "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
             "Share with a QR code", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
@@ -1984,6 +1909,8 @@ public class MainActivity extends Activity {
                     shareSongQr(m);
                 } else if ("Make a lyric video".equals(pick)) {
                     makeLyricVideo(m);
+                } else if ("Open in Studio".equals(pick)) {
+                    ai.jackknife.killayue.studio.ui.StudioActivity.openSong(MainActivity.this, mf);
                 } else if ("Make it a ringtone".equals(pick)) {
                     Ringtones.ask(MainActivity.this, m);
                 } else if ("Sheet music and MIDI".equals(pick)) {
@@ -3639,6 +3566,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        c.addView(chipRow(new String[] {"How everything works"}, new Runnable[] {
+            new Runnable() {
+                public void run() {
+                    Guide.show(MainActivity.this);
+                }
+            }
+        }), gap(8));
         c.addView(label("Skin"));
         final ArrayList<String> skinIds = Skin.ids(this);
         final Spinner skinSpin = spinner(Skin.names(this).toArray(new String[0]));
@@ -3727,6 +3661,17 @@ public class MainActivity extends Activity {
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
         gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
+        final CheckBox stemsFast = new CheckBox(this);
+        stemsFast.setText("Studio jobs at full speed (stems split faster; playback may stutter while one runs)");
+        stemsFast.setTextColor(TEXT);
+        stemsFast.setShadowLayer(4, 0, 1, 0x99000000);
+        stemsFast.setChecked(ai.jackknife.killayue.studio.ui.AiJobs.fast(this));
+        stemsFast.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                ai.jackknife.killayue.studio.ui.AiJobs.fast(MainActivity.this, on);
+            }
+        });
+        c.addView(stemsFast, gap(8));
         final CheckBox procBox = new CheckBox(this);
         procBox.setText("Run the engine in its own app process (new: Android's limits on child processes no longer apply)");
         procBox.setTextColor(TEXT);

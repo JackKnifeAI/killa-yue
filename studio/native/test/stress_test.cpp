@@ -1,5 +1,6 @@
 // stress_test.cpp — THREADED
-// Sixteen stereo tracks played for ten minutes at real-time pace (192-frame blocks), while another thread
+// Sixteen stereo tracks, each of two clips, all read ahead by one shared disk thread, as the Studio plays them,
+// played for ten minutes at real-time pace (192-frame blocks), while another thread
 // changes levels, pans, mutes and solos every 5 ms and seeks every 20 s. No underrun is allowed outside the
 // 300 ms after a seek (those are counted and printed), and no block may cost more than 2 ms of the audio
 // thread's CPU time (its budget is 4 ms). Wall time per block and blocks over budget are reported too: a wait
@@ -16,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "studio/disk.h"
 #include "studio/engine.h"
 #include "studio/streamer.h"
 #include "studio/wav.h"
@@ -62,11 +64,17 @@ int main() {
     }
     std::vector<std::unique_ptr<Looping>> readers;
     std::vector<std::unique_ptr<Streamer>> streams;
+    Disk disk;
     auto* session = new Session{rate, {}};
+    const long len = seconds * rate + rate, half = len / 2 + 777;  // the second clip starts off any block edge
     for (int t = 0; t < tracks; t++) {
-        readers.emplace_back(new Looping(WavReader::open(stem, err)));
-        streams.emplace_back(new Streamer(readers.back().get(), 0, 0, seconds * rate + rate));
-        streams.back()->startThread();
+        std::vector<ClipRef> clips;
+        for (int k = 0; k < 2; k++) {  // two clips, each with a reader of its own, as two files would be
+            readers.emplace_back(new Looping(WavReader::open(stem, err)));
+            clips.push_back(k == 0 ? ClipRef{readers.back().get(), 0, 0, half, 0.f} : ClipRef{readers.back().get(), half, half, len - half, 0.f});
+        }
+        streams.emplace_back(new Streamer(clips));
+        disk.add(streams.back().get());
         session->tracks.push_back({streams.back().get(), -12.f, 0.f, false, false});
     }
     Engine e(rate, block);
@@ -118,7 +126,7 @@ int main() {
     }
     done = true;
     ui.join();
-    for (auto& s : streams) s->stopThread();
+    for (auto& s : streams) disk.remove(s.get());
     std::vector<float> sorted(cpu), wsorted(wall);
     std::sort(sorted.begin(), sorted.end());
     std::sort(wsorted.begin(), wsorted.end());

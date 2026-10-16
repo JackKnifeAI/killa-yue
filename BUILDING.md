@@ -4,7 +4,7 @@ There are three parts: the engine, the GPU driver, and the app. Release 1.1.0 is
 
 ## On a PC with the Android NDK (how 1.1.0 is built)
 
-Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, `d8`, `zipalign`, `apksigner`) and `platforms;android-23`, a JDK, CMake, Ninja, Meson, Python with Mako and PyYAML, `glslc`, and the Khronos Vulkan-Headers and SPIRV-Headers sources. Below, `$NDK` is the NDK folder and `$TC` is `$NDK/toolchains/llvm/prebuilt/linux-x86_64`.
+Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, `d8`, `zipalign`, `apksigner`) and `platforms;android-35`, a JDK, CMake, Ninja, Meson, Python with Mako and PyYAML, `glslc`, and the Khronos Vulkan-Headers and SPIRV-Headers sources. Below, `$NDK` is the NDK folder and `$TC` is `$NDK/toolchains/llvm/prebuilt/linux-x86_64`.
 
 ### Engine
 
@@ -83,9 +83,22 @@ Set `SCOUT_LIB` to `engine/scout/target/aarch64-linux-android/release/libkillasc
 - whisper.cpp (https://github.com/ggml-org/whisper.cpp): `cmake -S . -B build-android` with the NDK toolchain flags above, `-DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16`, target `whisper-cli`. Set `WHISPER_BIN`.
 - stable-diffusion.cpp (https://github.com/leejet/stable-diffusion.cpp): NDK toolchain, `-DSD_VULKAN=ON -DGGML_OPENMP=OFF -DSD_WEBM=OFF`, the same Vulkan and SPIRV-Headers flags as the engine, target `sd-cli`. Set `SD_BIN`.
 
+### The Studio's audio engine (coming in 1.4.0)
+
+`studio/native` builds `libstudio.so`: the Studio's mixer, disk streaming, the Oboe audio device and the JNI bridge for `ai.jackknife.killayue.studio.NativeEngine`. It needs Oboe 1.11.0 (https://github.com/google/oboe, Apache-2.0; 1.10.0 does not compile against NDK 30's AAudio headers):
+
+```
+cmake -S studio/native -B build-studio -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a \
+    -DANDROID_PLATFORM=android-28 -DANDROID_STL=c++_shared -DOBOE_DIR=/path/to/oboe-1.11.0
+cmake --build build-studio --target studio
+```
+
+Set `STUDIO_LIB` to `build-studio/libstudio.so` (stripped, about 270 KB). `studio/native/test/run.sh` runs its tests on a computer: every test under AddressSanitizer and UBSan, the threaded ones under ThreadSanitizer, then the JNI bridge from Java. For the phone, `STUDIO_TEST=1` makes a test build (never a release) with a test screen that drives the real audio device; see `app/test-src/.../StudioTestActivity.java` for its `adb` commands.
+
 ### App
 
-As in section 3, with the SDK's `d8` in place of `dalvik-exchange`: set `DX` to `app/dx-d8.sh` and `D8` to the build-tools `d8` in `local.env`, `ANDROID_JAR` to the API 23 `android.jar`, and `STRIP` to any strip that handles arm64 ELF (`llvm-strip` from the NDK, or `eu-strip`).
+As in section 3, with the SDK's `d8` in place of `dalvik-exchange`: set `DX` to `app/dx-d8.sh` and `D8` to the build-tools `d8` in `local.env`, `ANDROID_JAR` to the API 35 `android.jar`, and `STRIP` to any strip that handles arm64 ELF (`llvm-strip` from the NDK, or `eu-strip`).
 
 ## On the phone (how 1.0.0 was built)
 
@@ -142,7 +155,7 @@ Android's kernel GPU driver (KGSL) treats a GPU job that runs for several second
 
 ## 3. App
 
-Needs `aapt2`, `javac`, `dalvik-exchange` (dx), `zipalign`, `apksigner` and an `android.jar` (API 23 or later; newer calls are made by reflection). On Debian or Ubuntu:
+Needs `aapt2`, `javac`, `dalvik-exchange` (dx), `zipalign`, `apksigner` and an `android.jar` (API 35 or later; newer calls are made by reflection). On Debian or Ubuntu:
 
 ```
 apt install aapt apksigner zipalign default-jdk-headless dalvik-exchange android-sdk-platform-23

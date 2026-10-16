@@ -11,3 +11,14 @@ Code style: plain Java 8 without lambdas (the build uses the classic dx tool), n
 By contributing you agree that your contribution is licensed under the Apache License 2.0.
 
 Questions that should not be public can go to jackknifeai@proton.me.
+
+## Keep the in-app guide up to date
+
+The app explains itself in `app/assets/guide.txt`, opened from Engine > How everything works. It covers every
+setting and every button: Create and its advanced settings, Library and the player, Lyrics, Engine, and the
+Studio (Vault, Arrange, Mixer, Stems, Export).
+
+**Every pull request that adds, removes or changes a setting, button or gesture updates the guide in the same
+pull request.** Say what the control does and when to use it, in plain words, and give its default when it
+has one. Do not promise speeds or results that have not been measured on a phone. The format is simple:
+`# ` starts a part, `## ` a control, `- ` a list item, any other line is a paragraph.

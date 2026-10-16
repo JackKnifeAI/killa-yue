@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ai.jackknife.killayue" android:versionCode="15" android:versionName="1.3.0">
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
@@ -30,6 +33,9 @@
             </intent-filter>
         </activity>
         <!-- sheet music: view, zoom, print and share the exported PDFs -->
+        <!-- the Studio: portrait or landscape; it handles rotation itself, so the sound never restarts -->
+        <activity android:name=".studio.ui.StudioActivity" android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"/>
         <activity android:name=".SheetActivity" android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"/>
         <!-- the wake-up song rings here, over the lock screen -->
@@ -42,10 +48,13 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
             </intent-filter>
         </receiver>
+        <service android:name=".studio.ui.StudioService" android:exported="false" android:foregroundServiceType="microphone|mediaProjection"/>
         <service android:name=".EngineService" android:exported="false"/>
         <!-- the song engine as a library in its own app process (JNI), bound by EngineService -->
         <service android:name=".EngineHost" android:process=":engine" android:exported="false"/>
         <service android:name=".WriterHost" android:process=":writer" android:exported="false"/>
+        <!-- the Studio's AI jobs (stems) in their own process, so a heavy model's memory goes back when it ends -->
+        <service android:name=".studio.ui.AiHost" android:process=":ai" android:exported="false"/>
         <service android:name=".NowPlaying" android:exported="false"/>
         <receiver android:name=".Widget" android:label="Killa YuE" android:exported="true">
             <intent-filter>
