@@ -819,3 +819,9 @@ The app downloads the YuE2 weights at the user's request from Hugging Face. They
 
 ## Studio time and pitch processing
 Signalsmith Stretch and Signalsmith Linear by Signalsmith Audio, MIT. Pinned revisions and full texts are in studio/native/vendor/VERSIONS.txt and the adjacent LICENSE files. Copies are included in app/assets/licenses. Built-in drum samples are synthesized by this app.
+
+## Oboe 1.11.0 (Studio audio input and output), by Google
+Apache License 2.0, the same licence as this app; its text is in LICENSE. Source: https://github.com/google/oboe. Built into libstudio.so.
+
+## Stems model and runtime (downloaded on request, not included)
+htdemucs (Hybrid Transformer Demucs) by Alexandre Défossez, Simon Rouard and Francisco Massa at Meta AI, MIT licence, exported to ExecuTorch by JackKnifeAI and downloaded from https://huggingface.co/JackKnifeAI/htdemucs-executorch when the Splitter needs it. The ExecuTorch runtime downloaded with it (libexecutorch_ffi.so) is from https://github.com/pytorch/executorch, BSD 3-Clause, with executorch_native (MIT). libkillastem.so in the APK is this app's own code.

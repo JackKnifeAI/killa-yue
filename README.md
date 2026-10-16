@@ -10,7 +10,7 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-Version 1.3.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+Version 1.4.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
 
 ## Requirements
 
@@ -62,6 +62,16 @@ CPU mode is much slower than the GPU. We have not timed it on any phone yet, so 
 - **Copy the models from a friend's phone** instead of downloading 4 GB: each file is checked against its published checksum, and an interrupted copy resumes.
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, ready for TikTok, Reels and Shorts.
 - **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Engine tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
+
+New in 1.4.0, **the Studio**, a music studio inside the app:
+
+- **Stems**: split any song into drums, bass, other and vocals on the phone (Meta's Demucs, a 414 MB download), each its own track.
+- **Arrange and edit**: move, trim, split, duplicate, fade, nudge, stretch and pitch clips, swipe-comp the best take, markers and tempo changes, with an undo and redo history.
+- **Mixer**: a gold strip per track with pan knobs, faders, meters, mute and solo.
+- **Record (Play Along)**: sing or play over a song from the microphone, a USB interface or another app's sound, with count-in, click, punch, loop takes, latency calibration and recovery of interrupted takes.
+- **The Chamber**: sixteen pads; load any project clip or sound file, chop it at its hits, trim, tune and shape it, record what you play onto the step grid, and bounce the pads to their own track.
+- **Export and wrap up**: the mix as WAV or M4A, every stem, or straight into your library; Wrap up turns a finished project into a song and frees its space.
+- **Write with AI now writes the title too**, and has its own big button. **How everything works** (Engine tab) explains every control in the app. Two new community skins in `skins/`: **Abbey '68** and **Arctic Tactical**.
 
 New in 1.3.0:
 
