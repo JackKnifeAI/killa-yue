@@ -348,6 +348,7 @@ public class Songwriter {
                                     return;
                                 }
                                 a.checkpoint();
+                                if (s.title.length() > 0) a.songTitle.setText(s.title);
                                 a.style.setText(s.style);
                                 a.lyrics.setText(s.lyrics);
                                 a.settle();

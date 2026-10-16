@@ -9,10 +9,12 @@ The genre, mood, instruments and voice, in plain words ("smooth neo-soul, warm f
 ## Lyrics
 The words, in sections. The section buttons add [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge] and [Outro] tags; each section is sung in turn.
 ## Write with AI
-The big gold button under the lyrics. A songwriter model on the phone writes the style and the lyrics from your idea, straight into the song screen. The first time, it offers to download its model. It waits while a song is being made: the phone runs one big model at a time.
+The big gold button under the lyrics. A songwriter model on the phone writes the title, the style and the lyrics from your idea, straight into the song screen. Undo takes them back. The first time, it offers to download its model. It waits while a song is being made: the phone runs one big model at a time.
 - Rewrite style and Rewrite lyrics write that part again.
 - Sources shows what it looked up, when it is set to look things up first.
 - Songwriter model picks or downloads the model it uses.
+## Save these lyrics / My saved lyrics
+Keeps the lyrics to use again. The name offered is the song's title, or the first sung line when there is no title yet.
 ## Length
 How long the song is. Longer songs take longer to make and need more memory (see Engine > Memory for song length).
 ## Score

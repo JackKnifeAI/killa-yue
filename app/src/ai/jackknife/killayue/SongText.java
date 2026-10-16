@@ -25,11 +25,14 @@ public class SongText {
     private static final String SINGER = "(?i)^(?:male|female|man|woman|both|all|lead|choir|chorus|crowd|backing(?: vocals?)?|vocals?|singer|rapper|duet|him|her)\\s*\\d*\\s*:\\s+";
     // a direction in brackets inside a line: "(echo)", "(x2)", "[guitar riff]"; sung ad-libs like "(yeah)" stay
     private static final String DIRECTION = "(?i)\\s*[(\\[][^)\\]]*\\b(?:echo|repeat|x\\d|\\d+x|spoken|whisper\\w*|sound|sfx|instrumental|guitar|drums?|synths?|bass|piano|beat|fade\\w*|pause|silence|laugh\\w*|applause|crowd noise|riff|solo|tempo|key change|ad-?lib)\\b[^)\\]]*[)\\]]";
+    private static final Pattern TITLE = Pattern.compile("<title>\\s*(.*?)\\s*</title>", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    // models that skip the tag tend to write a heading line instead: "Title: ...", "**Title:** ..."
+    private static final Pattern TITLE_HEAD = Pattern.compile("^[#*\\s]*(?:song )?title\\s*[:*]+\\**\\s*(.+?)\\s*$", Pattern.MULTILINE | Pattern.CASE_INSENSITIVE);
     private static final Pattern THINK = Pattern.compile("<think>.*?(</think>|$)", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
     /** The parts of a song as the model wrote them, after cleaning. */
     static class Song {
-        String style = "", lyrics = "";
+        String title = "", style = "", lyrics = "";  // the title is optional: an empty one leaves the box as it is
         boolean complete;    // both parts were found
     }
 
@@ -90,6 +93,10 @@ public class SongText {
                 hs = hl = true;
             }
         }
+        Matcher mt = TITLE.matcher(a);
+        if (mt.find()) s.title = mt.group(1);
+        else if ((mt = TITLE_HEAD.matcher(a)).find()) s.title = mt.group(1);
+        s.title = cleanTitle(s.title);
         s.style = cleanStyle(s.style);
         s.lyrics = cleanLyrics(s.lyrics);
         s.complete = hs && hl && s.style.length() > 0 && s.lyrics.length() > 0;
@@ -107,6 +114,19 @@ public class SongText {
         }
         String body = found ? m.group(1) : a;
         return "style".equals(part) ? cleanStyle(body) : cleanLyrics(body);
+    }
+
+    /** One short line: no markdown, quotes or trailing full stop, at most 80 characters. */
+    static String cleanTitle(String s) {
+        if (s == null) return "";
+        String t = s.trim();
+        int nl = t.indexOf('\n');
+        if (nl >= 0) t = t.substring(0, nl).trim();
+        t = t.replaceAll("^[#*_\\s]+|[*_\\s]+$", "");
+        t = t.replaceAll("^[\"'\u201c\u201d\u2018\u2019]+|[\"'\u201c\u201d\u2018\u2019]+$", "").trim();
+        if (t.endsWith(".") && !t.endsWith("...")) t = t.substring(0, t.length() - 1).trim();
+        if (t.length() > 80) t = t.substring(0, 80).trim();
+        return t;
     }
 
     static String cleanStyle(String s) {

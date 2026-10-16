@@ -892,7 +892,8 @@ public class MainActivity extends Activity {
             toast("There is no " + word + " to save yet");
             return;
         }
-        String guess = "";
+        // lyrics are named after the song when it has a title; otherwise, as for a style, after the first sung line
+        String guess = "lyrics".equals(word) && songTitle != null ? songTitle.getText().toString().trim() : "";
         String[] lines = body.split("\n");
         for (int i = 0; i < lines.length && guess.length() == 0; i++) {
             String l = lines[i].trim();
