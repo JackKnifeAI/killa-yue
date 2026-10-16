@@ -141,7 +141,7 @@ Stretch / pitch renders a new file. Choose 25–400% of the original length, the
 The line above the projects shows how much space they use and how much the phone has free. The ⋯ beside a project opens what you can do with it:
 - Open, Rename.
 - Wrap up: the finished mix goes into your library as a song, then you can delete the project to give its space back.
-- Compact: removes audio the project no longer uses (old takes, undone imports). Nothing you can hear goes.
+- Compact: removes audio files that neither the project nor its undo history uses any more. Nothing you can hear, or get back with Undo, goes.
 - Delete: the project and everything in it go; songs in your library stay.
 ## Put a sound on a pad
 1. Tap a pad to choose it. The chosen pad lights up with a ring.
