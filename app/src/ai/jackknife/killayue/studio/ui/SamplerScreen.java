@@ -21,7 +21,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         root.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 10), 0);
         TextView title = Ui.text(a, "THE CHAMBER", Skin.HI, 20);
         root.addView(title);
-        root.addView(Ui.text(a, "1. Tap a pad to choose it (it glows).\n2. Sample puts a sound on it: a clip from this project, or a sound file on the phone.\n"
+        root.addView(Ui.text(a, "1. Tap a pad to choose it (it lights up).\n2. Sample puts a sound on it: a clip from this project, or a sound file on the phone.\n"
                 + "3. Hold a pad to shape it. Chop slices one sound across all 16 pads; Kit brings the drums back.", Skin.TEXT, 13));
         for (int row = 0; row < 4; row++) {
             LinearLayout line = Ui.row(a);

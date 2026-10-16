@@ -138,7 +138,7 @@ Stretch / pitch renders a new file. Choose 25–400% of the original length, the
 
 # Studio — The Chamber
 ## Put a sound on a pad
-1. Tap a pad to choose it. The chosen pad glows.
+1. Tap a pad to choose it. The chosen pad lights up with a ring.
 2. Press Sample, then pick a clip from this project, or "A sound file on the phone…" to bring in any audio file.
 3. Tap the pad to hear it. Hold it, or press Shape, to tune and shape it.
 To fill all sixteen pads at once, press Chop and pick one sound: it is cut at its hits and spread across the pads. Kit puts the built-in drums back.
