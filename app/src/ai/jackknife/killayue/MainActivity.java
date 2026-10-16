@@ -578,13 +578,16 @@ public class MainActivity extends Activity {
         }
         c.addView(chipRow(SECTIONS, la));
         c.addView(savedRow("lyrics", "lyrics", lyrics));
-        // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter)
-        c.addView(chipRow(new String[] {"Write with AI", "Rewrite style", "Rewrite lyrics", "Sources", "Songwriter model"}, new Runnable[] {
-            new Runnable() {
-                public void run() {
-                    Songwriter.write(MainActivity.this);
-                }
-            },
+        // Write with AI: a language model on the phone writes or rewrites the style and lyrics (Songwriter).
+        // A headline feature, so it gets the big gold button; its helpers stay in the chip row under it.
+        Button writeBtn = button("Write with AI", true);
+        writeBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Songwriter.write(MainActivity.this);
+            }
+        });
+        c.addView(writeBtn, gap(14));
+        c.addView(chipRow(new String[] {"Rewrite style", "Rewrite lyrics", "Sources", "Songwriter model"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     Songwriter.rewrite(MainActivity.this, "style");

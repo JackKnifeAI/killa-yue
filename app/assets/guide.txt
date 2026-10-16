@@ -8,6 +8,11 @@ The name the song gets in your library.
 The genre, mood, instruments and voice, in plain words ("smooth neo-soul, warm female vocals, 90 bpm"). The chips under it add common styles.
 ## Lyrics
 The words, in sections. The section buttons add [Intro], [Verse], [Pre-Chorus], [Chorus], [Bridge] and [Outro] tags; each section is sung in turn.
+## Write with AI
+The big gold button under the lyrics. A songwriter model on the phone writes the style and the lyrics from your idea, straight into the song screen. The first time, it offers to download its model. It waits while a song is being made: the phone runs one big model at a time.
+- Rewrite style and Rewrite lyrics write that part again.
+- Sources shows what it looked up, when it is set to look things up first.
+- Songwriter model picks or downloads the model it uses.
 ## Length
 How long the song is. Longer songs take longer to make and need more memory (see Engine > Memory for song length).
 ## Score
