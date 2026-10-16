@@ -269,7 +269,8 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             fill.setStyle(Paint.Style.STROKE);
             fill.setStrokeWidth(Ui.dp(getContext(), 1));
             fill.setColor((Skin.ACCENT & 0x00FFFFFF) | 0x55000000);
-            r.inset(Ui.dp(getContext(), 0.5f), Ui.dp(getContext(), 0.5f));
+            float half = getResources().getDisplayMetrics().density * 0.5f;
+            r.inset(half, half);
             c.drawRoundRect(r, Ui.dp(getContext(), 10), Ui.dp(getContext(), 10), fill);
             fill.setStyle(Paint.Style.FILL);
             // name, with the track's colour above it
@@ -305,7 +306,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
                     c.drawCircle(cx, cy, rad * 0.8f, fill);
                 }
                 double ang = Math.toRadians(-90 + t.pan * 135);
-                line.setStrokeWidth(Ui.dp(getContext(), 2.5f));
+                line.setStrokeWidth(getResources().getDisplayMetrics().density * 2.5f);
                 line.setColor(0xff33240d);
                 c.drawLine(cx + (float) Math.cos(ang) * rad * 0.48f, cy + (float) Math.sin(ang) * rad * 0.48f,
                         cx + (float) Math.cos(ang) * rad * 0.81f, cy + (float) Math.sin(ang) * rad * 0.81f, line);
