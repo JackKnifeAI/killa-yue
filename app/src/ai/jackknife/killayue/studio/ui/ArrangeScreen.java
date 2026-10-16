@@ -37,13 +37,20 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         view = Ui.column(a);
         LinearLayout bar = Ui.row(a);
         bar.setPadding(Ui.dp(a, 10), Ui.dp(a, 2), Ui.dp(a, 10), Ui.dp(a, 4));
-        Button start = Ui.chip(a, "⏮");
-        play = Ui.chip(a, "▶ Play");
-        loop = Ui.chip(a, "Loop");
-        undo = Ui.chip(a, "↶ Undo");
-        redo = Ui.chip(a, "Redo ↷");
-        Button hist = Ui.chip(a, "History");
-        Button export = Ui.chip(a, "Export");
+        Button start = RoundFace.button(a, "⏮");
+        start.setContentDescription("Back to the start");
+        play = RoundFace.button(a, "▶");
+        play.setContentDescription("Play");
+        loop = RoundFace.button(a, "↻");
+        loop.setContentDescription("Loop");
+        undo = RoundFace.button(a, "↶");
+        undo.setContentDescription("Undo");
+        redo = RoundFace.button(a, "↷");
+        redo.setContentDescription("Redo");
+        Button hist = RoundFace.button(a, "☰");
+        hist.setContentDescription("History");
+        Button export = RoundFace.button(a, "⤓");
+        export.setContentDescription("Export");
         time = Ui.text(a, "0:00.0", Skin.TEXT, 15);
         time.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
         time.setPadding(Ui.dp(a, 4), 0, Ui.dp(a, 8), 0);
@@ -153,9 +160,11 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         Project p = a.session.project();
         if (p == null) fitted = false;
         undo.setEnabled(h != null && h.canUndo());
-        undo.setText(h != null && h.undoLabel() != null ? "↶ " + h.undoLabel() : "↶ Undo");
+        undo.setContentDescription(h != null && h.undoLabel() != null ? "Undo " + h.undoLabel() : "Undo");
+        undo.setAlpha(undo.isEnabled() ? 1f : 0.45f);
         redo.setEnabled(h != null && h.canRedo());
-        loop.setTextColor(p != null && p.loopOn ? Skin.HI : Skin.ACCENT);
+        redo.setAlpha(redo.isEnabled() ? 1f : 0.45f);
+        loop.setTextColor(p != null && p.loopOn ? Skin.HI : Skin.LO);
         timeline.requestLayout();
         timeline.invalidate();
     }
@@ -167,7 +176,8 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
         double sec = s.position / (double) rate;
         int m = (int) (sec / 60);
         time.setText(String.format(java.util.Locale.ROOT, "%d:%04.1f", m, sec - m * 60));
-        play.setText(s.playing ? "■ Stop" : "▶ Play");
+        play.setText(s.playing ? "■" : "▶");
+        play.setContentDescription(s.playing ? "Stop" : "Play");
         // health: green, amber after a dropout from the disk, red after one from the device
         if (underruns >= 0 && s.underruns > underruns && s.playing) health.setTextColor(0xffe0b04a);
         if (xruns >= 0 && s.xruns > xruns) health.setTextColor(0xffe05050);

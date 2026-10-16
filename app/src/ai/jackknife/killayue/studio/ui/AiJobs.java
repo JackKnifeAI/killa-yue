@@ -24,7 +24,7 @@ import ai.jackknife.killayue.studio.StudioModels;
  * the ":ai" process, lets it be cancelled and carried on, and never starts one while a song is being made (the
  * song engine has the GPU first).
  */
-final class AiJobs {
+public final class AiJobs {
     private static ServiceConnection running;
     private static AiJob current;
 
@@ -150,6 +150,8 @@ final class AiJobs {
         final Context app = c.getApplicationContext();
         Intent i = new Intent(app, AiHost.class);
         i.putExtra(AiHost.JOB, job.dir().getAbsolutePath());
+        boolean fast = fast(app);
+        i.putExtra(AiHost.FAST, fast);
         StudioModels.File[] files = StudioModels.forFeature(job.kind());
         for (StudioModels.File f : files) {
             if (f.name.endsWith(".so")) i.putExtra(AiHost.RUNTIME, file(app, f).getAbsolutePath());
@@ -164,7 +166,7 @@ final class AiJobs {
             }
         };
         current = job;
-        if (!app.bindService(i, running, Context.BIND_AUTO_CREATE)) {
+        if (!app.bindService(i, running, Context.BIND_AUTO_CREATE | (fast ? Context.BIND_IMPORTANT : 0))) {
             running = null;
             current = null;
             return "The AI process would not start.";
@@ -187,5 +189,14 @@ final class AiJobs {
 
     static AiJob current() {
         return current;
+    }
+
+    /** Full speed: the job runs at normal priority on the big cores instead of in the background. */
+    public static boolean fast(Context c) {
+        return c.getSharedPreferences("studio", Context.MODE_PRIVATE).getBoolean("aiFast", false);
+    }
+
+    public static void fast(Context c, boolean on) {
+        c.getSharedPreferences("studio", Context.MODE_PRIVATE).edit().putBoolean("aiFast", on).apply();
     }
 }

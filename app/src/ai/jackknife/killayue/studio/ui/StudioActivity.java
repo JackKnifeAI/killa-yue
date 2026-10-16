@@ -73,8 +73,23 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         title.setGravity(Gravity.CENTER);
         title.setSingleLine(true);
         title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.setPadding(Ui.dp(this, 16), Ui.dp(this, 10), Ui.dp(this, 16), Ui.dp(this, 4));
-        root.addView(title);
+        title.setPadding(Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 4));
+        LinearLayout head = Ui.row(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 10), 0);
+        Button back = RoundFace.button(this, "‹");
+        back.setTextSize(26);
+        back.setContentDescription("Back to Killa YuE");
+        back.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                finish();
+            }
+        });
+        head.addView(back);
+        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
+        View balance = new View(this);  // keeps the title centred on the screen
+        head.addView(balance, new LinearLayout.LayoutParams(Ui.dp(this, 54), 1));
+        root.addView(head);
 
         content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -129,9 +144,10 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         screens[i].view().setVisibility(View.VISIBLE);
         screens[i].shown();
         for (int k = 0; k < tabs.length; k++) {
-            tabs[k].setBackground(new Skin.Plate(k == i));
+            tabs[k].setBackground(new Skin.Plate(false, k == i));
             tabs[k].setTextColor(k == i ? Skin.HI : Skin.LO);
             tabs[k].setTypeface(Skin.text(), k == i ? Typeface.BOLD : Typeface.NORMAL);
+            tabs[k].setShadowLayer(k == i ? Ui.dp(this, 7) : 0, 0, 0, k == i ? (0xEE << 24) | Skin.GLOW : 0);
         }
     }
 

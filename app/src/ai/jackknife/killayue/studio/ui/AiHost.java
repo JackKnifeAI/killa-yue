@@ -17,7 +17,7 @@ import ai.jackknife.killayue.studio.NativeStem;
  * the song engine come first. Unbinding kills it; the job's checkpoint lets it carry on later.
  */
 public class AiHost extends Service {
-    static final String JOB = "job", RUNTIME = "runtime", MODEL = "model";
+    static final String JOB = "job", RUNTIME = "runtime", MODEL = "model", FAST = "fast";
     private static volatile boolean started;
 
     @Override
@@ -26,9 +26,10 @@ public class AiHost extends Service {
             started = true;
             final File dir = new File(in.getStringExtra(JOB));
             final File runtime = new File(in.getStringExtra(RUNTIME)), model = new File(in.getStringExtra(MODEL));
+            final boolean fast = in.getBooleanExtra(FAST, false);
             new Thread(new Runnable() {
                 public void run() {
-                    Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+                    Process.setThreadPriority(fast ? Process.THREAD_PRIORITY_DEFAULT : Process.THREAD_PRIORITY_BACKGROUND);
                     AiJob job = AiJob.open(dir);
                     try {
                         if (job == null) throw new Exception("The job folder is damaged.");

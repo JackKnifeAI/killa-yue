@@ -3646,6 +3646,17 @@ public class MainActivity extends Activity {
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
         gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
+        final CheckBox stemsFast = new CheckBox(this);
+        stemsFast.setText("Studio jobs at full speed (stems split faster; playback may stutter while one runs)");
+        stemsFast.setTextColor(TEXT);
+        stemsFast.setShadowLayer(4, 0, 1, 0x99000000);
+        stemsFast.setChecked(ai.jackknife.killayue.studio.ui.AiJobs.fast(this));
+        stemsFast.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                ai.jackknife.killayue.studio.ui.AiJobs.fast(MainActivity.this, on);
+            }
+        });
+        c.addView(stemsFast, gap(8));
         final CheckBox procBox = new CheckBox(this);
         procBox.setText("Run the engine in its own app process (new: Android's limits on child processes no longer apply)");
         procBox.setTextColor(TEXT);

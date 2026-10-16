@@ -319,30 +319,48 @@ public class Skin {
 
     /** A button plate stretched to any width: the skin's main button, or its quieter sibling. */
     public static class Plate extends Drawable {
-        private final boolean gold;
+        private final boolean gold, sunk;
         private final Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
         private boolean pressed;
 
         public Plate(boolean gold) {
+            this(gold, false);
+        }
+
+        /** sunk: the plate held down, for the selected tab of a row: pushed in, darker, shaded under its top edge. */
+        public Plate(boolean gold, boolean sunk) {
             this.gold = gold;
+            this.sunk = sunk;
         }
 
         @Override
         public void draw(Canvas canvas) {
             Rect b = getBounds();
+            if (sunk) {
+                int in = Math.max(1, b.height() / 22);
+                b = new Rect(b.left + in, b.top + in, b.right - in, b.bottom - in);
+            }
             Bitmap bmp = gold ? action : nav;
             Rect s = new Rect(0, 0, bmp.getWidth(), bmp.getHeight());
             float scale = b.height() / (float) s.height();
             // the rounded, knurled ends keep their shape; only the plain middle stretches
             int capSrc = Math.round(s.height() * 0.54f);
             int capDst = Math.min((int) (capSrc * scale), b.width() / 2);
-            p.setColorFilter(pressed ? new LightingColorFilter(0xFFFFFFFF, 0x00302410) : null);
+            p.setColorFilter(sunk ? new LightingColorFilter(0xFF8C8C8C, 0) : pressed ? new LightingColorFilter(0xFFFFFFFF, 0x00302410) : null);
             canvas.drawBitmap(bmp, new Rect(s.left, s.top, s.left + capSrc, s.bottom),
                     new Rect(b.left, b.top, b.left + capDst, b.bottom), p);
             canvas.drawBitmap(bmp, new Rect(s.left + capSrc, s.top, s.right - capSrc, s.bottom),
                     new Rect(b.left + capDst, b.top, b.right - capDst, b.bottom), p);
             canvas.drawBitmap(bmp, new Rect(s.right - capSrc, s.top, s.right, s.bottom),
                     new Rect(b.right - capDst, b.top, b.right, b.bottom), p);
+            if (sunk) {  // the shadow of the rim on the pushed-in face
+                Paint sh = new Paint(Paint.ANTI_ALIAS_FLAG);
+                sh.setShader(new android.graphics.LinearGradient(0, b.top, 0, b.top + b.height() * 0.45f, 0x99000000, 0x00000000,
+                        android.graphics.Shader.TileMode.CLAMP));
+                float r = b.height() / 2f;
+                canvas.drawRoundRect(new android.graphics.RectF(b.left + r * 0.35f, b.top + b.height() * 0.12f, b.right - r * 0.35f,
+                        b.bottom - b.height() * 0.12f), r, r, sh);
+            }
         }
 
         @Override

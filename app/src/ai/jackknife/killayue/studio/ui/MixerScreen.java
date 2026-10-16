@@ -35,10 +35,21 @@ final class MixerScreen implements Screen, StudioSession.Listener {
     private final HashMap<String, float[]> meters = new HashMap<String, float[]>();
     private String layoutKey = "";
 
+    /** Killa Studio's gold knob face, shared by every strip. */
+    private static android.graphics.Bitmap knobArt;
+
     MixerScreen(StudioActivity a) {
         this.a = a;
         view = new HorizontalScrollView(a);
         view.setFillViewport(true);
+        view.setBackground(Skin.background(a));
+        if (knobArt == null) {
+            try (java.io.InputStream in = a.getAssets().open("studio/gold-knob.png")) {
+                knobArt = android.graphics.BitmapFactory.decodeStream(in);
+            } catch (Exception e) {
+                knobArt = null;  // the drawn knob below still works without the art
+            }
+        }
         strips = Ui.row(a);
         strips.setPadding(Ui.dp(a, 8), Ui.dp(a, 4), Ui.dp(a, 8), Ui.dp(a, 8));
         view.addView(strips);
@@ -252,9 +263,15 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             boolean heard = t == null || p.audible(t);
             // the strip's plate
             fill.setShader(null);
-            fill.setColor(Skin.CARD);
+            fill.setColor((Skin.CARD & 0x00FFFFFF) | 0x8C000000);  // translucent, so the leather shows through
             r.set(0, 0, w, h);
             c.drawRoundRect(r, Ui.dp(getContext(), 10), Ui.dp(getContext(), 10), fill);
+            fill.setStyle(Paint.Style.STROKE);
+            fill.setStrokeWidth(Ui.dp(getContext(), 1));
+            fill.setColor((Skin.ACCENT & 0x00FFFFFF) | 0x55000000);
+            r.inset(Ui.dp(getContext(), 0.5f), Ui.dp(getContext(), 0.5f));
+            c.drawRoundRect(r, Ui.dp(getContext(), 10), Ui.dp(getContext(), 10), fill);
+            fill.setStyle(Paint.Style.FILL);
             // name, with the track's colour above it
             fill.setColor(t == null ? Skin.ACCENT : t.color);
             c.drawRect(Ui.dp(getContext(), 10), Ui.dp(getContext(), 4), w - Ui.dp(getContext(), 10), Ui.dp(getContext(), 7), fill);
@@ -265,14 +282,34 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             c.drawText(name, w / 2, Ui.dp(getContext(), 24), text);
             // the pan knob
             if (t != null) {
-                float cx = w / 2, cy = nameH() + knobH() / 2, rad = knobH() * 0.32f;
-                fill.setColor(Skin.DECK);
-                c.drawCircle(cx, cy, rad, fill);
-                fill.setColor(Skin.EDGE);
-                c.drawCircle(cx, cy, rad * 0.8f, fill);
+                // Killa Studio's knob: a ring of ticks lit out from the centre, the gold face, a dark pointer
+                float cx = w / 2, cy = nameH() + knobH() / 2, rad = knobH() * 0.30f;
+                float lineW = line.getStrokeWidth();
+                line.setStrokeWidth(Ui.dp(getContext(), 1));
+                for (int i = 0; i <= 24; i++) {
+                    double tick = Math.toRadians(135 + i * 270 / 24.0);
+                    float at = (i - 12) / 12f;  // -1 left .. 1 right
+                    boolean lit = t.pan < 0 ? at <= 0 && at >= t.pan : at >= 0 && at <= t.pan;
+                    line.setColor(lit ? Skin.ACCENT : 0xff494332);
+                    c.drawLine(cx + (float) Math.cos(tick) * (rad + 3), cy + (float) Math.sin(tick) * (rad + 3),
+                            cx + (float) Math.cos(tick) * (rad + 6), cy + (float) Math.sin(tick) * (rad + 6), line);
+                }
+                fill.setShader(new android.graphics.RadialGradient(cx, cy, rad + 2, new int[] {0xff564721, 0xff080808, 0xffb48a39},
+                        new float[] {0, .92f, 1}, android.graphics.Shader.TileMode.CLAMP));
+                c.drawCircle(cx, cy, rad + 2, fill);
+                fill.setShader(null);
+                fill.setColor(0xFFFFFFFF);
+                if (knobArt != null) c.drawBitmap(knobArt, null, new RectF(cx - rad, cy - rad, cx + rad, cy + rad), fill);
+                else {
+                    fill.setColor(Skin.EDGE);
+                    c.drawCircle(cx, cy, rad * 0.8f, fill);
+                }
                 double ang = Math.toRadians(-90 + t.pan * 135);
-                line.setColor(Skin.ACCENT);
-                c.drawLine(cx, cy, cx + (float) Math.cos(ang) * rad * 0.85f, cy + (float) Math.sin(ang) * rad * 0.85f, line);
+                line.setStrokeWidth(Ui.dp(getContext(), 2.5f));
+                line.setColor(0xff33240d);
+                c.drawLine(cx + (float) Math.cos(ang) * rad * 0.48f, cy + (float) Math.sin(ang) * rad * 0.48f,
+                        cx + (float) Math.cos(ang) * rad * 0.81f, cy + (float) Math.sin(ang) * rad * 0.81f, line);
+                line.setStrokeWidth(lineW);
                 text.setTextSize(Ui.dp(getContext(), 10));
                 text.setColor(Skin.DIM);
                 c.drawText(t.pan == 0 ? "C" : (t.pan < 0 ? "L" : "R") + Math.round(Math.abs(t.pan) * 100), cx, cy + rad + Ui.dp(getContext(), 12), text);
