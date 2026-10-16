@@ -92,9 +92,9 @@ The tracks laid out in time.
 - M mutes a track; S solos it (only soloed tracks are heard).
 ## Mixer
 A strip for every track, and the master at the end.
-- The chips across the top jump to a track's strip.
-- The gold knob pans the track left or right; drag up or down. Double-tap to put it back in the centre.
-- The fader sets the track's volume; drag it. Double-tap to put it back at 0 dB.
+- Swipe left or right anywhere except on a control to move along the strips.
+- The gold knob pans the track left or right: touch the knob itself and drag up or down. Double-tap it to put it back in the centre.
+- The fader sets the track's volume: touch its gold cap and drag. Double-tap the cap to put it back at 0 dB.
 - The meter beside the fader shows how loud the track is playing.
 - M mutes and S solos, as in Arrange.
 ## Stems

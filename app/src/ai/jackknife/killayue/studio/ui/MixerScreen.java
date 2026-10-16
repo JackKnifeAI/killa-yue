@@ -30,8 +30,7 @@ import ai.jackknife.killayue.studio.Track;
 final class MixerScreen implements Screen, StudioSession.Listener {
     private final StudioActivity a;
     private final HorizontalScrollView view;
-    private final LinearLayout root, rail;  // rail: a chip per strip, tap to glide to it
-    private final HorizontalScrollView railScroll;
+    private final LinearLayout root;
     private final LinearLayout strips;
     private final ArrayList<Strip> list = new ArrayList<Strip>();
     private final HashMap<String, float[]> meters = new HashMap<String, float[]>();
@@ -44,12 +43,6 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         this.a = a;
         root = Ui.column(a);
         root.setBackground(Skin.background(a));
-        railScroll = new HorizontalScrollView(a);
-        railScroll.setHorizontalScrollBarEnabled(false);
-        rail = Ui.row(a);
-        rail.setPadding(Ui.dp(a, 8), Ui.dp(a, 2), Ui.dp(a, 8), Ui.dp(a, 4));
-        railScroll.addView(rail);
-        root.addView(railScroll);
         view = new HorizontalScrollView(a);
         view.setFillViewport(true);
         root.addView(view, new LinearLayout.LayoutParams(-1, 0, 1f));
@@ -83,36 +76,24 @@ final class MixerScreen implements Screen, StudioSession.Listener {
     public void projectChanged() {
         Project p = a.session.project();
         StringBuilder key = new StringBuilder();
-        if (p != null) for (Track t : p.tracks) key.append(t.id).append(':').append(t.name).append(',');
+        if (p != null) for (Track t : p.tracks) key.append(t.id).append(',');
         if (!key.toString().equals(layoutKey)) {
             layoutKey = key.toString();
             strips.removeAllViews();
             list.clear();
-            rail.removeAllViews();
             if (p != null) {
-                for (Track t : p.tracks) add(new Strip(a, t.id), t.name, t.color);
-                add(new Strip(a, null), "Master", Skin.ACCENT);
+                for (Track t : p.tracks) add(new Strip(a, t.id));
+                add(new Strip(a, null));
             }
         }
         for (Strip s : list) s.invalidate();
     }
 
-    private void add(final Strip s, String name, int color) {
+    private void add(Strip s) {
         list.add(s);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(a, 92), -1);
         lp.rightMargin = Ui.dp(a, 6);
         strips.addView(s, lp);
-        android.widget.Button chip = Ui.chip(a, name);
-        chip.setTextColor(color | 0xFF000000);
-        chip.setContentDescription("Go to " + name);
-        chip.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                view.smoothScrollTo(Math.max(0, s.getLeft() - Ui.dp(a, 8)), 0);
-            }
-        });
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2);
-        cp.rightMargin = Ui.dp(a, 6);
-        rail.addView(chip, cp);
     }
 
     public void frame(NativeEngine.Status s) {
@@ -165,9 +146,8 @@ final class MixerScreen implements Screen, StudioSession.Listener {
 
                 @Override
                 public boolean onDoubleTap(MotionEvent e) {
-                    int part = part(e.getY());
-                    if (part == 1) set(0f, false);
-                    else if (part == 2 && id != null) a.session.run(Edit.pan(id, 0f));
+                    if (onCap(e.getX(), e.getY())) set(0f, false);
+                    else if (id != null && onKnob(e.getX(), e.getY())) a.session.run(Edit.pan(id, 0f));
                     return true;
                 }
             });
@@ -206,19 +186,41 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         }
 
         /** 1 fader, 2 knob, 3 lamps, 0 the name. */
-        private int part(float y) {
-            if (y < nameH()) return 0;
-            if (y < nameH() + knobH()) return 2;
-            if (y > getHeight() - lampsH()) return 3;
-            return 1;
-        }
-
         private boolean tapLamps(float x, float y) {
             Track t = track();
-            if (t == null || part(y) != 3) return false;
-            if (x < getWidth() / 2f) a.session.run(Edit.mute(t.id, !t.mute));
-            else a.session.run(Edit.solo(t.id, !t.solo));
-            return true;
+            if (t == null) return false;
+            for (int k = 0; k < 2; k++) {
+                if (Math.hypot(x - lampX(k), y - lampY()) > lampR() + Ui.dp(getContext(), 6)) continue;
+                a.session.run(k == 0 ? Edit.mute(t.id, !t.mute) : Edit.solo(t.id, !t.solo));
+                return true;
+            }
+            return false;
+        }
+
+        /** The knob, a little generous for a finger. */
+        private boolean onKnob(float x, float y) {
+            float cx = getWidth() / 2f, cy = nameH() + knobH() / 2, rad = knobH() * 0.30f;
+            return Math.hypot(x - cx, y - cy) <= rad + Ui.dp(getContext(), 10);
+        }
+
+        /** The fader's cap where it sits now, a little generous for a finger. */
+        private boolean onCap(float x, float y) {
+            float top = faderTop(), bottom = faderBottom(), cy = bottom - dbToPos(db()) * (bottom - top);
+            float sx = getWidth() * 0.36f;
+            return Math.abs(x - sx) <= Ui.dp(getContext(), 22) && Math.abs(y - cy) <= Ui.dp(getContext(), 20);
+        }
+
+        // mute and solo: small round player buttons, clear of the panel's corner rivets
+        private float lampR() {
+            return Ui.dp(getContext(), 12);
+        }
+
+        private float lampX(int k) {
+            return getWidth() * (k == 0 ? 0.31f : 0.69f);
+        }
+
+        private float lampY() {
+            return getHeight() - Ui.dp(getContext(), 26);
         }
 
         private void set(float db, boolean drag) {
@@ -232,8 +234,8 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             taps.onTouchEvent(e);
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    int part = part(e.getY());
-                    dragging = part == 1 ? 1 : part == 2 ? 2 : 0;
+                    // only the fader's cap and the knob itself take hold; anywhere else pans the mixer
+                    dragging = onCap(e.getX(), e.getY()) ? 1 : id != null && onKnob(e.getX(), e.getY()) ? 2 : 0;
                     gesture = new Object();
                     downY = e.getY();
                     Track t = track();
@@ -371,15 +373,27 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             c.drawText(db <= -59.9f ? "-∞" : String.format(java.util.Locale.ROOT, "%+.1f", db), w / 2, bottom + Ui.dp(getContext(), 12), text);
             // mute and solo lamps
             if (t != null) {
-                float ly = h - lampsH() / 2 + Ui.dp(getContext(), 4);
+                float ly = lampY(), lr = lampR();
+                android.graphics.Bitmap round = Skin.round();
                 for (int k = 0; k < 2; k++) {
                     boolean on = k == 0 ? t.mute : t.solo;
-                    float lx = k == 0 ? w * 0.28f : w * 0.72f;
-                    fill.setColor(on ? (k == 0 ? 0xffe0607e : Skin.ACCENT) : Skin.DECK);
-                    c.drawCircle(lx, ly, Ui.dp(getContext(), 14), fill);
-                    text.setTextSize(Ui.dp(getContext(), 13));
-                    text.setColor(on ? 0xff101010 : Skin.DIM);
-                    c.drawText(k == 0 ? "M" : "S", lx, ly + Ui.dp(getContext(), 5), text);
+                    float lx = lampX(k);
+                    int lit = k == 0 ? 0xe0607e : (Skin.GLOW & 0xFFFFFF);
+                    if (on) {  // the player's glow, in the lamp's colour
+                        fill.setShader(new android.graphics.RadialGradient(lx, ly, lr * 1.6f, 0xCC000000 | lit, lit,
+                                Shader.TileMode.CLAMP));
+                        c.drawCircle(lx, ly, lr * 1.6f, fill);
+                        fill.setShader(null);
+                    }
+                    fill.setColor(0xFFFFFFFF);
+                    if (round != null) c.drawBitmap(round, null, new RectF(lx - lr, ly - lr, lx + lr, ly + lr), fill);
+                    else {
+                        fill.setColor(Skin.DECK);
+                        c.drawCircle(lx, ly, lr, fill);
+                    }
+                    text.setTextSize(Ui.dp(getContext(), 10));
+                    text.setColor(on ? (0xFF000000 | lit) : Skin.DIM);
+                    c.drawText(k == 0 ? "M" : "S", lx, ly + Ui.dp(getContext(), 4), text);
                 }
             }
         }
