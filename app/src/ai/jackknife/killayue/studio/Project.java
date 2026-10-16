@@ -20,8 +20,8 @@ public final class Project {
     public int nextId = 1;
     public float masterDb;
     public final ArrayList<Track> tracks = new ArrayList<Track>();
-    public String sourceSong, sourceTitle; // the library song it was made from (its meta file name), or null
-    public long loopStart, loopEnd; // the loop region in frames; loopOn plays it round
+    public String sourceSong, sourceTitle;  // the library song it was made from (its meta file name), or null
+    public long loopStart, loopEnd;         // the loop region in frames; loopOn plays it round
     public boolean loopOn;
     public Performance performance = new Performance();
 
@@ -55,91 +55,68 @@ public final class Project {
     }
 
     public Track track(String id) {
-        for (Track t : tracks)
-            if (t.id.equals(id))
-                return t;
+        for (Track t : tracks) if (t.id.equals(id)) return t;
         return null;
     }
 
     public Clip clip(String id) {
-        for (Track t : tracks)
-            for (Clip c : t.clips)
-                if (c.id.equals(id))
-                    return c;
+        for (Track t : tracks) for (Clip c : t.clips) if (c.id.equals(id)) return c;
         return null;
     }
 
     /** Heard in the mix: not muted, and either nothing is soloed or this track is. Mute beats solo. */
     public boolean audible(Track t) {
-        if (t.mute)
-            return false;
-        for (Track o : tracks)
-            if (o.solo)
-                return t.solo;
+        if (t.mute) return false;
+        for (Track o : tracks) if (o.solo) return t.solo;
         return true;
     }
 
     /** Throws IllegalArgumentException, in words a reader can act on, for anything a project must never hold. */
     public void validate() {
-        if (version != VERSION)
-            throw new IllegalArgumentException("This project was made by a newer version of the app (format " + version + ").");
+        if (version != VERSION) throw new IllegalArgumentException("This project was made by a newer version of the app (format " + version + ").");
         if (loopStart < 0 || loopEnd < loopStart || (loopOn && loopEnd == loopStart))
             throw new IllegalArgumentException("The loop region " + loopStart + " to " + loopEnd + " is not possible.");
-        if (rate < 8000 || rate > 384000)
-            throw new IllegalArgumentException("The project's sample rate " + rate + " is not possible.");
-        if (name == null)
-            throw new IllegalArgumentException("The project has no name.");
+        if (rate < 8000 || rate > 384000) throw new IllegalArgumentException("The project's sample rate " + rate + " is not possible.");
+        if (name == null) throw new IllegalArgumentException("The project has no name.");
         finite("master level", masterDb);
         performance.validate();
         HashSet<String> ids = new HashSet<String>();
         for (Track t : tracks) {
             id(ids, t.id);
-            if (t.name == null)
-                throw new IllegalArgumentException("Track " + t.id + " has no name.");
+            if (t.name == null) throw new IllegalArgumentException("Track " + t.id + " has no name.");
             finite("track " + t.id + " level", t.gainDb);
-            if (!(t.pan >= -1f && t.pan <= 1f))
-                throw new IllegalArgumentException("Track " + t.id + " is panned beyond the edge (" + t.pan + ").");
+            if (!(t.pan >= -1f && t.pan <= 1f)) throw new IllegalArgumentException("Track " + t.id + " is panned beyond the edge (" + t.pan + ").");
             for (Clip c : t.clips) {
                 id(ids, c.id);
                 finite("clip " + c.id + " level", c.gainDb);
-                if (c.start < 0 || c.offset < 0 || c.length < 0)
-                    throw new IllegalArgumentException("Clip " + c.id + " has a negative position or length.");
+                if (c.start < 0 || c.offset < 0 || c.length < 0) throw new IllegalArgumentException("Clip " + c.id + " has a negative position or length.");
                 if (c.start > Long.MAX_VALUE - c.length || c.offset > Long.MAX_VALUE - c.length || c.fadeIn < 0 || c.fadeOut < 0
                     || c.fadeIn > c.length || c.fadeOut > c.length)
                     throw new IllegalArgumentException("Invalid clip range or fade.");
-                if (!insideProject(c.file))
-                    throw new IllegalArgumentException("Clip " + c.id + " points outside the project folder (" + c.file + ").");
+                if (!insideProject(c.file)) throw new IllegalArgumentException("Clip " + c.id + " points outside the project folder (" + c.file + ").");
             }
         }
-        if (nextId < 1 || nextId > 999999999)
-            throw new IllegalArgumentException("The project's next ID " + nextId + " is out of range.");
+        if (nextId < 1 || nextId > 999999999) throw new IllegalArgumentException("The project's next ID " + nextId + " is out of range.");
         for (String id : ids) {
             int n = Integer.parseInt(id.substring(1));
-            if (n >= nextId)
-                throw new IllegalArgumentException("The project's next ID " + nextId + " would repeat " + id + ".");
+            if (n >= nextId) throw new IllegalArgumentException("The project's next ID " + nextId + " would repeat " + id + ".");
         }
     }
 
     /** A relative path that stays inside the project folder: no leading /, no backslash, no ".." segment. */
     static boolean insideProject(String path) {
-        if (path == null || path.length() == 0 || path.startsWith("/") || path.contains("\\"))
-            return false;
-        for (String seg : path.split("/"))
-            if (seg.equals(".."))
-                return false;
+        if (path == null || path.length() == 0 || path.startsWith("/") || path.contains("\\")) return false;
+        for (String seg : path.split("/")) if (seg.equals("..")) return false;
         return true;
     }
 
     private static void finite(String what, float v) {
-        if (Float.isNaN(v) || Float.isInfinite(v))
-            throw new IllegalArgumentException("The " + what + " is not a number.");
+        if (Float.isNaN(v) || Float.isInfinite(v)) throw new IllegalArgumentException("The " + what + " is not a number.");
     }
 
     private static void id(HashSet<String> ids, String id) {
-        if (id == null || !id.matches("[tc][1-9][0-9]{0,8}"))
-            throw new IllegalArgumentException("\"" + id + "\" is not a track or clip ID.");
-        if (!ids.add(id))
-            throw new IllegalArgumentException("Two things share the ID " + id + ".");
+        if (id == null || !id.matches("[tc][1-9][0-9]{0,8}")) throw new IllegalArgumentException("\"" + id + "\" is not a track or clip ID.");
+        if (!ids.add(id)) throw new IllegalArgumentException("Two things share the ID " + id + ".");
     }
 
     // ---------- JSON ----------
@@ -151,10 +128,8 @@ public final class Project {
         p.put("rate", Integer.valueOf(rate));
         p.put("nextId", Integer.valueOf(nextId));
         p.put("masterDb", Float.valueOf(masterDb));
-        if (sourceSong != null)
-            p.put("sourceSong", sourceSong);
-        if (sourceTitle != null)
-            p.put("sourceTitle", sourceTitle);
+        if (sourceSong != null) p.put("sourceSong", sourceSong);
+        if (sourceTitle != null) p.put("sourceTitle", sourceTitle);
         p.put("loopStart", Long.valueOf(loopStart));
         p.put("loopEnd", Long.valueOf(loopEnd));
         p.put("loopOn", Boolean.valueOf(loopOn));
@@ -168,20 +143,15 @@ public final class Project {
     public static Project fromJson(Object json) {
         Map<?, ?> p = map(json, "the project");
         int v = (int) num(p, "version", false);
-        if (v > VERSION)
-            throw new IllegalArgumentException("This project was made by a newer version of the app (format " + v + ").");
-        if (v < 1)
-            throw new IllegalArgumentException("The project file is damaged: format " + v + ".");
-        if (v < VERSION)
-            p = Migrate.toCurrent(p, v);
+        if (v > VERSION) throw new IllegalArgumentException("This project was made by a newer version of the app (format " + v + ").");
+        if (v < 1) throw new IllegalArgumentException("The project file is damaged: format " + v + ".");
+        if (v < VERSION) p = Migrate.toCurrent(p, v);
         Project out = new Project(str(p, "name"), (int) num(p, "rate", false));
         out.version = (int) num(p, "version", false);
         out.nextId = (int) num(p, "nextId", false);
         out.masterDb = (float) num(p, "masterDb", true);
-        if (p.get("sourceSong") != null)
-            out.sourceSong = str(p, "sourceSong");
-        if (p.get("sourceTitle") != null)
-            out.sourceTitle = str(p, "sourceTitle");
+        if (p.get("sourceSong") != null) out.sourceSong = str(p, "sourceSong");
+        if (p.get("sourceTitle") != null) out.sourceTitle = str(p, "sourceTitle");
         out.loopStart = (long) num(p, "loopStart", false);
         out.loopEnd = (long) num(p, "loopEnd", false);
         out.loopOn = bool(p, "loopOn");
@@ -201,8 +171,7 @@ public final class Project {
         j.put("mute", Boolean.valueOf(t.mute));
         j.put("solo", Boolean.valueOf(t.solo));
         j.put("color", Integer.valueOf(t.color));
-        if (t.role != null)
-            j.put("role", t.role);
+        if (t.role != null) j.put("role", t.role);
         ArrayList<Object> cs = new ArrayList<Object>();
         for (Clip c : t.clips) {
             LinkedHashMap<String, Object> k = new LinkedHashMap<String, Object>();
@@ -230,10 +199,8 @@ public final class Project {
         t.mute = bool(tj, "mute");
         t.solo = bool(tj, "solo");
         // older saves (format 1, and tracks kept in an old undo history) have no colour or role
-        if (tj.get("color") != null)
-            t.color = (int) num(tj, "color", false);
-        if (tj.get("role") != null)
-            t.role = str(tj, "role");
+        if (tj.get("color") != null) t.color = (int) num(tj, "color", false);
+        if (tj.get("role") != null) t.role = str(tj, "role");
         for (Object co : list(tj, "clips")) {
             Map<?, ?> cj = map(co, "a clip");
             Clip c = new Clip();
@@ -263,39 +230,33 @@ public final class Project {
     }
 
     private static Map<?, ?> map(Object o, String what) {
-        if (!(o instanceof Map))
-            throw new IllegalArgumentException("The project file is damaged: " + what + " is not an object.");
+        if (!(o instanceof Map)) throw new IllegalArgumentException("The project file is damaged: " + what + " is not an object.");
         return (Map<?, ?>) o;
     }
 
     private static List<?> list(Map<?, ?> m, String key) {
         Object o = m.get(key);
-        if (!(o instanceof List))
-            throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not a list.");
+        if (!(o instanceof List)) throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not a list.");
         return (List<?>) o;
     }
 
     private static String str(Map<?, ?> m, String key) {
         Object o = m.get(key);
-        if (!(o instanceof String))
-            throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not text.");
+        if (!(o instanceof String)) throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not text.");
         return (String) o;
     }
 
     private static boolean bool(Map<?, ?> m, String key) {
         Object o = m.get(key);
-        if (!(o instanceof Boolean))
-            throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not true or false.");
+        if (!(o instanceof Boolean)) throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not true or false.");
         return ((Boolean) o).booleanValue();
     }
 
     private static double num(Map<?, ?> m, String key, boolean fractional) {
         Object o = m.get(key);
-        if (!(o instanceof Number))
-            throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not a number.");
+        if (!(o instanceof Number)) throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not a number.");
         double d = ((Number) o).doubleValue();
-        if (!fractional && d != Math.rint(d))
-            throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not a whole number.");
+        if (!fractional && d != Math.rint(d)) throw new IllegalArgumentException("The project file is damaged: \"" + key + "\" is not a whole number.");
         return d;
     }
 }
