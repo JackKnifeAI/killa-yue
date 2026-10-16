@@ -137,10 +137,17 @@ In Navigate mode, hold a clip to open its menu. Move to playhead uses the beat g
 Stretch / pitch renders a new file. Choose 25–400% of the original length, then a pitch shift from −24 to +24 semitones. These controls are independent. The original clip remains in undo history. A long clip can take time; do not start this while recording or generating a song.
 
 # Studio — The Chamber
+## Your projects (Vault)
+The line above the projects shows how much space they use and how much the phone has free. The ⋯ beside a project opens what you can do with it:
+- Open, Rename.
+- Wrap up: the finished mix goes into your library as a song, then you can delete the project to give its space back.
+- Compact: removes audio the project no longer uses (old takes, undone imports). Nothing you can hear goes.
+- Delete: the project and everything in it go; songs in your library stay.
 ## Put a sound on a pad
 1. Tap a pad to choose it. The chosen pad lights up with a ring.
 2. Press Sample, then pick a clip from this project, or "A sound file on the phone…" to bring in any audio file.
 3. Tap the pad to hear it. Hold it, or press Shape, to tune and shape it.
+To play only part of a sound (one bar of a song, one word of a vocal), hold the pad, then set Start and Length in seconds: Start is where in the sound the pad begins, Length how long it plays.
 To fill all sixteen pads at once, press Chop and pick one sound: it is cut at its hits and spread across the pads. Kit puts the built-in drums back.
 ## Pads
 Pads opens sixteen playable pads. A fresh bank uses drums synthesized inside the app. Tap a pad to play it and select its pattern row. Multiple pads can be held together. Hold a pad, or press Shape, to edit it. The bank has a 128 MB sample-memory budget; use short slices for large recordings.

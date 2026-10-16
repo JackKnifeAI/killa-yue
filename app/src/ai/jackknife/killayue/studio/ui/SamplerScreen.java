@@ -251,7 +251,8 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
     }
     void shape() {
         final String[] labels = {"One-shot / gate / loop", "Tune (semitones)", "Attack (ms)",         "Decay (ms)", "Sustain (%)",
-                                 "Release (ms)",           "Low-pass (Hz)",    "Choke group (0 off)", "Reverse"};
+                                 "Release (ms)",           "Low-pass (Hz)",    "Choke group (0 off)", "Reverse",
+                                 "Start (seconds into the sound)", "Length (seconds)"};
         new Lux.Builder(a)
             .setTitle("Pad " + (selected + 1))
             .setItems(labels,
@@ -269,6 +270,10 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                                                     }
                                                 })
                                       .show();
+                                  return;
+                              }
+                              if (w == 9 || w == 10) {
+                                  trim(w == 9);
                                   return;
                               }
                               if (w == 8) {
@@ -315,6 +320,41 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                       })
             .show();
     }
+    /** Which part of its sound the chosen pad plays: where it starts, or how long it runs, in seconds. */
+    void trim(final boolean start) {
+        Performance.Pad pad = p().performance.pads[selected];
+        if (pad.file == null || pad.file.isEmpty()) {
+            Ui.toast(a, "Put a sound on this pad first, with Sample or Chop.");
+            return;
+        }
+        final long total;
+        try {
+            WavIn in = WavIn.open(new java.io.File(a.session.dir(), pad.file));
+            total = in.frames;
+            in.close();
+        } catch (Exception e) {
+            Ui.toast(a, "The pad's sound could not be read: " + e.getMessage());
+            return;
+        }
+        final int rate = p().rate;
+        String whole = String.format(java.util.Locale.ROOT, "%.2f", total / (double) rate);
+        StudioDialogs.number(a, start ? "Start, in seconds (the sound is " + whole + " s)" : "Length, in seconds",
+                (start ? pad.offset : pad.length) / (double) rate, new StudioDialogs.Number() {
+                    public void value(double v) {
+                        Project q = p().copy();
+                        Performance.Pad z = q.performance.pads[selected];
+                        long f = Math.round(v * rate);
+                        if (start) {
+                            z.offset = Math.max(0, Math.min(total - 1, f));
+                            z.length = Math.max(1, Math.min(z.length, total - z.offset));
+                        } else {
+                            z.length = Math.max(1, Math.min(total - z.offset, f));
+                        }
+                        save(q, "Trim pad");
+                    }
+                });
+    }
+
     /** The chosen pad glows, so it is clear which one Sample, Shape and the steps work on. */
     void highlight() {
         for (int i = 0; i < 16; i++) {

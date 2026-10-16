@@ -30,6 +30,11 @@ final class ExportDialog {
     }
 
     private static void run(final StudioActivity a, final int kind) {
+        run(a, kind, null);
+    }
+
+    /** after: run once the export has finished and its message been read (null for none). */
+    static void run(final StudioActivity a, final int kind, final Runnable after) {
         final Project p = a.session.project().copy();
         final File dir = a.session.dir();
         final AtomicBoolean cancel = new AtomicBoolean();
@@ -67,14 +72,14 @@ final class ExportDialog {
                             if (!cancel.get()) new Lux.Builder(a).setTitle("Export failed").setMessage(why).setPositiveButton("OK", null).show();
                             return;
                         }
-                        done(a, kind, files);
+                        done(a, kind, files, after);
                     }
                 });
             }
         }, "studio-export").start();
     }
 
-    private static void done(final StudioActivity a, int kind, final ArrayList<File> files) {
+    private static void done(final StudioActivity a, int kind, final ArrayList<File> files, final Runnable after) {
         String[] paths = new String[files.size()];
         for (int i = 0; i < paths.length; i++) paths[i] = files.get(i).getPath();
         final ArrayList<Uri> uris = new ArrayList<Uri>();
@@ -90,7 +95,11 @@ final class ExportDialog {
                 : "Saved to " + files.get(0).getParentFile().getPath().replaceFirst("^/storage/emulated/0/", "") + ":\n" + files.get(0).getName()
                         + (files.size() > 1 ? "\nand " + (files.size() - 1) + " more" : "");
         Lux.Builder b = new Lux.Builder(a);
-        b.setTitle("Exported").setMessage(where).setPositiveButton("OK", null);
+        b.setTitle("Exported").setMessage(where).setPositiveButton("OK", after == null ? null : new DialogInterface.OnClickListener() {
+            public void onClick(DialogInterface d, int w) {
+                after.run();
+            }
+        });
         if (kind != ExportJob.LIBRARY)
             b.setNeutralButton("Share", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) {
