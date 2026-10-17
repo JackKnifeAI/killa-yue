@@ -8,6 +8,7 @@ public final class Performance {
     public long punchStart, punchEnd;
     public final Pad[] pads = new Pad[16];
     public final float[][] steps = new float[16][32];
+    public Chamber chamber = new Chamber(steps);
     public final TreeMap<Long, Double> tempos = new TreeMap<Long, Double>();
     public final TreeMap<Long, String> markers = new TreeMap<Long, String>();
     public Performance() {
@@ -72,6 +73,7 @@ public final class Performance {
         m.put("tempos", tm);
         m.put("pads", ps);
         m.put("steps", ss);
+        m.put("chamber", chamber.json());
         m.put("markers", ms);
         return m;
     }
@@ -133,10 +135,34 @@ public final class Performance {
                 List<?> q = (List<?>)v;
                 p.tempos.put(((Number)q.get(0)).longValue(), ((Number)q.get(1)).doubleValue());
             }
+        if (m.containsKey("chamber")) p.chamber=Chamber.read(m.get("chamber"),p.steps);
         p.validate();
         return p;
     }
+    /** Resolves legacy whole-file pads in an export snapshot, never on the audio callback. */
+    public void resolveLengths(java.io.File dir) throws java.io.IOException {
+        for(Pad pad:pads)if(!pad.file.isEmpty()&&pad.length==0){
+            WavIn wav=WavIn.open(new java.io.File(dir,pad.file));
+            try{if(pad.offset>=wav.frames)throw new java.io.IOException("A pad starts beyond its sample.");pad.length=wav.frames-pad.offset;}finally{wav.close();}
+        }
+    }
+    public long patternFrames(int rate) {
+        if(!pattern)return 0;TempoMap tempo=new TempoMap(rate,this);
+        long end=tempo.frameAt(chamber.beats(patternLength));int cycles=chamber.song?chamber.chain.size():1;
+        for(int cycle=0;cycle<cycles;cycle++){
+            int bank=chamber.song?chamber.chain.get(cycle):chamber.active;
+            for(int step=0;step<patternLength;step++)for(int pad=0;pad<16;pad++)if(chamber.audible(pad)&&chamber.patterns[bank][pad][step]>0){
+                long index=(long)cycle*patternLength+step;long start=tempo.frameAt((index+((index&1)!=0?swing:0))/4.0);
+                long next=tempo.frameAt((index+1+(((index+1)&1)!=0?swing:0))/4.0);Pad sample=pads[pad];
+                long frames=(long)Math.ceil((sample.file.isEmpty()?rate/2:sample.length)/Math.pow(2,sample.tune/12.0));
+                if(sample.mode!=0){long gated=next-start+(long)Math.ceil(sample.release*rate);frames=sample.mode==2?gated:Math.min(frames,gated);}
+                try{end=Math.max(end,Math.addExact(start,frames));}catch(ArithmeticException ex){throw new IllegalArgumentException("The pad song is too long to export.");}
+            }
+        }
+        return end;
+    }
     public void validate() {
+        chamber.validate();
         if (!(tempo >= 20 && tempo <= 400) || beats < 1 || beats > 16 ||
             (beatUnit != 2 && beatUnit != 4 && beatUnit != 8 && beatUnit != 16) || !(swing >= 0 && swing <= .75) || countIn < 0 ||
             countIn > 4 || (patternLength != 16 && patternLength != 32))

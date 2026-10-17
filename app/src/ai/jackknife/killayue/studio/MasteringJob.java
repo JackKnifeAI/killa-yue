@@ -13,7 +13,7 @@ public final class MasteringJob {
     private MasteringJob() {}
     private static void cancelled(AtomicBoolean cancel)throws IOException {if(cancel.get())throw new IOException("Cancelled.");}
     public static Mixer run(Project source,File projectDir,File cache,int preset,Progress progress,AtomicBoolean cancel)throws IOException {
-        cancelled(cancel);Project p=source.copy();p.mixer=Mastering.preset(p,preset);p.validate();long frames=p.renderFrames();
+        cancelled(cancel);Project p=source.copy();p.mixer=Mastering.preset(p,preset);p.validate();long frames=p.renderFrames(projectDir);
         if(frames<p.rate*.4)throw new IOException("Use at least 0.4 seconds of audio for loudness measurement.");
         long free=cache.getUsableSpace();double needed=frames*8.0*(2+48000.0/p.rate)+(16<<20);
         if(free>0&&free<needed)throw new IOException("There is not enough free space to measure this mix.");

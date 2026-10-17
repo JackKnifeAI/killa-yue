@@ -77,6 +77,8 @@ void Engine::apply(const Message& m) {
             if (std::isfinite(m.value)) master_ = dbToGain(m.value);
             break;
         case Msg::Reset:
+            performance_.reset();
+            keyboard_->allOff();
             limiter_.reset();
             mixer_.reset();
             if (cur_) for (auto& slot : cur_->tracks) slot.appliedL = slot.appliedR = -1;
