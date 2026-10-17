@@ -29,7 +29,7 @@ bool MixerConfig::valid() const {
             if ((effect.kind == 7 || effect.kind == 8) && ++wetCount > kWetInserts) return false;
         }
     }
-    return true;
+    return AutomationData::valid(data.data());
 }
 MixerGraph::MixerGraph(int rate, int frames)
     : queue_(new Spsc<MixerConfig, 8>()), effects_(rate), frames_(frames), buses_(16 * (size_t)frames), reverbIn_(2 * (size_t)frames),
@@ -38,16 +38,18 @@ MixerGraph::MixerGraph(int rate, int frames)
     const float times[8] = {.0297f, .0371f, .0411f, .0437f, .0307f, .0383f, .0421f, .0451f};
     for (int i = 0; i < 8; ++i) comb_[i].resize(std::max(1, (int)(rate * times[i])));
     for (auto& m : meters_) m.store(0.f);
+    configure(config_);
     reset();
 }
 void MixerGraph::apply() {
-    MixerConfig next;
-    if (!queue_->pop(next)) return;
-    configure(next);
+    if (!queue_->pop(config_)) return;
+    configure(config_);
 }
 void MixerGraph::configure(const MixerConfig& next) {
     config_ = next;
     effects_.configure(next.data.data());
+    for (auto& s : autoStart_) s.fill(NAN);
+    for (auto& s : autoEnd_) s.fill(NAN);
 }
 void MixerGraph::reset() {
     std::fill(delayLine_.begin(), delayLine_.end(), 0.f);
@@ -56,6 +58,24 @@ void MixerGraph::reset() {
     previousL_.fill(-1); previousR_.fill(-1); previousGate_.fill(-1);
     previousRev_.fill(-1); previousDelay_.fill(-1);
     effects_.reset();
+}
+float MixerGraph::control(int strip, int parameter, float base, bool start) const {
+    float value = (start ? autoStart_ : autoEnd_)[strip][parameter];
+    return std::isfinite(value) ? value : base;
+}
+void MixerGraph::automate(long at, int frames) {
+    const float* data = config_.data.data();
+    for (int i = 0; i < (int)data[kAutomationOffset]; ++i) {
+        const float* h = AutomationData::lane(data, i);
+        int strip = (int)h[0], slot = (int)h[1], param = (int)h[2];
+        if (slot < 0) {
+            autoStart_[strip][param] = AutomationData::value(data, i, at);
+            autoEnd_[strip][param] = AutomationData::value(data, i, at + frames);
+        } else {
+            bool stepped = param == 8 || (config_.strip(strip)[8 + slot*kEffectStride] == 10 && param == 0);
+            effects_.parameter(strip, slot, param, AutomationData::value(data, i, at + std::max(0, frames - 1), stepped));
+        }
+    }
 }
 void MixerGraph::begin(int frames) {
     for (int g = 0; g < 8; ++g) std::fill_n(buses_.data() + 2 * g * frames_, 2 * frames, 0.f);
@@ -90,14 +110,15 @@ void MixerGraph::gate(int id, float* audio, int frames, bool heard) {
 void MixerGraph::send(int id, const float* audio, int frames) {
     const float* s = config_.strip(id);
     float& rev = previousRev_[id]; float& delay = previousDelay_[id];
-    if (rev < 0) rev = s[4];
-    if (delay < 0) delay = s[5];
+    float revTarget = control(id, 2, s[4]), delayTarget = control(id, 3, s[5]);
+    if (rev < 0) rev = control(id, 2, s[4], true);
+    if (delay < 0) delay = control(id, 3, s[5], true);
     for (int i = 0; i < frames; ++i) {
-        float a = rev + (s[4] - rev) * (float)(i + 1) / frames;
-        float b = delay + (s[5] - delay) * (float)(i + 1) / frames;
+        float a = rev + (revTarget - rev) * (float)(i + 1) / frames;
+        float b = delay + (delayTarget - delay) * (float)(i + 1) / frames;
         for (int c = 0; c < 2; ++c) { reverbIn_[2*i+c] += audio[2*i+c] * a; delayIn_[2*i+c] += audio[2*i+c] * b; }
     }
-    rev = s[4]; delay = s[5];
+    rev = revTarget; delay = delayTarget;
 }
 void MixerGraph::track(int id, float* audio, float* out, int frames, bool heard) {
     chain(id, audio, frames);
@@ -112,9 +133,13 @@ void MixerGraph::track(int id, float* audio, float* out, int frames, bool heard)
 void MixerGraph::level(int id, float* audio, int frames, bool audible_) {
     const float* s = config_.strip(id);
     float l = 0, r = 0;
-    if (audible_ && !s[2]) { panGains(s[1], 2, l, r); float gain = dbToGain(s[0]); l *= gain; r *= gain; }
+    if (audible_ && !s[2]) { panGains(control(id, 1, s[1]), 2, l, r); float gain = dbToGain(control(id, 0, s[0])); l *= gain; r *= gain; }
     float& oldL = previousL_[id]; float& oldR = previousR_[id];
-    if (oldL < 0) { oldL = l; oldR = r; }
+    if (oldL < 0) {
+        oldL = oldR = 0;
+        if (audible_ && !s[2]) { panGains(control(id, 1, s[1], true), 2, oldL, oldR);
+            float gain = dbToGain(control(id, 0, s[0], true)); oldL *= gain; oldR *= gain; }
+    }
     for (int i = 0; i < frames; ++i) {
         audio[2*i] *= oldL + (l-oldL) * (float)(i+1)/frames;
         audio[2*i+1] *= oldR + (r-oldR) * (float)(i+1)/frames;

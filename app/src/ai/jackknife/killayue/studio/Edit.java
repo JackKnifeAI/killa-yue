@@ -216,6 +216,7 @@ public abstract class Edit {
         final String track;
         Track removed;
         Mixer.Strip removedMixer;
+        Automation removedAutomation = new Automation();
         int index;
 
         RemoveTrack(String track) {
@@ -227,12 +228,15 @@ public abstract class Edit {
             index = p.tracks.indexOf(t);
             removed = t;
             removedMixer = p.mixer.strips.remove(track);
+            removedAutomation = Automation.read(p.mixer.automation.json());
+            p.mixer.automation.removeStrip(track);
             p.tracks.remove(index);
         }
 
         void revert(Project p) {
             p.tracks.add(index, removed);
             if (removedMixer != null) p.mixer.strips.put(track, removedMixer);
+            p.mixer.automation = Automation.read(removedAutomation.json());
         }
 
         public String label() {
@@ -243,6 +247,7 @@ public abstract class Edit {
             LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
             j.put("kind", "removeTrack");
             if (removedMixer != null) j.put("removedMixer", Mixer.stripJson(removedMixer));
+            j.put("removedAutomation", removedAutomation.json());
             j.put("track", track);
             j.put("index", Integer.valueOf(index));
             if (removed != null)
@@ -463,6 +468,7 @@ public abstract class Edit {
         if ("removeTrack".equals(k)) {
             RemoveTrack r = new RemoveTrack((String) j.get("track"));
             r.index = ((Number) j.get("index")).intValue();
+            if (j.get("removedAutomation") != null) r.removedAutomation = Automation.read(j.get("removedAutomation"));
             if (j.get("removedMixer") != null) r.removedMixer = Mixer.readStrip(j.get("removedMixer"));
             if (j.get("removed") != null)
                 r.removed = Project.trackFromJson(j.get("removed"));

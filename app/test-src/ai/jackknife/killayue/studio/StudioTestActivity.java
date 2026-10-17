@@ -63,14 +63,18 @@ public class StudioTestActivity extends Activity {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("mixer") || test.equals("effects")) {
+                    if (test.equals("mixer") || test.equals("effects") || test.equals("automation")) {
                         String oldTmp = System.getProperty("java.io.tmpdir");
                         try {
                             System.setProperty("java.io.tmpdir", getCacheDir().getPath());
                             NativeMixerTest.main(new String[0]);
-                            if (test.equals("effects")) {
+                            if (test.equals("effects") || test.equals("automation")) {
                                 NativeEffectsTest.main(new String[0]);
                                 log("PASS effects offline JNI/export fixture: " + NativeEffectsTest.passed + " assertions");
+                                if (test.equals("automation")) {
+                                    NativeAutomationTest.main(new String[0]);
+                                    log("PASS automation offline JNI/export fixture: " + NativeAutomationTest.passed + " assertions");
+                                }
                             }
                             log("PASS mixer offline JNI/export fixture: " + NativeMixerTest.passed + " assertions");
                         } finally {
@@ -211,7 +215,8 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(false);
         try {
             Project p = tracks(e.rate(), seconds, dir);
-            final boolean effectsTest = "effects".equals(getIntent().getStringExtra("test"));
+            final boolean automationTest = "automation".equals(getIntent().getStringExtra("test"));
+            final boolean effectsTest = automationTest || "effects".equals(getIntent().getStringExtra("test"));
             final boolean mixerTest = effectsTest || "mixer".equals(getIntent().getStringExtra("test"));
             if (mixerTest) {
                 for (int i = 0; i < 8; i++) p.mixer.addGroup("Group " + (i + 1));
@@ -236,6 +241,19 @@ public class StudioTestActivity extends Activity {
                     for (int k = 0; k < 8; k++) p.mixer.addSlot(id, 1).value = -.5f;
                 log(effectsTest ? "effects: 16 tracks, all seven effects, 16 wet inserts, 8 groups, shared sends; send/parameter edits every 25 ms"
                     : "mixer: 8 groups, both sends, 8 inserts on all 27 strips; send edit every 25 ms");
+            }
+            if (automationTest) {
+                p.performance.tempos.put((long)p.rate * seconds / 2, 100.0);
+                double end = new TempoMap(p.rate,p.performance).beatAt((long)p.rate * seconds);
+                for (Track track : p.tracks) {
+                    Automation.Lane level = p.mixer.automation.add(track.id,"",0);
+                    level.points.put(0.0,-12f); level.points.put(end,-3f);
+                    Automation.Lane pan = p.mixer.automation.add(track.id,"",1);
+                    pan.points.put(0.0,-.8f); pan.points.put(end,.8f);
+                    Automation.Lane eq = p.mixer.automation.add(track.id,p.mixer.get(track.id).chain.get(0).id,1);
+                    eq.points.put(0.0,-6f); eq.points.put(end,6f);
+                }
+                log("automation: 48 active lanes, tempo change halfway through, native envelopes plus live mixer edits");
             }
             log("stress: 16 tracks, " + p.tracks.get(0).clips.size() + " clips each, " + seconds + " s, master " + master + " dB");
             e.load(p, dir);

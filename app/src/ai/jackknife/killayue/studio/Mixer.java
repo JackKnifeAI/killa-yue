@@ -10,6 +10,8 @@ import java.util.Map;
 public final class Mixer {
     public static final int MAX_GROUPS = 8, MAX_SLOTS = 8, STRIDE = 8 + MAX_SLOTS * Effects.SLOT_STRIDE;
     public static final String MASTER = "master", REVERB = "reverb", DELAY = "delay";
+    public static final int AUTO_OFFSET = 2 + 75 * STRIDE;
+    public Automation automation = new Automation();
     public int nextId = 1;
     public final ArrayList<String> groups = new ArrayList<String>();
     public final LinkedHashMap<String, Strip> strips = new LinkedHashMap<String, Strip>();
@@ -63,6 +65,7 @@ public final class Mixer {
     public void removeGroup(String id) {
         if (!groups.remove(id)) throw new IllegalArgumentException("That group is no longer here.");
         strips.remove(id);
+        automation.removeStrip(id);
         for (Strip s : strips.values()) if (id.equals(s.route)) s.route = "";
     }
 
@@ -111,6 +114,7 @@ public final class Mixer {
                 if (Effects.wet(f.kind) && ++wet > Effects.MAX_WET) bad("Use up to sixteen reverb/delay inserts in one project; shared sends do not use this limit.");
             }
         }
+        automation.validate(p, this);
         for (String required : new String[] {MASTER, REVERB, DELAY})
             if (!strips.containsKey(required)) bad("A mixer return or master is missing.");
     }
@@ -128,6 +132,7 @@ public final class Mixer {
     public LinkedHashMap<String, Object> json() {
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("nextId", nextId);
+        out.put("automation", automation.json());
         out.put("groups", new ArrayList<String>(groups));
         LinkedHashMap<String, Object> all = new LinkedHashMap<String, Object>();
         for (Map.Entry<String, Strip> e : strips.entrySet()) all.put(e.getKey(), stripJson(e.getValue()));
@@ -159,6 +164,7 @@ public final class Mixer {
         Map<?, ?> j = map(value);
         Mixer m = new Mixer();
         m.nextId = integer(j.get("nextId"));
+        if (j.containsKey("automation")) m.automation = Automation.read(j.get("automation"));
         for (Object id : list(j.get("groups"))) m.groups.add(string(id));
         m.strips.clear();
         for (Map.Entry<?, ?> e : map(j.get("strips")).entrySet()) m.strips.put(string(e.getKey()), readStrip(e.getValue()));
@@ -191,12 +197,13 @@ public final class Mixer {
     public float[] nativeData(Project p) {
         validate(p);
         if (p.tracks.size() > 64) bad("The Studio plays up to 64 tracks.");
-        float[] out = new float[2 + 75 * STRIDE];
+        float[] out = new float[AUTO_OFFSET + Automation.PACKED];
         out[0] = p.tracks.size(); out[1] = groups.size();
         for (int i = 0; i < 75; i++) out[2 + i * STRIDE + 6] = -1;
         for (int i = 0; i < p.tracks.size(); i++) pack(out, i, get(p.tracks.get(i).id));
         for (int i = 0; i < groups.size(); i++) pack(out, 64 + i, get(groups.get(i)));
         pack(out, 72, get(REVERB)); pack(out, 73, get(DELAY)); pack(out, 74, get(MASTER));
+        automation.pack(p, out, AUTO_OFFSET);
         return out;
     }
 
@@ -218,6 +225,8 @@ public final class Mixer {
     public Mixer stem(String track) {
         Mixer out = new Mixer();
         out.nextId = nextId;
+        for (Automation.Lane lane : Automation.read(automation.json()).lanes)
+            if (lane.strip.equals(track) && (!lane.slot.isEmpty() || lane.parameter < 2)) out.automation.lanes.add(lane);
         if (track != null && strips.containsKey(track)) {
             Strip s = readStrip(stripJson(get(track)));
             s.route = "";
@@ -232,7 +241,16 @@ public final class Mixer {
         boolean sends=false;
         for (Map.Entry<String, Strip> entry : strips.entrySet()) {
             Strip strip=entry.getValue(); double tail=0;
-            for (Slot slot : strip.chain) tail += Effects.tail(slot);
+            for (Slot slot : strip.chain) {
+                Slot longest = new Slot(); longest.kind=slot.kind; longest.bypass=slot.bypass;
+                for (int j=0;j<Effects.PARAMS;j++) longest.set(j,slot.get(j));
+                for (Automation.Lane lane : automation.lanes) if (lane.enabled && lane.slot.equals(slot.id))
+                    for (float value : lane.points.values()) {
+                        if (lane.parameter==Automation.BYPASS) { if(value==0) longest.bypass=false; }
+                        else longest.set(lane.parameter,Math.max(longest.get(lane.parameter),value));
+                    }
+                tail += Effects.tail(longest);
+            }
             String id=entry.getKey();
             if (MASTER.equals(id)) master=tail;
             else if (REVERB.equals(id) || DELAY.equals(id)) returns=Math.max(returns,tail);
@@ -240,6 +258,9 @@ public final class Mixer {
             else tracks=Math.max(tracks,tail);
             sends |= strip.reverb>0 || strip.delay>0;
         }
+        for (Automation.Lane lane : automation.lanes)
+            if (lane.enabled && lane.slot.isEmpty() && lane.parameter >= 2)
+                for (float value : lane.points.values()) sends |= value > 0;
         return (long)Math.ceil(rate*(tracks+groupsTail+master+(sends?4+returns:0)));
     }
 

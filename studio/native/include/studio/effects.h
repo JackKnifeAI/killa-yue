@@ -26,6 +26,10 @@ public:
     void configure(const float* mixerData); // callback, bounded; never allocates or clears large buffers
     void reset();
     void process(int strip, float* audio, int frames);
+    void parameter(int strip, int slot, int index, float value) {
+        if (index == 8) states_[strip*8+slot].config.bypass = value != 0;
+        else states_[strip*8+slot].config.p[index] = value;
+    }
 private:
     struct Ring {
         std::vector<float> data;
@@ -50,7 +54,8 @@ private:
         std::array<Biquad,5> filters;
         int wet=-1;
         float gain=1, previous=0, enabled=1;
-        bool ready=false;
+        std::array<float,8> previousP{};
+        bool ready=false, paramsReady=false;
         void reset();
     };
     int rate_;
