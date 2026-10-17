@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 8;
+    public static final int VERSION = 9;
 
     public int version = VERSION;
     public String name;
@@ -83,10 +83,14 @@ public final class Project {
             for (Clip clip : track.clips) end = Math.max(end, clip.start + clip.length);
             end = Math.max(end, track.notes.end(this));
         }
-        if (performance.pattern) end = Math.max(end, new TempoMap(rate, performance).frameAt(performance.patternLength / 4.0));
+        if (performance.pattern) end = Math.max(end, performance.patternFrames(rate));
         if (end == 0) return 0;
         try { return Math.addExact(end, mixer.tailFrames(rate)); }
         catch (ArithmeticException ex) { throw new IllegalArgumentException("This mix is too long to render."); }
+    }
+
+    public long renderFrames(java.io.File dir) throws java.io.IOException {
+        Project snapshot=copy();snapshot.performance.resolveLengths(dir);return snapshot.renderFrames();
     }
 
     /** Throws IllegalArgumentException, in words a reader can act on, for anything a project must never hold. */
@@ -176,6 +180,7 @@ public final class Project {
         out.loopStart = (long) num(p, "loopStart", false);
         out.loopEnd = (long) num(p, "loopEnd", false);
         out.loopOn = bool(p, "loopOn");
+        if (!map(p.get("performance"),"performance settings").containsKey("chamber")) throw new IllegalArgumentException("The Chamber settings are missing.");
         out.performance = Performance.read(p.get("performance"));
         for (Object to : list(p, "tracks")) {
             if (!map(to,"a track").containsKey("notes")) throw new IllegalArgumentException("The track note data is missing.");

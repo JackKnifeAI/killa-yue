@@ -60,6 +60,7 @@ final class ExportJob {
     }
 
     /** The end of the last clip that is heard (the length of the mix). */
+    static long length(Project p,File dir) throws IOException { return p.renderFrames(dir); }
     static long length(Project p) {
         return p.renderFrames();
     }
@@ -72,7 +73,7 @@ final class ExportJob {
         File folder = folder(snap);
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
         String base = safe(snap.name);
-        long frames = length(snap);
+        long frames = length(snap, dir);
         if (frames <= 0 && kind != STEMS) throw new IOException("There is nothing to export: no track is heard.");
         ImportJob.checkSpace(folder, frames / (double) snap.rate * (kind == STEMS ? snap.tracks.size() : 2), snap.rate);
         File tmp = new File(c.getCacheDir(), "studio-export-" + stamp + ".wav");
@@ -96,7 +97,7 @@ final class ExportJob {
             } else {
                 File stems = new File(folder, base + " " + stamp + " stems");
                 stems.mkdirs();
-                long len = Math.max(0, length(snap) - snap.mixer.tailFrames(snap.rate));
+                long len = Math.max(0, length(snap, dir) - snap.mixer.tailFrames(snap.rate));
                 for (Track t : snap.tracks) {
                     for (Clip cl : t.clips) len = Math.max(len, cl.start + cl.length);
                     len = Math.max(len, t.notes.end(snap));

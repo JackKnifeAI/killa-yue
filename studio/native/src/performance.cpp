@@ -194,20 +194,90 @@ long PerformanceAudio::frameAt(double beat) const {
     while (k + 1 < tempoCount_ && tempoBeats_[k + 1] <= beat) k++;
     return std::llround(tempoFrames_[k] + (beat - tempoBeats_[k]) * rate_ * 60 / tempoBpms_[k]);
 }
+void PerformanceAudio::reset() {
+    clearVoices();
+    for (auto& held : held_) held = Held{};
+    clickEnv_ = 0;
+    clickPhase_ = 0;
+    stealL_ = stealR_ = 0;
+    stealFrames_ = 0;
+    wasPlaying_ = false;
+    previous_ = -1;
+    liveBeat_ = currentBeat_ = 0;
+}
 bool PerformanceAudio::allOff() {
-    Event e;
-    e.kind = 6;
-    return events_.push(e);
+    panic_.store(true);
+    return true;
+}
+bool PerformanceAudio::chamber(const float* data, int count) {
+    if (count != ChamberConfig::kSize) return false;
+    ChamberConfig config;
+    std::copy_n(data, count, config.data.begin());
+    return config.valid() && chamberQueue_->push(config);
+}
+int PerformanceAudio::hits(double* out, int size) {
+    if (size < 5) return 0;
+    out[0] = (double)droppedHits_.exchange(0);
+    int n = 0;
+    Hit hit;
+    while (n < (size - 1) / 4 && hits_.pop(hit)) {
+        out[1 + 4 * n] = (double)hit.frame;
+        out[2 + 4 * n] = hit.pad;
+        out[3 + 4 * n] = hit.velocity;
+        out[4 + 4 * n] = hit.bank;
+        n++;
+    }
+    return n;
+}
+void PerformanceAudio::hit(int source, int key, float velocity, long frame) {
+    if (velocity <= 0 || !pads_[source].s || (chamberLoaded_ && !chamber_.audible(source))) return;
+    fire(source, velocity, true, 16 + key);
+    int bank = chamberLoaded_ ? chamber_.bank((long)std::floor(beatAt(frame) * 4 + 1e-9), length_) : 0;
+    if (currentPlaying_ && frame >= 0 && bank >= 0 && !hits_.push({frame, source, velocity, bank}))
+        droppedHits_.fetch_add(1);
+}
+void PerformanceAudio::live(int key, float velocity, bool on) {
+    currentBeat_ = currentPlaying_ ? beatAt(currentFrame_) : liveBeat_;
+    Held& held = held_[key];
+    if (!on) {
+        held.on = false;
+        fire(held.source, 0, false, 16 + key);
+        return;
+    }
+    held.on = true;
+    held.source = chamberLoaded_ && chamber_.data[2] != 0 ? (int)chamber_.data[3] : key;
+    held.velocity = chamberLoaded_ && chamber_.data[2] != 0 ? (key + 1) / 16.f : velocity;
+    int repeat = chamberLoaded_ ? (int)chamber_.data[4] : 0, division = repeat ? 1 << (repeat - 1) : 1;
+    held.next = (std::floor(currentBeat_ * division + 1e-9) + 1) / division;
+    hit(held.source, key, held.velocity, currentFrame_);
 }
 void PerformanceAudio::drain() {
+    bool panic = panic_.exchange(false);
+    bool configured = false;
+    int oldRepeat = (int)chamber_.data[4];
+    while (chamberQueue_->pop(chamber_)) {
+        chamberLoaded_ = true;
+        configured = true;
+    }
+    if (configured) {
+        for (auto& voice : voices_)
+            if (voice.s && !chamber_.audible(voice.source)) {
+                voice.released = true;
+                voice.pad.release = .002f;
+            }
+        if (oldRepeat != (int)chamber_.data[4]) {
+            int division = chamber_.data[4] > 0 ? 1 << ((int)chamber_.data[4] - 1) : 1;
+            for (auto& held : held_) held.next = (std::floor(currentBeat_ * division + 1e-9) + 1) / division;
+        }
+    }
     Event e;
     while (events_.pop(e)) {
         if (e.kind == 1) {
             release(pads_[e.key].s);
             pads_[e.key].s = e.sample;
-        } else if (e.kind == 2)
-            fire(e.key, e.value, e.on);
-        else if (e.kind == 3) {
+        } else if (e.kind == 2) {
+            if (!panic) live(e.key, e.value, e.on);
+        } else if (e.kind == 3) {
             Pad& p = pads_[e.key];
             p.tune = std::clamp(e.data[0], -24.f, 24.f);
             p.attack = std::clamp(e.data[1], 0.f, 10.f);
@@ -241,21 +311,34 @@ void PerformanceAudio::drain() {
             } else if (e.key == tempoCount_ && e.frame >= tempoFrames_[e.key - 1]) {
                 tempoFrames_[e.key] = e.frame;
                 tempoBpms_[e.key] = e.value;
-                tempoBeats_[e.key] = tempoBeats_[e.key - 1] + (e.frame - tempoFrames_[e.key - 1]) * tempoBpms_[e.key - 1] / (rate_ * 60.);
+                tempoBeats_[e.key] = tempoBeats_[e.key - 1] +
+                                     (e.frame - tempoFrames_[e.key - 1]) * tempoBpms_[e.key - 1] / (rate_ * 60.);
                 tempoCount_++;
             }
         }
     }
+    if (panic) {
+        for (auto& held : held_) held.on = false;
+        for (auto& voice : voices_)
+            if (voice.s) { voice.released = true; voice.pad.release = .002f; }
+    }
 }
-void PerformanceAudio::fire(int key, float velocity, bool on) {
+void PerformanceAudio::fire(int key, float velocity, bool on, int identity, long duration) {
+    if (identity < 0) identity = key;
     Pad p = pads_[key];
     if (!on) {
         if (p.mode != 0)
             for (auto& v : voices_)
-                if (v.s && v.key == key) v.released = true;
+                if (v.s && v.key == identity) v.released = true;
         return;
     }
-    if (!p.s || velocity <= 0) return;
+    if (!p.s || velocity <= 0 || (chamberLoaded_ && !chamber_.audible(key))) return;
+    if (identity >= 16 && p.mode != 0)
+        for (auto& voice : voices_)
+            if (voice.s && voice.key == identity) {
+                voice.released = true;
+                voice.pad.release = .002f;
+            }
     if (p.choke)
         for (auto& v : voices_)
             if (v.s && v.pad.choke == p.choke) {
@@ -269,7 +352,8 @@ void PerformanceAudio::fire(int key, float velocity, bool on) {
             break;
         }
     if (!target) {
-        target = &*std::max_element(voices_.begin(), voices_.end(), [](const Voice& a, const Voice& b) { return a.age < b.age; });
+        target = &*std::max_element(voices_.begin(), voices_.end(),
+                                    [](const Voice& a, const Voice& b) { return a.age < b.age; });
         stealL_ = target->filterL * target->env * target->velocity;
         stealR_ = target->filterR * target->env * target->velocity;
         stealFrames_ = std::max(1, rate_ / 500);
@@ -279,20 +363,41 @@ void PerformanceAudio::fire(int key, float velocity, bool on) {
     target->s = p.s;
     p.s->refs++;
     target->pad = p;
-    target->key = key;
+    target->key = identity;
+    target->source = key;
+    target->stopAfter = p.mode == 0 ? -1 : duration;
     target->velocity = velocity;
     target->coefficient = 1 - std::exp(-2 * (float)pi * std::min(p.cutoff, rate_ * .45f) / rate_);
     target->at = p.reverse ? (double)p.s->x.size() / 2 - 1 : 0;
     target->step = std::pow(2., p.tune / 12.) * (p.reverse ? -1 : 1);
 }
 void PerformanceAudio::mix(float* out, int frames, long position, bool playing) {
+    if (playing || wasPlaying_) liveBeat_ = beatAt(position);
+    currentBeat_ = playing ? beatAt(position) : liveBeat_;
+    currentFrame_ = position;
+    currentPlaying_ = playing;
     drain();
-    if (wasPlaying_ && (!playing || position != previous_))
+    if (wasPlaying_ && (!playing || position != previous_)) {
+        for (auto& held : held_) held.on = false;
         for (auto& v : voices_)
             if (v.s) v.released = true;
+    }
     wasPlaying_ = playing;
+    int tempo = 0;
+    while (tempo + 1 < tempoCount_ && tempoFrames_[tempo + 1] <= position) tempo++;
+    double beatStep = tempoBpms_[tempo] / (rate_ * 60.0);
+    const int repeat = chamberLoaded_ ? (int)chamber_.data[4] : 0, division = repeat ? 1 << (repeat - 1) : 1;
     for (int i = 0; i < frames; i++) {
         long f = position + i;
+        double current = playing ? beatAt(f) : liveBeat_ + i * beatStep;
+        if (repeat)
+            for (int key = 0; key < 16; key++) {
+                Held& held = held_[key];
+                if (held.on && current + 1e-9 >= held.next) {
+                    hit(held.source, key, held.velocity, f);
+                    held.next = (std::floor(current * division + 1e-9) + 1) / division;
+                }
+            }
         if (playing) {
             double quarter = beatAt(f);
             long beat = (long)std::llround(quarter * unit_ / 4);
@@ -304,9 +409,16 @@ void PerformanceAudio::mix(float* out, int frames, long position, bool playing) 
             if (pattern_ && f >= 0) {
                 long approx = (long)std::floor(quarter * 4);
                 for (long s = std::max(0L, approx - 1); s <= approx + 1; s++)
-                    if (frameAt((s + ((s & 1) ? swing_ : 0)) / 4) == f)
-                        for (int p = 0; p < 16; p++)
-                            if (steps_[p][s % length_] > 0) fire(p, steps_[p][s % length_], true);
+                    if (frameAt((s + ((s & 1) ? swing_ : 0)) / 4) == f) {
+                        int bank = chamberLoaded_ ? chamber_.bank(s, length_) : 0;
+                        if (bank < 0) continue;
+                        long duration = frameAt((s + 1 + (((s + 1) & 1) ? swing_ : 0)) / 4) - f;
+                        for (int p = 0; p < 16; p++) {
+                            float velocity =
+                                chamberLoaded_ ? chamber_.step(bank, p, (int)(s % length_)) : steps_[p][s % length_];
+                            if (velocity > 0) fire(p, velocity, true, p, duration);
+                        }
+                    }
             }
         }
         float l = 0, r = 0;
@@ -322,6 +434,7 @@ void PerformanceAudio::mix(float* out, int frames, long position, bool playing) 
                         continue;
                     }
                 }
+                if (v.stopAfter >= 0 && v.age >= v.stopAfter) v.released = true;
                 if (v.released)
                     v.env = std::max(0.f, v.env - 1.f / (std::max(.002f, v.pad.release) * rate_));
                 else {
@@ -341,10 +454,10 @@ void PerformanceAudio::mix(float* out, int frames, long position, bool playing) 
                 float coeff = v.coefficient;
                 v.filterL += coeff * (hermite(v.s->x, v.at, 0) - v.filterL);
                 v.filterR += coeff * (hermite(v.s->x, v.at, 1) - v.filterR);
-                float endFade =
-                    v.pad.mode == 2
-                        ? 1.f
-                        : (float)std::min(1., (v.step > 0 ? n - v.at : v.at + 1) / std::max(1., rate_ * .002 * std::fabs(v.step)));
+                float endFade = v.pad.mode == 2
+                                    ? 1.f
+                                    : (float)std::min(1., (v.step > 0 ? n - v.at : v.at + 1) /
+                                                              std::max(1., rate_ * .002 * std::fabs(v.step)));
                 l += v.filterL * v.env * v.velocity * endFade;
                 r += v.filterR * v.env * v.velocity * endFade;
                 v.at += v.step;
@@ -371,6 +484,7 @@ void PerformanceAudio::mix(float* out, int frames, long position, bool playing) 
         out[2 * i] += l;
         out[2 * i + 1] += r;
     }
+    if (!playing) liveBeat_ += frames * beatStep;
     previous_ = playing ? position + frames : position;
 }
 }  // namespace studio

@@ -60,6 +60,11 @@ final class Migrate {
             }
             m.put("tracks",tracks);
         }
+        if(version<9 && m.get("performance") instanceof Map){
+            LinkedHashMap<String,Object> performance=new LinkedHashMap<String,Object>();
+            for(Map.Entry<?,?> entry:((Map<?,?>)m.get("performance")).entrySet())performance.put(String.valueOf(entry.getKey()),entry.getValue());
+            performance.put("chamber",new Chamber(new float[16][32]).json());m.put("performance",performance);
+        }
         m.put("version", Integer.valueOf(Project.VERSION));
         return m;
     }
