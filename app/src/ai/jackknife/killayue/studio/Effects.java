@@ -74,13 +74,38 @@ public final class Effects {
         }
     }
     public static boolean wet(int kind) { return kind==REVERB || kind==DELAY; }
-    public static double tail(Mixer.Slot slot) {
+    public static double tail(Mixer.Slot slot) { return tail(slot,48000); }
+    public static double tail(Mixer.Slot slot,int rate) {
         if(slot.bypass) return 0;
+        if(slot.kind==EQ) {
+            double tail=0;
+            if(slot.get(0)!=0)tail+=filterTail(4,120,.7071,slot.get(0),rate);
+            if(slot.get(1)!=0)tail+=filterTail(3,slot.get(3),slot.get(4),slot.get(1),rate);
+            if(slot.get(2)!=0)tail+=filterTail(5,8000,.7071,slot.get(2),rate);
+            if(slot.get(5)>0)tail+=filterTail(1,slot.get(5),.7071,0,rate);
+            if(slot.get(6)>0)tail+=filterTail(0,slot.get(6),.7071,0,rate);
+            return tail;
+        }
+        if(slot.kind==FILTER&&slot.get(3)>0)return filterTail(0,slot.get(1),slot.get(2),0,rate);
+        if(slot.kind==SATURATION&&slot.get(2)>0)return filterTail(0,slot.get(1),.7071,0,rate);
         if(slot.kind==REVERB && slot.get(2)>0) return 4 + slot.get(3)/1000.0;
         if(slot.kind==DELAY && slot.get(2)>0) {
             double repeats=slot.get(1)<=0 ? 1 : 1+Math.ceil(Math.log(.00001)/Math.log(slot.get(1)));
             return repeats*slot.get(0)/1000.0;
         }
         return 0;
+    }
+    /** Decay allowance from the same denominator poles used by the native biquads. */
+    private static double filterTail(int mode,double hz,double q,double db,int rate) {
+        hz=Math.max(5,Math.min(rate*.45,hz));double w=2*Math.PI*hz/rate,cs=Math.cos(w),sn=Math.sin(w);
+        double alpha=sn/(2*q),A=Math.pow(10,db/40),b=Math.sqrt(2*A)*sn;
+        double a0=1+alpha,a1=-2*cs,a2=1-alpha;
+        if(mode==3){a0=1+alpha/A;a2=1-alpha/A;}
+        else if(mode==4){a0=(A+1)+(A-1)*cs+b;a1=-2*((A-1)+(A+1)*cs);a2=(A+1)+(A-1)*cs-b;}
+        else if(mode==5){a0=(A+1)-(A-1)*cs+b;a1=2*((A-1)-(A+1)*cs);a2=(A+1)-(A-1)*cs-b;}
+        a1/=a0;a2/=a0;double discriminant=a1*a1-4*a2;
+        double radius=discriminant<0?Math.sqrt(Math.max(0,a2)):Math.max(Math.abs((-a1+Math.sqrt(discriminant))/2),Math.abs((-a1-Math.sqrt(discriminant))/2));
+        if(radius<1e-12)return 0;
+        return (Math.ceil(Math.log(1e-7)/Math.log(Math.min(radius,.999999999999)))+2)/rate;
     }
 }

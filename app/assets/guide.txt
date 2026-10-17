@@ -201,3 +201,8 @@ Export includes the enabled sampler pattern. A pattern-only project exports one 
 Moving clips into a partial overlap on the same track adds matching fades across the overlap. Undo restores the previous fades. Playback capture stops if the first five seconds stay silent; the source may be paused or may prohibit capture.
 
 Long loop recordings reserve the last of the 64 playback tracks for “More takes (in order)”: later passes are kept as separate clips in sequence on that muted track. Move a wanted pass back to the loop position before comping it. No recorded audio is discarded. Loop recording needs one free track.
+
+## Mastering
+Open Mastering at the top of Mixer. Dynamic targets -18 LUFS, Balanced -14 LUFS, and Loud -10 LUFS. Each adds EQ, gain and a -1 dBFS sample-peak limiter after your existing Master effects; leave three slots available. Applying another preset replaces only the mastering effects.
+The app renders and measures a separate copy, then applies the result as one undoable change. Cancel leaves the mix unchanged. Before (A) bypasses the three mastering effects; Mastered (B) enables them. Playback and export use the selected side. Remove mastering preserves your other effects.
+The dialog shows measured integrated loudness and sample peak. Music with strong peaks may not reach the requested target; the actual measured result is shown. This is not a true-peak meter or limiter. Changes to the mix mark readings stale: apply a preset again to remeasure. Measurement needs at least 0.4 seconds of audible material and temporary free storage.
