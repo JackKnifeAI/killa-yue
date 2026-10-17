@@ -17,6 +17,17 @@ std::string path(JNIEnv* e, jbyteArray b) {
 }
 }  // namespace
 extern "C" {
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nChamber(JNIEnv* e,jclass,jlong h,jfloatArray values){
+    int count=e->GetArrayLength(values);if(count!=studio::ChamberConfig::kSize){io(e,"Invalid Chamber data.");return;}
+    std::vector<float> data((size_t)count);e->GetFloatArrayRegion(values,0,count,data.data());
+    if(!H(h)->performance().chamber(data.data(),count))io(e,"The Chamber is busy or its configuration is invalid.");
+}
+JNIEXPORT jint JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPadHits(JNIEnv* e,jclass,jlong h,jdoubleArray values){
+    int count=e->GetArrayLength(values);if(count<5||count>1+4*256)return 0;
+    std::vector<double> data((size_t)count);int n=H(h)->performance().hits(data.data(),count);e->SetDoubleArrayRegion(values,0,1+4*n,data.data());return n;
+}
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPadsOff(JNIEnv*,jclass,jlong h){H(h)->performance().allOff();}
+
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nKeyboard(JNIEnv* e,jclass,jlong h,jobjectArray paths) {
     if(e->GetArrayLength(paths)!=49){io(e,"Invalid keyboard bank.");return;}
     std::vector<std::string> files;

@@ -358,6 +358,7 @@ public final class NativeEngine implements AutoCloseable {
             tb[ti++] = e.getValue();
         }
         nTempos(handle(), tf, tb);
+        nChamber(handle(),f.chamber.nativeData());
     }
     /** Call after InstrumentSamples.bank has prepared the files on a worker. Live notes feed Master. */
     public void keyboard(File dir,int instrument) throws IOException {
@@ -370,6 +371,12 @@ public final class NativeEngine implements AutoCloseable {
     private static native void nKeyboard(long h,byte[][] paths) throws IOException;
     private static native boolean nNote(long h,int key,float velocity,boolean on);
     private static native void nNotesOff(long h);
+    /** Captured live pad hits: out[0] dropped count, then frame/pad/velocity/bank groups. UI thread only. */
+    public int padHits(double[] out){return nPadHits(handle(),out);}
+    public void padsOff(){nPadsOff(handle());}
+    private static native void nChamber(long h,float[] data) throws IOException;
+    private static native int nPadHits(long h,double[] out);
+    private static native void nPadsOff(long h);
     public boolean pad(int pad, float velocity, boolean on) {
         return nPad(handle(), pad, velocity, on);
     }
