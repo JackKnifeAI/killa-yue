@@ -400,7 +400,8 @@ public abstract class Edit {
     }
 
     static final class Snapshot extends Edit {
-        final String title, before, after;
+        final String title, before;
+        String after;
         Snapshot(String title, String before, String after) {
             this.title = title;
             this.before = before;
@@ -429,6 +430,14 @@ public abstract class Edit {
         }
         void revert(Project p) {
             restore(p, before);
+        }
+        boolean merge(Edit next, Project p) {
+            if (!(next instanceof Snapshot)) return false;
+            Snapshot n = (Snapshot) next;
+            if (!title.equals(n.title) || !after.equals(n.before)) return false;
+            n.apply(p);
+            after = n.after;
+            return true;
         }
         public String label() {
             return title;
