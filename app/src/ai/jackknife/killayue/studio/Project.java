@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 6;
+    public static final int VERSION = 7;
 
     public int version = VERSION;
     public String name;
@@ -74,6 +74,17 @@ public final class Project {
         for (Track o : tracks) solo |= o.solo;
         for (String g : mixer.groups) solo |= mixer.get(g).solo;
         return !solo || t.solo || (group != null && group.solo);
+    }
+
+    /** Full-mix duration, shared by export and mastering so they measure the same audio. */
+    public long renderFrames() {
+        long end = 0;
+        for (Track track : tracks) if (audible(track))
+            for (Clip clip : track.clips) end = Math.max(end, clip.start + clip.length);
+        if (performance.pattern) end = Math.max(end, new TempoMap(rate, performance).frameAt(performance.patternLength / 4.0));
+        if (end == 0) return 0;
+        try { return Math.addExact(end, mixer.tailFrames(rate)); }
+        catch (ArithmeticException ex) { throw new IllegalArgumentException("This mix is too long to render."); }
     }
 
     /** Throws IllegalArgumentException, in words a reader can act on, for anything a project must never hold. */
@@ -166,6 +177,8 @@ public final class Project {
         for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
         if (!map(p.get("mixer"), "the mixer").containsKey("automation"))
             throw new IllegalArgumentException("The project's automation lanes are missing.");
+        if (!map(p.get("mixer"), "the mixer").containsKey("mastering"))
+            throw new IllegalArgumentException("The project's mastering settings are missing.");
         out.mixer = Mixer.read(p.get("mixer"));
         out.validate();
         return out;

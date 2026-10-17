@@ -12,6 +12,7 @@ public final class Mixer {
     public static final String MASTER = "master", REVERB = "reverb", DELAY = "delay";
     public static final int AUTO_OFFSET = 2 + 75 * STRIDE;
     public Automation automation = new Automation();
+    public Mastering mastering = new Mastering();
     public int nextId = 1;
     public final ArrayList<String> groups = new ArrayList<String>();
     public final LinkedHashMap<String, Strip> strips = new LinkedHashMap<String, Strip>();
@@ -115,6 +116,7 @@ public final class Mixer {
             }
         }
         automation.validate(p, this);
+        mastering.validate();
         for (String required : new String[] {MASTER, REVERB, DELAY})
             if (!strips.containsKey(required)) bad("A mixer return or master is missing.");
     }
@@ -133,6 +135,7 @@ public final class Mixer {
         LinkedHashMap<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("nextId", nextId);
         out.put("automation", automation.json());
+        out.put("mastering", mastering.json());
         out.put("groups", new ArrayList<String>(groups));
         LinkedHashMap<String, Object> all = new LinkedHashMap<String, Object>();
         for (Map.Entry<String, Strip> e : strips.entrySet()) all.put(e.getKey(), stripJson(e.getValue()));
@@ -165,6 +168,7 @@ public final class Mixer {
         Mixer m = new Mixer();
         m.nextId = integer(j.get("nextId"));
         if (j.containsKey("automation")) m.automation = Automation.read(j.get("automation"));
+        if (j.containsKey("mastering")) m.mastering = Mastering.read(j.get("mastering"));
         for (Object id : list(j.get("groups"))) m.groups.add(string(id));
         m.strips.clear();
         for (Map.Entry<?, ?> e : map(j.get("strips")).entrySet()) m.strips.put(string(e.getKey()), readStrip(e.getValue()));
@@ -214,7 +218,7 @@ public final class Mixer {
         for (int k = 0; k < s.chain.size(); k++) {
             Slot f = s.chain.get(k);
             int at = n + 8 + k * Effects.SLOT_STRIDE;
-            out[at] = f.kind; out[at+1] = f.value; out[at+2] = f.bypass ? 1 : 0;
+            out[at] = f.kind; out[at+1] = f.value; out[at+2] = f.bypass || mastering.bypass(this,f.id) ? 1 : 0;
             for (int j=0;j<f.extra.length;j++) out[at+3+j]=f.extra[j];
             int id = Integer.parseInt(f.id.substring(1));
             out[at+10]=id & 65535; out[at+11]=id >>> 16;
@@ -241,16 +245,7 @@ public final class Mixer {
         boolean sends=false;
         for (Map.Entry<String, Strip> entry : strips.entrySet()) {
             Strip strip=entry.getValue(); double tail=0;
-            for (Slot slot : strip.chain) {
-                Slot longest = new Slot(); longest.kind=slot.kind; longest.bypass=slot.bypass;
-                for (int j=0;j<Effects.PARAMS;j++) longest.set(j,slot.get(j));
-                for (Automation.Lane lane : automation.lanes) if (lane.enabled && lane.slot.equals(slot.id))
-                    for (float value : lane.points.values()) {
-                        if (lane.parameter==Automation.BYPASS) { if(value==0) longest.bypass=false; }
-                        else longest.set(lane.parameter,Math.max(longest.get(lane.parameter),value));
-                    }
-                tail += Effects.tail(longest);
-            }
+            for (Slot slot : strip.chain) tail += maximumTail(slot,rate);
             String id=entry.getKey();
             if (MASTER.equals(id)) master=tail;
             else if (REVERB.equals(id) || DELAY.equals(id)) returns=Math.max(returns,tail);
@@ -262,6 +257,26 @@ public final class Mixer {
             if (lane.enabled && lane.slot.isEmpty() && lane.parameter >= 2)
                 for (float value : lane.points.values()) sends |= value > 0;
         return (long)Math.ceil(rate*(tracks+groupsTail+master+(sends?4+returns:0)));
+    }
+
+    private double maximumTail(Slot slot,int rate) {
+        float[] low=new float[Effects.PARAMS],high=new float[Effects.PARAMS];boolean enabled=!slot.bypass;
+        for(int j=0;j<Effects.PARAMS;j++)low[j]=high[j]=slot.get(j);
+        for(Automation.Lane lane:automation.lanes)if(lane.enabled&&lane.slot.equals(slot.id))for(float value:lane.points.values()){
+            if(lane.parameter==Automation.BYPASS){if(value==0)enabled=true;}
+            else{low[lane.parameter]=Math.min(low[lane.parameter],value);high[lane.parameter]=Math.max(high[lane.parameter],value);}
+        }
+        if(!enabled)return 0;
+        if(slot.kind==Effects.EQ)for(int j:new int[]{5,6})if(low[j]==0&&high[j]>0)low[j]=5; // a sweep from Off passes through the lowest usable frequency
+        int[] varying=new int[Effects.PARAMS];int count=0;
+        for(int j=0;j<Effects.PARAMS;j++)if(low[j]!=high[j])varying[count++]=j;
+        Mixer.Slot corner=new Mixer.Slot();corner.kind=slot.kind;double maximum=0;
+        for(int mask=0;mask<(1<<count);mask++){
+            for(int j=0;j<Effects.PARAMS;j++)corner.set(j,low[j]);
+            for(int j=0;j<count;j++)if((mask&(1<<j))!=0)corner.set(varying[j],high[varying[j]]);
+            maximum=Math.max(maximum,Effects.tail(corner,rate));
+        }
+        return maximum;
     }
 
     private static Map<?, ?> map(Object o) { if (!(o instanceof Map)) bad("Damaged mixer object."); return (Map<?, ?>) o; }

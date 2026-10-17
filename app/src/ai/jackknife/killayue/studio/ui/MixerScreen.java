@@ -59,6 +59,11 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         automation.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { AutomationDialog.show(a); }
         });
+        Button mastering = Ui.button(a, "Mastering", false);
+        tools.addView(mastering, new LinearLayout.LayoutParams(0, Ui.dp(a, 44), 1));
+        mastering.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { MasteringDialog.show(a); }
+        });
         root.addView(tools);
         group.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -187,10 +192,13 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             }).show();
     }
     String effectName(Mixer.Slot s) {
-        if (s.kind == 1) return String.format(java.util.Locale.ROOT, "Trim %+.1f dB", s.value);
-        if (s.kind == 2) return "Stereo width " + Math.round(s.value * 100) + "%";
-        return Effects.get(s.kind).name;
+        String name;
+        if (s.kind == 1) name = String.format(java.util.Locale.ROOT, "Trim %+.1f dB", s.value);
+        else if (s.kind == 2) name = "Stereo width " + Math.round(s.value * 100) + "%";
+        else name = Effects.get(s.kind).name;
+        return (project().mixer.mastering.owns(s.id) ? "Mastering · " : "") + name;
     }
+
     void rack(final String id) {
         final ArrayList<String> slots = new ArrayList<String>();
         ArrayList<String> labels = new ArrayList<String>();

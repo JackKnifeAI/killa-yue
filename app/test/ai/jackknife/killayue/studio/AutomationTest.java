@@ -26,7 +26,7 @@ public final class AutomationTest {
         String withLanes=p.toText();history.run(Edit.removeTrack(t.id));check(p.mixer.automation.lanes.isEmpty(),"track removal prunes lanes");history.undo();check(p.toText().equals(withLanes),"track undo restores all lanes in order");
         Project stem=p.copy();stem.mixer=stem.mixer.stem(t.id);stem.validate();check(stem.mixer.automation.lanes.size()==2,"stem retains volume and effect automation");
         Automation.Lane send=p.mixer.automation.add(t.id,"",2);send.points.put(0.0,.5f);check(p.mixer.stem(t.id).automation.lanes.size()==2,"stem leaves send automation out");
-        check(p.mixer.tailFrames(p.rate)==4L*p.rate,"automated sends include shared wet tails");
+        check(p.mixer.tailFrames(p.rate)>4L*p.rate,"automated sends and EQ include their tails");
         Project bad=p.copy();bad.mixer.automation.lanes.get(0).points.put(2.0,Float.NaN);invalid(bad,"nonfinite value rejected");
         bad=p.copy();bad.mixer.automation.lanes.get(0).points.put(Double.NaN,0f);invalid(bad,"nonfinite beat rejected");
         bad=p.copy();bad.mixer.automation.lanes.get(0).strip="t999";invalid(bad,"missing strip rejected");
