@@ -231,3 +231,7 @@ Alexander, founder of JackKnife AI, and Claudia, his AI partner, who wrote the c
 ### Chamber songs and performance controls
 
 **A/B/C/D** banks turn pad patterns into a saved song order. Native **Note repeat** follows tempo changes; **16 levels** spreads one sound across sixteen velocities. Per-pad mute/solo works in live playing, patterns and export. MIDI notes 36–51 trigger the pads, and Record pads captures repeated hits with their audio timestamps and velocities. Bounce and export retain the last pad's decay.
+
+### Killa Gold pads
+
+The Chamber’s Killa Gold pads have a dark rubber resting face and an amber struck face. Touch holds and MIDI note-ons light the artwork, while pad labels and the selection outline remain visible. Other skins retain their existing pad appearance.
