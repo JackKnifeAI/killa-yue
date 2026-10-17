@@ -51,6 +51,15 @@ final class Migrate {
             for (Map.Entry<?,?> entry : ((Map<?,?>)m.get("mixer")).entrySet()) mixer.put(String.valueOf(entry.getKey()),entry.getValue());
             mixer.put("mastering",new Mastering().json()); m.put("mixer",mixer);
         }
+        if (version < 8 && m.get("tracks") instanceof List) {
+            ArrayList<Object> tracks = new ArrayList<Object>();
+            for (Object item : (List<?>)m.get("tracks")) {
+                LinkedHashMap<String,Object> track = new LinkedHashMap<String,Object>();
+                for (Map.Entry<?,?> e : ((Map<?,?>)item).entrySet()) track.put(String.valueOf(e.getKey()),e.getValue());
+                track.put("notes",new MidiNotes().json()); tracks.add(track);
+            }
+            m.put("tracks",tracks);
+        }
         m.put("version", Integer.valueOf(Project.VERSION));
         return m;
     }

@@ -97,8 +97,10 @@ final class ExportJob {
                 File stems = new File(folder, base + " " + stamp + " stems");
                 stems.mkdirs();
                 long len = Math.max(0, length(snap) - snap.mixer.tailFrames(snap.rate));
-                for (Track t : snap.tracks)
+                for (Track t : snap.tracks) {
                     for (Clip cl : t.clips) len = Math.max(len, cl.start + cl.length);
+                    len = Math.max(len, t.notes.end(snap));
+                }
                 long longestTail = 0;
                 for (Track t : snap.tracks) longestTail = Math.max(longestTail, snap.mixer.stem(t.id).tailFrames(snap.rate));
                 len += longestTail; // aligned stems keep the longest track insert tail
