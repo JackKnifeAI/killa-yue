@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "studio/device.h"
+#include "studio/keyboard.h"
 #include "studio/disk.h"
 #include "studio/engine.h"
 #include "studio/latency.h"
@@ -40,6 +41,7 @@ class Host : public Renderer, public InputSink {
     static Host* offline(int rate);
     ~Host() override;
 
+    Keyboard& keyboard() { return engine_->keyboard(); }
     PerformanceAudio& performance() { return engine_->performance(); }
     bool record(const char* path, long countIn, bool external, std::string& err) {
         if (recorder_.active()) { err = "A take is already open."; return false; }

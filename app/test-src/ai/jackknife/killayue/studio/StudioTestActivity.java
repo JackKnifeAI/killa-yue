@@ -47,6 +47,10 @@ public class StudioTestActivity extends Activity {
         final float master = getIntent().getFloatExtra("master", -40f);
         report = new File(getFilesDir(), "studio-test.txt");
         report.delete();
+        if (test.equals("instruments-ui")) {
+            ai.jackknife.killayue.studio.ui.InstrumentsProof.start(this);
+            return;
+        }
         if (test.equals("mixer-ui")) {
             ai.jackknife.killayue.studio.ui.MixerProof.start(this);
             return;
@@ -63,22 +67,26 @@ public class StudioTestActivity extends Activity {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("mixer") || test.equals("effects") || test.equals("automation") || test.equals("mastering")) {
+                    if (test.equals("mixer") || test.equals("effects") || test.equals("automation") || test.equals("mastering") || test.equals("instruments")) {
                         String oldTmp = System.getProperty("java.io.tmpdir");
                         try {
                             System.setProperty("java.io.tmpdir", getCacheDir().getPath());
                             NativeMixerTest.main(new String[0]);
-                            if (test.equals("effects") || test.equals("automation") || test.equals("mastering")) {
+                            if (test.equals("effects") || test.equals("automation") || test.equals("mastering") || test.equals("instruments")) {
                                 NativeEffectsTest.main(new String[0]);
                                 log("PASS effects offline JNI/export fixture: " + NativeEffectsTest.passed + " assertions");
-                                if (test.equals("automation") || test.equals("mastering")) {
+                                if (test.equals("automation") || test.equals("mastering") || test.equals("instruments")) {
                                     NativeAutomationTest.main(new String[0]);
                                     log("PASS automation offline JNI/export fixture: " + NativeAutomationTest.passed + " assertions");
                                 }
                             }
-                            if (test.equals("mastering")) {
+                            if (test.equals("mastering") || test.equals("instruments")) {
                                 NativeMasteringTest.main(new String[0]);
                                 log("PASS mastering offline JNI/export fixture: " + NativeMasteringTest.passed + " assertions");
+                            }
+                            if (test.equals("instruments")) {
+                                NativeInstrumentsTest.main(new String[0]);
+                                log("PASS instruments offline JNI/export fixture: " + NativeInstrumentsTest.passed + " assertions");
                             }
                             log("PASS mixer offline JNI/export fixture: " + NativeMixerTest.passed + " assertions");
                         } finally {
@@ -219,7 +227,8 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(false);
         try {
             Project p = tracks(e.rate(), seconds, dir);
-            final boolean masteringTest = "mastering".equals(getIntent().getStringExtra("test"));
+            final boolean instrumentsTest = "instruments".equals(getIntent().getStringExtra("test"));
+            final boolean masteringTest = instrumentsTest || "mastering".equals(getIntent().getStringExtra("test"));
             final boolean automationTest = masteringTest || "automation".equals(getIntent().getStringExtra("test"));
             final boolean effectsTest = automationTest || "effects".equals(getIntent().getStringExtra("test"));
             final boolean mixerTest = effectsTest || "mixer".equals(getIntent().getStringExtra("test"));
@@ -263,6 +272,15 @@ public class StudioTestActivity extends Activity {
             if (masteringTest) {
                 p.mixer = Mastering.preset(p, 1);
                 log("mastering: Balanced rack with A/B toggled every second");
+            }
+            if (instrumentsTest) {
+                for (int i=0;i<p.tracks.size();i++) {
+                    Track track=p.tracks.get(i);track.notes.instrument=i%2;
+                    for (int key : new int[]{48+i%12,60+i%12}) InstrumentSamples.ensure(dir,p.rate,track.notes.instrument,key);
+                    double end=new TempoMap(p.rate,p.performance).beatAt((long)p.rate*(seconds+5));
+                    for (int beat=0;beat<end;beat++) { MidiNotes.Note note=track.notes.add(beat,48+i%12+(beat%2)*12);note.length=.5;note.velocity=.2f; }
+                }
+                log("instruments: 16 streamed note tracks, two original banks, tempo map and mixer effects");
             }
             log("stress: 16 tracks, " + p.tracks.get(0).clips.size() + " clips each, " + seconds + " s, master " + master + " dB");
             e.load(p, dir);

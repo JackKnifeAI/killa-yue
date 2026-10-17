@@ -147,7 +147,8 @@ Status Host::status() {
     reap();
     performance().collect();
     flushMaster();
-    return engine_->status();
+    keyboard().collect();
+    Status status = engine_->status(); status.underruns += keyboard().underruns(); return status;
 }
 
 DeviceStats Host::deviceStats() { return device_ ? device_->stats() : DeviceStats(); }
