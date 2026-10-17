@@ -12,7 +12,7 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-Version 1.4.1. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+Version 1.5.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
 
 ## Requirements
 
@@ -65,6 +65,17 @@ CPU mode is much slower than the GPU. We have not timed it on any phone yet, so 
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, ready for TikTok, Reels and Shorts.
 - **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Engine tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
 
+New in 1.5.0, **Studio expansion**:
+
+- **Mixer and effects**: groups, sends, editable effect chains, EQ, compressor, limiter, delay, reverb, saturation and filter.
+- **Automation**: editable curves for levels, pan, sends and effect parameters, with undo and saved projects.
+- **Mastering**: Dynamic, Balanced and Loud presets, measured loudness and sample peaks, and Before/Mastered comparison.
+- **Instruments**: piano-roll editing, a two-row keyboard, and original Killa Pluck and Killa Tines sounds streamed from storage.
+- **The Chamber**: four pattern banks, song order, note repeat, sixteen velocity levels, mute/solo, and one Undo step for a pad-recording pass.
+- **Killa Gold pads**: gold frames, dark rubber faces and amber pressed artwork.
+- **Unfinished songs**: listen to a checkpoint without changing it, save the preview separately, and resume the original; preview progress reports elapsed time.
+- **Updates**: check GitHub for a new version, review its notes, download and verify the APK, and confirm installation through Android.
+
 New in 1.4.1, **GPU driver recovery**:
 
 - When the GPU driver crashes, the engine restarts on the GPU, more carefully each time, and the song carries on from where it stopped.
@@ -75,7 +86,7 @@ New in 1.4.0, **the Studio**, a music studio inside the app:
 
 - **Stems**: split any song into drums, bass, other and vocals on the phone (Meta's Demucs, a 414 MB download), each its own track.
 - **Arrange and edit**: move, trim, split, duplicate, fade, nudge, stretch and pitch clips, swipe-comp the best take, markers and tempo changes, with an undo and redo history.
-- **Mixer**: gold strips with pan, faders, meters, mute/solo, up to eight groups, shared reverb/delay sends, and ordered FX racks on tracks, groups, returns and Master.
+- **Mixer**: gold strips with pan, faders, meters and mute/solo. Version 1.5.0 adds groups, sends and editable effect racks.
 - **Record (Play Along)**: sing or play over a song from the microphone, a USB interface or another app's sound, with count-in, click, punch, loop takes, latency calibration and recovery of interrupted takes.
 - **The Chamber**: sixteen pads; load any project clip or sound file, chop it at its hits, trim, tune and shape it, record what you play onto the step grid, and bounce the pads to their own track.
 - **Export and wrap up**: the mix as WAV or M4A, every stem, or straight into your library; Wrap up turns a finished project into a song and frees its space.
