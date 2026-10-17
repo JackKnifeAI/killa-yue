@@ -45,7 +45,10 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Killa Gold** now wears its leather across the whole screen.
 - **Fixes**: karaoke keeps its place through rests.
 
-## 1.4.0 (next): the Studio, part one, "Remix"
+## 1.4.0 (released): the Studio
+
+Shipped further than planned: Remix (stems, mixer, export), and also Play Along recording, clip editing with stretch and pitch, and the Chamber pads with pad recording and bounce to a track. The plan as it was written:
+
 
 Open any song in the new Studio tab, split it into stems, then mute, solo, level and pan them, with an undo and redo tree that keeps every branch, so you can go back, try something else and still return to what you had. Export the mix and the stems. The Studio's engine and project files are already in the code and tested on the S25.
 
