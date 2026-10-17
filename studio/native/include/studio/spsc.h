@@ -10,6 +10,11 @@ class Spsc {
     static_assert(N >= 2 && (N & (N - 1)) == 0, "N must be a power of two");
 
 public:
+    // Producer only: the consumer can only make more room.
+    bool hasRoom() const {
+        return tail_.load(std::memory_order_relaxed) - head_.load(std::memory_order_acquire) < N;
+    }
+
     // Producer only. False when full.
     bool push(const T& v) {
         const size_t t = tail_.load(std::memory_order_relaxed);

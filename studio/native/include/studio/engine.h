@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "studio/mix.h"
+#include "studio/mixer.h"
 #include "studio/performance.h"
 #include "studio/spsc.h"
 
@@ -40,9 +41,11 @@ struct TrackSlot {
 struct Session {
     int rate;
     std::vector<TrackSlot> tracks;
+    MixerConfig mixer{};
+    bool hasMixer = false;
 };
 
-enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset, Loop, Limiter, CountIn };
+enum class Msg : uint8_t { Gain, Pan, Mute, Solo, Master, Play, Stop, Seek, Swap, Offline, Reset, Loop, Limiter, CountIn, Mixer };
 
 struct Message {
     Msg kind;
@@ -70,6 +73,8 @@ class Engine {
 
     // UI thread. Reset makes the limiter as new (exports post it so they never depend on what played before).
     bool post(const Message& m);
+    bool mixer(const MixerConfig& config);
+    int mixerMeters(float* out, int max) { return mixer_.meters(out, max); }
     void process(float* outStereo, int frames);  // audio thread
     Session* takeRetired();                      // UI thread: a session the engine no longer uses, or nullptr
     // Peaks are the loudest moment since the last status() call (reading clears them), so a slow screen never
@@ -101,7 +106,8 @@ class Engine {
     Message pending_{};  // a Swap held over because retired_ was full
     bool hasPending_ = false;
     int rate_, maxFrames_;
-    std::vector<float> scratch_;
+    std::vector<float> scratch_, trackStereo_;
+    MixerGraph mixer_;
     Limiter limiter_;
     PerformanceAudio performance_;
     long countIn_ = 0;

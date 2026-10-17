@@ -47,7 +47,13 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIE
                                                                             jbooleanArray mute, jbooleanArray solo, jintArray clipTrack,
                                                                             jobjectArray files, jlongArray start, jlongArray offset,
                                                                             jlongArray length, jfloatArray clipGain, jlongArray fadeIn,
-                                                                            jlongArray fadeOut, jfloat masterDb) {
+                                                                            jlongArray fadeOut, jfloat masterDb, jfloatArray mixerData) {
+    studio::MixerConfig mixer;
+    if (!mixerData || e->GetArrayLength(mixerData) != studio::MixerConfig::size) {
+        throwIo(e, "Invalid mixer configuration."); return;
+    }
+    e->GetFloatArrayRegion(mixerData, 0, studio::MixerConfig::size, mixer.data.data());
+    if (e->ExceptionCheck()) return;
     const jsize tracks = e->GetArrayLength(gain), clips = e->GetArrayLength(clipTrack);
     std::vector<jfloat> g(tracks), p(tracks), cg(clips);
     std::vector<jboolean> m(tracks), s(tracks);
@@ -82,7 +88,7 @@ JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nLoad(JNIE
         spec[ct[k]].clips.push_back({path, (long)st[k], (long)of[k], (long)ln[k], cg[k], (long)fi[k], (long)fo[k]});
     }
     std::string err;
-    if (!host(h)->load(spec, masterDb, err)) throwIo(e, err);
+    if (!host(h)->load(spec, masterDb, err, &mixer)) throwIo(e, err);
 }
 
 JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPost(JNIEnv*, jclass, jlong h, jint kind, jint track,
@@ -164,6 +170,22 @@ JNIEXPORT jint JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nMeters(JN
     const int n = host(h)->meters(m, max);
     e->SetFloatArrayRegion(out, 0, 2 * n, m);
     return n;
+}
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nMixer(JNIEnv* e, jclass, jlong h, jfloatArray data) {
+    studio::MixerConfig config;
+    if (!data || e->GetArrayLength(data) != studio::MixerConfig::size) {
+        throwIo(e, "Invalid mixer configuration."); return;
+    }
+    e->GetFloatArrayRegion(data, 0, studio::MixerConfig::size, config.data.data());
+    if (e->ExceptionCheck()) return;
+    if (!host(h)->mixer(config)) throwIo(e, "Mixer update refused; try the control again.");
+}
+
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nMixerMeters(JNIEnv* e, jclass, jlong h, jfloatArray out) {
+    float values[20];
+    int n = host(h)->mixerMeters(values, std::min(10, e->GetArrayLength(out) / 2));
+    e->SetFloatArrayRegion(out, 0, 2*n, values);
 }
 
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nCancelLatency(JNIEnv*, jclass, jlong h) { host(h)->cancelLatency(); }

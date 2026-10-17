@@ -7,7 +7,7 @@
 namespace studio {
 
 Engine::Engine(int rate, int maxFrames)
-    : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), limiter_(rate), performance_(rate) {
+    : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), trackStereo_(2 * (size_t)maxFrames, 0.f), mixer_(rate, maxFrames), limiter_(rate), performance_(rate) {
     for (auto& m : meter_) m.store(0.f, std::memory_order_relaxed);
 }
 
@@ -22,6 +22,12 @@ Engine::~Engine() {
 }
 
 bool Engine::post(const Message& m) { return in_.push(m); }
+
+bool Engine::mixer(const MixerConfig& config) {
+    // Same producer as post(): reserve both queues before publishing either.
+    if (!config.valid() || !in_.hasRoom() || !mixer_.enqueue(config)) return false;
+    return post({Msg::Mixer, 0, 0, 0, nullptr});
+}
 
 Session* Engine::takeRetired() {
     Session* s = nullptr;
@@ -40,6 +46,7 @@ bool Engine::swap(Session* s) {
     }
     if (cur_ && !retired_.push(cur_)) return false;  // no room to hand the old one back: try next block
     cur_ = s;
+    if (s && s->hasMixer) mixer_.configure(s->mixer);
     meterTracks_.store(cur_ ? (int)cur_->tracks.size() : 0, std::memory_order_relaxed);
     // its tracks join at the song's position, with the loop (a source already there ignores the seek)
     if (cur_)
@@ -70,6 +77,10 @@ void Engine::apply(const Message& m) {
             break;
         case Msg::Reset:
             limiter_.reset();
+            mixer_.reset();
+            break;
+        case Msg::Mixer:
+            mixer_.apply();
             break;
         case Msg::CountIn:
             countIn_ = std::max(0L, m.frame);
@@ -83,6 +94,7 @@ void Engine::apply(const Message& m) {
             break;
         case Msg::Seek:
             pos_ = m.frame;
+            mixer_.reset();
             if (cur_)
                 for (auto& s : cur_->tracks) s.source->seek(m.frame);
             break;
@@ -157,15 +169,17 @@ int Engine::meters(float* out, int max) {
 
 void Engine::render(float* out, int frames, float& pl, float& pr) {
     std::memset(out, 0, sizeof(float) * 2 * (size_t)frames);
+    mixer_.begin(frames);
     if (playing_ && countIn_ == 0 && cur_) {
-        bool anySolo = false;
+        bool anySolo = mixer_.groupSolo();
         for (auto& s : cur_->tracks) anySolo |= s.solo;
         bool short_ = false;
         for (auto& s : cur_->tracks) {
             const int got = s.source->read(scratch_.data(), frames);
             if (got < frames) short_ = true;
             float l = 0.f, r = 0.f;
-            if (!s.mute && (!anySolo || s.solo)) {
+            const int t = (int)(&s - &cur_->tracks[0]);
+            if (mixer_.audible(t, s.mute, s.solo, anySolo)) {
                 panGains(s.pan, s.source->panChannels(), l, r);
                 const float g = dbToGain(s.gainDb);
                 l *= g;
@@ -175,24 +189,24 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
                 s.appliedL = l;
                 s.appliedR = r;
             }
-            mixGliding(scratch_.data(), s.source->channels(), frames, out, s.appliedL, s.appliedR, l, r);
-            // the track's meter: its loudest sample at the louder of the two gains it glided between
-            const int t = (int)(&s - &cur_->tracks[0]);
-            const float gl = std::max(s.appliedL, l), gr = std::max(s.appliedR, r);
+            std::fill_n(trackStereo_.data(), 2 * frames, 0.f);
+            mixGliding(scratch_.data(), s.source->channels(), frames, trackStereo_.data(), s.appliedL, s.appliedR, l, r);
+            mixer_.track(t, trackStereo_.data(), out, frames);
             float ml = 0.f, mr = 0.f;
-            if (gl > 0.f || gr > 0.f)
-                for (int i = 0; i < frames; i++) {
-                    ml = std::max(ml, std::fabs(scratch_[2 * i]));
-                    mr = std::max(mr, std::fabs(scratch_[2 * i + (s.source->channels() > 1 ? 1 : 0)]));
-                }
-            raise(meter_[2 * t], ml * gl);
-            raise(meter_[2 * t + 1], mr * gr);
+            for (int i = 0; i < frames; i++) {
+                ml = std::max(ml, std::fabs(trackStereo_[2*i]));
+                mr = std::max(mr, std::fabs(trackStereo_[2*i+1]));
+            }
+            raise(meter_[2*t], ml);
+            raise(meter_[2*t+1], mr);
             s.appliedL = l;
             s.appliedR = r;
         }
         if (short_) underruns_.fetch_add(1, std::memory_order_relaxed);
     }
+    mixer_.finish(out, frames);
     performance_.mix(out, frames, countIn_ > 0 ? -countIn_ : pos_, playing_);
+    mixer_.master(out, frames);
     if (master_ != 1.f)
         for (int i = 0; i < 2 * frames; i++) out[i] *= master_;
     if (limiterOn_) limiter_.process(out, frames);  // also when stopped, so its delay drains without a click
