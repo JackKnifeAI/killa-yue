@@ -12,7 +12,7 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-Version 1.4.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+Version 1.4.1. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
 
 ## Requirements
 
@@ -64,6 +64,12 @@ CPU mode is much slower than the GPU. We have not timed it on any phone yet, so 
 - **Copy the models from a friend's phone** instead of downloading 4 GB: each file is checked against its published checksum, and an interrupted copy resumes.
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, ready for TikTok, Reels and Shorts.
 - **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Engine tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
+
+New in 1.4.1, **GPU driver recovery**:
+
+- When the GPU driver crashes, the engine restarts on the GPU, more carefully each time, and the song carries on from where it stopped.
+- Killa YuE no longer moves your phone to the processor by itself. Before 1.4.1, a crash (often just the phone running out of memory) could switch songs to the CPU for good, which needs even more memory, so every song after that was stopped by Android. If that happened to your phone, the app asks once whether to go back to the GPU.
+- Running out of memory now says so, with what helps: a shorter Max length on the Engine tab, and closing other apps.
 
 New in 1.4.0, **the Studio**, a music studio inside the app:
 

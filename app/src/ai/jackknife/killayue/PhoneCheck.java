@@ -99,6 +99,17 @@ public class PhoneCheck {
         return b.toString();
     }
 
+    /**
+     * Once per install: true when this phone's GPU is supported but songs are set to the processor, which an
+     * earlier version did by itself after a crash. The app then asks whether to go back to the GPU.
+     */
+    static boolean askGpuBack(Context c) {
+        SharedPreferences cfg = c.getSharedPreferences("cfg", 0);
+        if (cfg.getBoolean("gpu_back_asked", false)) return false;
+        cfg.edit().putBoolean("gpu_back_asked", true).apply();
+        return gpuSupported() && "CPU".equals(cfg.getString("device", "Vulkan0"));
+    }
+
     /** For the GitHub device-report form. */
     static String report(Context c) {
         SharedPreferences cfg = c.getSharedPreferences("cfg", 0);
