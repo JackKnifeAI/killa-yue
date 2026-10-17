@@ -98,12 +98,19 @@ The tracks laid out in time.
 - Tap the timeline to move the playhead; pinch to zoom.
 - M mutes a track; S solos it (only soloed tracks are heard).
 ## Mixer
-A strip for every track, and the master at the end.
-- Swipe left or right anywhere except on a control to move along the strips.
-- The gold knob pans the track left or right: touch the knob itself and drag up or down. Double-tap it to put it back in the centre.
-- The fader sets the track's volume: touch its gold cap and drag. Double-tap the cap to put it back at 0 dB.
-- The meter beside the fader shows how loud the track is playing.
-- M mutes and S solos, as in Arrange.
+A gold strip for each track, followed by your groups, the shared Reverb and Delay returns, and Master.
+- Swipe left or right through empty strip space. Only a knob or the fader cap takes hold of a drag. On a short screen, swipe up or down through empty space to reach the lower controls.
+- The large gold knob pans left or right. Touch the knob and drag up or down; double-tap to centre it. Pan starts in the centre.
+- The fader sets volume. Touch its gold cap and drag; double-tap the cap for 0 dB. New groups and returns start at 0 dB. The meter shows the level after the strip's volume and effects.
+- M mutes a track, group or return. S solos a track or group. Group solo includes its member tracks; soloing one track still plays it through its group. Group mute silences all its members, including their sends. Mute and solo start off.
+- Add group makes a named group, up to eight. Tap a track's name or To line to send it to Master or a group. Tracks start routed straight to Master. Groups feed Master; a group cannot feed another group.
+- Tap a group's name to rename or remove it. Removing a group puts its tracks back on Master. Undo restores the group and its routing.
+- REV and DLY are sends: they copy some of a track or group's sound into the shared reverb or delay. Drag either small gold knob up or down from 0 to 100; double-tap for 0. Both start at 0 (off). Sends follow that strip's volume, pan and effects. A track's sends are taken before its group's volume and effects.
+- Reverb adds a short stereo room tail. Delay repeats at 250 milliseconds, each repeat at 30% of the previous one. The return faders change how much wet sound reaches Master; their M buttons silence it. Returns cannot send into themselves.
+- FX rack opens that strip's effects, processed from top to bottom, up to eight slots. New racks are empty. Tap Add effect, then a slot to set its value, bypass it, move it earlier or later, or remove it. Bypass leaves the slot in place but stops its effect.
+- Trim adjusts level from -24 to +24 dB; it starts at 0 dB. Stereo width starts at 100% (unchanged), 0% makes mono, and 200% widens the difference between left and right. Polarity invert flips both channels; it is active when added and has no amount knob.
+- Track, group and return effects follow their faders. Master effects run before the Master fader and its safety limiter. The live Chamber pads feed Master; bounce them to a track to use that track's group and sends.
+- Every mixer edit is saved and can be undone. One knob or fader drag makes one undo step. Old projects open with empty racks and sends off.
 ## Stems
 Splits a track into four tracks: drums, bass, other and vocals. It runs on the phone, in the background, while you work.
 - Download the stems model: about 414 MB, once.
@@ -115,7 +122,8 @@ Splits a track into four tracks: drums, bass, other and vocals. It runs on the p
 - WAV 16-bit: CD quality.
 - M4A: small, for sharing.
 - To the library: the mix becomes a song in your library.
-- Stems: every track as its own file.
+- Stems: every track as its own file, with its track volume, pan and FX rack. Track mute and solo are ignored. Groups, sends and Master effects are left out, so these are separate ingredients for another mix.
+- A full mix includes groups, sends and all FX racks. When a send is in use, export adds four seconds for the reverb and delay to fade away.
 
 # Studio — Play Along
 ## Record

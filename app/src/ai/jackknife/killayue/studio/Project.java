@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
 
     public int version = VERSION;
     public String name;
@@ -24,6 +24,7 @@ public final class Project {
     public long loopStart, loopEnd;         // the loop region in frames; loopOn plays it round
     public boolean loopOn;
     public Performance performance = new Performance();
+    public Mixer mixer = new Mixer();
 
     public Project(String name, int rate) {
         this.name = name;
@@ -64,11 +65,15 @@ public final class Project {
         return null;
     }
 
-    /** Heard in the mix: not muted, and either nothing is soloed or this track is. Mute beats solo. */
+    /** Group solo includes its tracks; track solo passes through its group. Either mute wins over solo. */
     public boolean audible(Track t) {
-        if (t.mute) return false;
-        for (Track o : tracks) if (o.solo) return t.solo;
-        return true;
+        Mixer.Strip strip = mixer.strips.get(t.id);
+        Mixer.Strip group = strip == null ? null : mixer.strips.get(strip.route);
+        if (t.mute || (group != null && group.mute)) return false;
+        boolean solo = false;
+        for (Track o : tracks) solo |= o.solo;
+        for (String g : mixer.groups) solo |= mixer.get(g).solo;
+        return !solo || t.solo || (group != null && group.solo);
     }
 
     /** Throws IllegalArgumentException, in words a reader can act on, for anything a project must never hold. */
@@ -80,6 +85,7 @@ public final class Project {
         if (name == null) throw new IllegalArgumentException("The project has no name.");
         finite("master level", masterDb);
         performance.validate();
+        mixer.validate(this);
         HashSet<String> ids = new HashSet<String>();
         for (Track t : tracks) {
             id(ids, t.id);
@@ -137,6 +143,7 @@ public final class Project {
         for (Track t : tracks) ts.add(trackJson(t));
         p.put("tracks", ts);
         p.put("performance", performance.json());
+        p.put("mixer", mixer.json());
         return p;
     }
 
@@ -157,6 +164,7 @@ public final class Project {
         out.loopOn = bool(p, "loopOn");
         out.performance = Performance.read(p.get("performance"));
         for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
+        out.mixer = Mixer.read(p.get("mixer"));
         out.validate();
         return out;
     }

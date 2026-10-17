@@ -47,6 +47,10 @@ public class StudioTestActivity extends Activity {
         final float master = getIntent().getFloatExtra("master", -40f);
         report = new File(getFilesDir(), "studio-test.txt");
         report.delete();
+        if (test.equals("mixer-ui")) {
+            ai.jackknife.killayue.studio.ui.MixerProof.start(this);
+            return;
+        }
         if (test.equals("playalong-recover")) {
             ai.jackknife.killayue.studio.ui.PlayAlongProof.recover(this);
             return;
@@ -59,7 +63,17 @@ public class StudioTestActivity extends Activity {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("playalong"))
+                    if (test.equals("mixer")) {
+                        String oldTmp = System.getProperty("java.io.tmpdir");
+                        try {
+                            System.setProperty("java.io.tmpdir", getCacheDir().getPath());
+                            NativeMixerTest.main(new String[0]);
+                            log("PASS mixer offline JNI/export fixture: " + NativeMixerTest.passed + " assertions");
+                        } finally {
+                            if (oldTmp != null) System.setProperty("java.io.tmpdir", oldTmp);
+                        }
+                        stress(seconds, master);
+                    } else if (test.equals("playalong"))
                         playAlong(seconds);
                     else if (test.equals("stress"))
                         stress(seconds, master);
@@ -193,6 +207,25 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(false);
         try {
             Project p = tracks(e.rate(), seconds, dir);
+            final boolean mixerTest = "mixer".equals(getIntent().getStringExtra("test"));
+            if (mixerTest) {
+                for (int i = 0; i < 8; i++) p.mixer.addGroup("Group " + (i + 1));
+                for (int i = 0; i < p.tracks.size(); i++) {
+                    String id = p.tracks.get(i).id;
+                    p.mixer.edit(id).route = p.mixer.groups.get(i % 8);
+                    p.mixer.edit(id).reverb = .12f;
+                    p.mixer.edit(id).delay = .08f;
+                    for (int k = 0; k < 8; k++) p.mixer.addSlot(id, k % 2 + 1).value = k % 2 == 0 ? -1 : .9f;
+                }
+                for (String id : p.mixer.groups) {
+                    p.mixer.edit(id).gainDb = -6;
+                    p.mixer.edit(id).reverb = .1f;
+                    for (int k = 0; k < 8; k++) p.mixer.addSlot(id, 1).value = -.5f;
+                }
+                for (String id : new String[] {Mixer.MASTER, Mixer.REVERB, Mixer.DELAY})
+                    for (int k = 0; k < 8; k++) p.mixer.addSlot(id, 1).value = -.5f;
+                log("mixer: 8 groups, both sends, 8 inserts on all 27 strips; send edit every 25 ms");
+            }
             log("stress: 16 tracks, " + p.tracks.get(0).clips.size() + " clips each, " + seconds + " s, master " + master + " dB");
             e.load(p, dir);
             e.master(master);
@@ -207,6 +240,11 @@ public class StudioTestActivity extends Activity {
                 if (ms >= seconds * 1000L)
                     break;
                 String id = p.tracks.get(rng.nextInt(16)).id;
+                if (mixerTest) {
+                    p.mixer.edit(id).reverb = rng.nextFloat() * .2f;
+                    p.mixer.edit(id).delay = rng.nextFloat() * .2f;
+                    e.mixer(p);
+                }
                 switch (rng.nextInt(4)) {
                     case 0:
                         e.gain(id, -20f * rng.nextFloat());
@@ -250,7 +288,7 @@ public class StudioTestActivity extends Activity {
                         s.callbackAvgMs, s.slowCallbacks));
                     lastLine = ms;
                 }
-                Thread.sleep(5);
+                Thread.sleep(mixerTest ? 25 : 5);
             }
             e.stop();
             s = e.status();
@@ -258,7 +296,7 @@ public class StudioTestActivity extends Activity {
             log(String.format(java.util.Locale.ROOT,
                 "callbacks %d, slowest %.2f ms (a burst is %.2f ms), average %.3f ms, %d slower than a burst", s.callbacks, s.callbackMaxMs,
                 1000.0 * s.burst / s.deviceRate, s.callbackAvgMs, s.slowCallbacks));
-            log("RESULT " + (bad == 0 && xrunsBad == 0 ? "PASS" : "FAIL") + " stress: underruns " + bad + " (+" + afterSeek
+            log("RESULT " + (alive && bad == 0 && xrunsBad == 0 ? "PASS" : "FAIL") + " stress: underruns " + bad + " (+" + afterSeek
                 + " within 300 ms of a seek), device xruns " + xrunsBad + " (+" + xrunsEarly + " in the first 2 s)");
         } finally {
             e.close();

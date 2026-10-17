@@ -40,6 +40,7 @@ final class Migrate {
         }
         if (version < 3)
             m.put("performance", new Performance().json());
+        if (version < 4) m.put("mixer", new Mixer().json());
         m.put("version", Integer.valueOf(Project.VERSION));
         return m;
     }

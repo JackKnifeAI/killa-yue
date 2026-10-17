@@ -90,7 +90,7 @@ public class NativeEngineTest {
         play(e, 2000);
         java.util.HashMap<String, float[]> m = new java.util.HashMap<String, float[]>();
         e.meters(m);
-        check("a meter for each track by its ID", m.size() == 2 && m.containsKey(ta.id) && m.containsKey(tb.id));
+        check("a meter for each track by its ID", m.size() == 4 && m.containsKey(ta.id) && m.containsKey(tb.id) && m.containsKey(Mixer.REVERB) && m.containsKey(Mixer.DELAY));
         near("the levelled track's meter is after its fader", 0.125, m.get(ta.id)[0], 1e-4);
         near("the muted track's meter is still", 0.0, m.get(tb.id)[0], 1e-6);
 

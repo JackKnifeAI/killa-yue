@@ -75,7 +75,7 @@ New in 1.4.0, **the Studio**, a music studio inside the app:
 
 - **Stems**: split any song into drums, bass, other and vocals on the phone (Meta's Demucs, a 414 MB download), each its own track.
 - **Arrange and edit**: move, trim, split, duplicate, fade, nudge, stretch and pitch clips, swipe-comp the best take, markers and tempo changes, with an undo and redo history.
-- **Mixer**: a gold strip per track with pan knobs, faders, meters, mute and solo.
+- **Mixer**: gold strips with pan, faders, meters, mute/solo, up to eight groups, shared reverb/delay sends, and ordered FX racks on tracks, groups, returns and Master.
 - **Record (Play Along)**: sing or play over a song from the microphone, a USB interface or another app's sound, with count-in, click, punch, loop takes, latency calibration and recovery of interrupted takes.
 - **The Chamber**: sixteen pads; load any project clip or sound file, chop it at its hits, trim, tune and shape it, record what you play onto the step grid, and bounce the pads to their own track.
 - **Export and wrap up**: the mix as WAV or M4A, every stem, or straight into your library; Wrap up turns a finished project into a song and frees its space.
@@ -159,7 +159,7 @@ The tracks laid out in time. The round buttons: back to the start, play and stop
 <tr><td><img src="docs/screenshots/11-mixer.jpg" alt="Mixer"></td><td>
 
 ### Mixer
-A strip for every track and the master, each in a gold panel. Touch the **gold knob** and drag up or down to pan; touch the **fader's cap** and drag to set the volume; double-tap either to reset it. Anywhere else, swipe left and right along the strips. The meters show each track's level, and the small round **M** and **S** mute and solo.
+Gold strips for tracks, groups, shared **Reverb** and **Delay** returns, and **Master**. Drag a gold knob to pan or send, or the fader's cap to set volume; double-tap to reset. Empty space scrolls the mixer. **Add group**, then tap a track's name to route it; a group's fader controls its members together. **REV / DLY** start at zero and share a short stereo reverb or 250 ms delay. **FX rack** holds up to eight ordered trim, stereo-width or polarity slots, each with bypass, reorder and remove. Racks start empty. Meters follow the strip's processing; **M / S** mute and solo tracks or groups. Every change supports undo, and full-mix export includes the routing, effects and tails.
 
 </td></tr>
 <tr><td><img src="docs/screenshots/12-stems.jpg" alt="Stems"></td><td>
