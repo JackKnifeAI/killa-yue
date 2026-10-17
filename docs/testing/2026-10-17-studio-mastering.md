@@ -19,12 +19,14 @@ Mastering performs up to four bounded adjustment passes with ±24 dB of trim. A 
 
 Logs on ops: `/tmp/killa-mastering-java.log`, `/tmp/killa-mastering-native.log`, `/tmp/killa-mastering-app.log`, `/tmp/killa-mastering-build.log`.
 
-## Phone validation pending
+## S25 validation — 2026-10-17
 
-The S25 is connected at `10.0.0.71:45515`; Killa YuE and its engine were active while this work was built. No install, touch, listening, screenshot, route or device-performance result is claimed. The `mastering` fixture runs mixer/effects/automation/mastering JNI checks, then a 16-track effects/automation stress session with repeated mastering A/B changes:
+Validated on the S25 Ultra (SM-S938W), using the combined Studio stack plus unfinished-song preview PR #22 and progress fix PR #30. The 600-second stress APK was `a3c2aa5`; control/export checks used `38b3f27`; the final Chamber undo retest used `0294587`. These are combined-build results, not independent installs of each PR head.
 
-```
-adb -s 10.0.0.71:45515 shell am start -n ai.jackknife.killayue/.studio.StudioTestActivity --es test mastering --ei seconds 600 --ef master -40
-```
+All 151 offline device JNI/export assertions passed. The combined 16-track run exercised effects, 16 wet inserts, eight groups, shared sends, 48 automation lanes, tempo changes, mastering A/B, streamed instruments, Chamber song/repeat/levels and mute/solo. It passed with 300,004 callbacks: maximum 1.68 ms, average 0.972 ms, none beyond the 2.00 ms burst deadline. There were zero device xruns and zero underruns outside the existing 300 ms seek allowance; 32 underruns occurred within that allowance. It captured 5,832 live pad hits. The reported 8.3 ms output latency is an engine/device estimate, not a measured round trip.
 
-Before review, run that fixture while generation is idle, exercise preset application/cancel/undo/A/B/export in a throwaway project, inspect a small JPEG screenshot, and listen for discontinuities. Preserve user projects. USB/Bluetooth route changes and real-song listening remain explicit device checks.
+Evidence is backed up on ops in `~/killa-studio-device-proof-2026-10-17/`. Test fixtures were backed up and removed. SHA-256 comparison found all 52 original project/library/checkpoint files unchanged, including the completed song and the Yeah remix. The app remains a 1.4.1 test build; nothing was merged or released.
+
+All 25 mastering JNI/export assertions passed. Balanced preset measurement, A/B switching, stale-measurement detection and restoration after reopened undo passed through the UI. Independent FFmpeg ebur128 analysis of phone exports agreed with the displayed -47.4 LUFS before, -26.1 LUFS after and -25.0 dBFS mastered sample peak. The intentionally quiet fixture exceeded the available gain range for a -14 LUFS target; the UI correctly disclosed the shortfall. Both exports have identical 8.227792-second length at stereo 48 kHz.
+
+Remaining: subjective A/B listening, physical output routes and manual cancellation during measurement. Cancellation and all three presets passed the JNI fixtures.

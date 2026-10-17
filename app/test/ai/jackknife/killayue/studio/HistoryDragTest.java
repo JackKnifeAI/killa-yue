@@ -80,6 +80,36 @@ public class HistoryDragTest {
         k2.undo();
         same("a compound edit survives saving", 1, k2.project().tracks.size());
 
+        // A pad recording arrives in batches but is one continuous undo gesture.
+        Project pads = new Project("Pad capture", 48000);
+        History padHistory = new History(pads);
+        String initial = pads.toText();
+        Object pass = new Object();
+        for (int step = 0; step < 4; step++) {
+            Project changed = pads.copy();
+            changed.performance.chamber.patterns[step % 2][2][step] = (step + 1) / 16f;
+            padHistory.drag(ClipEdits.change(pads, changed, "Record pads"), pass);
+        }
+        String captured = pads.toText();
+        same("four captured batches share one undo entry", 2, padHistory.steps().size());
+        History savedPads = History.fromJson(Json.parse(Json.write(padHistory.toJson("pads"))), pads.copy());
+        same("one reopened undo removes the complete recording", true, savedPads.undo());
+        same("reopened recording restores its starting banks", initial, savedPads.project().toText());
+        same("reopened recording redo succeeds", true, savedPads.redo());
+        same("reopened redo restores all captured batches", captured, savedPads.project().toText());
+        Project nextPass = pads.copy();
+        nextPass.performance.chamber.patterns[2][3][5] = .8f;
+        padHistory.drag(ClipEdits.change(pads, nextPass, "Record pads"), new Object());
+        same("a new recording pass gets its own entry", 3, padHistory.steps().size());
+        padHistory.undo();
+        same("undo of the next pass preserves the first recording", captured, pads.toText());
+        Project branch = pads.copy();
+        branch.performance.chamber.patterns[3][4][6] = .9f;
+        padHistory.drag(ClipEdits.change(pads, branch, "Record pads"), pass);
+        same("capture after undo creates a branch", 4, padHistory.steps().size());
+        padHistory.undo();
+        same("both recording branches remain redoable", 2, padHistory.redoChoices().size());
+
         System.out.println("HistoryDragTest: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
