@@ -72,6 +72,8 @@ Songs take longer, and the phone stays smooth while one is made.
 Studio jobs such as splitting stems run on the phone's fast cores instead of in the background. Faster, but music may stutter while one runs. Off by default.
 ## Run the engine in its own app process
 Runs the engine apart from the app, so Android's limits on child processes no longer apply. Takes effect with the next song.
+## Check for updates
+On when the app is installed. Once a day the app asks GitHub for the newest version and tells you when one is out. Update downloads it (it resumes after a dropped connection), checks it against the SHA-256 published with the release, and asks Android to install it; the first time, Android asks you to allow Killa YuE to install apps. Android only accepts an update signed with the same key as your copy, and your songs, projects and models stay. Later asks again tomorrow; Skip this version waits for the next one. Nothing is installed without you, and never while a song is being made. "Check for updates now" asks straight away.
 ## Allow in background
 Lets Android keep the engine running while the app is closed, so songs finish when the screen is off.
 ## Downloads

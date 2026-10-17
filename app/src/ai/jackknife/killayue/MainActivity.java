@@ -374,6 +374,7 @@ public class MainActivity extends Activity {
         String check = PhoneCheck.firstLaunch(this);
         if (check.length() > 0) alert("About this phone", check);
         if (PhoneCheck.askGpuBack(this)) askGpuBack();
+        else if (check.length() == 0) Updates.onLaunch(this); // one question at a time on launch
         handleLink(getIntent());
     }
 
@@ -412,6 +413,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
+        Updates.resume(this);   // back from allowing Killa YuE to install apps
         if (wakeBtn != null) wakeBtn.setText(wakeLabel());
     }
 
@@ -2584,6 +2586,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent in) {
         super.onNewIntent(in);
+        if (Updates.result(this, in)) return; // Android's installer answering about an update
         setIntent(in);
         handleLink(in);
     }
@@ -3714,10 +3717,16 @@ public class MainActivity extends Activity {
             }
         });
 
-        c.addView(chipRow(new String[] {"How everything works"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"How everything works", "Check for updates now"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     Guide.show(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    toast("Checking for updates");
+                    Updates.check(MainActivity.this, true);
                 }
             }
         }), gap(8));
@@ -3833,6 +3842,17 @@ public class MainActivity extends Activity {
             }
         });
         c.addView(procBox, gap(8));
+        final CheckBox updBox = new CheckBox(this);
+        updBox.setText("Check for updates (once a day, the app asks GitHub for the newest version and offers to install it)");
+        updBox.setTextColor(TEXT);
+        updBox.setShadowLayer(4, 0, 1, 0x99000000);
+        updBox.setChecked(Updates.enabled(this));
+        updBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                Updates.enabled(MainActivity.this, on);
+            }
+        });
+        c.addView(updBox, gap(8));
         bgStatus = text("", DIM, 13);
         bgStatus.setShadowLayer(4, 0, 1, 0x99000000);
         c.addView(bgStatus, gap(8));
