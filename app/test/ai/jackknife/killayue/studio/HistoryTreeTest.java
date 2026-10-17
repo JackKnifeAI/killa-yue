@@ -45,7 +45,7 @@ public class HistoryTreeTest {
         h.jumpTo(loudId);
         same("jump straight to any step, across branches", loud, p.toText());
         h.jumpTo(steps.get(0).id);
-        same("jump to the very start", new Project("Remix", 48000).toText().replace("\"nextId\":1", "\"nextId\":" + p.nextId), p.toText());
+        same("jump to the very start", new Project("Remix", 48000).toText().replaceFirst("\"nextId\":1", "\"nextId\":" + p.nextId), p.toText());
         same("every step is listed: start, add, two levels, pan", 5, h.steps().size());
 
         // a long session: thousands of steps, all the way back and forward again, exactly

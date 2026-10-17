@@ -215,6 +215,7 @@ public abstract class Edit {
     static final class RemoveTrack extends Edit {
         final String track;
         Track removed;
+        Mixer.Strip removedMixer;
         int index;
 
         RemoveTrack(String track) {
@@ -225,11 +226,13 @@ public abstract class Edit {
             Track t = need(p, track);
             index = p.tracks.indexOf(t);
             removed = t;
+            removedMixer = p.mixer.strips.remove(track);
             p.tracks.remove(index);
         }
 
         void revert(Project p) {
             p.tracks.add(index, removed);
+            if (removedMixer != null) p.mixer.strips.put(track, removedMixer);
         }
 
         public String label() {
@@ -239,6 +242,7 @@ public abstract class Edit {
         LinkedHashMap<String, Object> toJson() {
             LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
             j.put("kind", "removeTrack");
+            if (removedMixer != null) j.put("removedMixer", Mixer.stripJson(removedMixer));
             j.put("track", track);
             j.put("index", Integer.valueOf(index));
             if (removed != null)
@@ -404,6 +408,8 @@ public abstract class Edit {
             p.loopEnd = n.loopEnd;
             p.loopOn = n.loopOn;
             p.performance = n.performance;
+            n.mixer.nextId = Math.max(p.mixer.nextId, n.mixer.nextId);
+            p.mixer = n.mixer;
             p.tracks.clear();
             p.tracks.addAll(n.tracks);
         }
@@ -432,6 +438,7 @@ public abstract class Edit {
             throw new IllegalArgumentException("The history is damaged: an edit is not an object.");
         Map<?, ?> j = (Map<?, ?>) o;
         Object k = j.get("kind");
+        if ("mixer".equals(k)) return MixerEdit.read(j);
         if ("snapshot".equals(k))
             return new Snapshot((String) j.get("label"), (String) j.get("before"), (String) j.get("after"));
         if ("loop".equals(k)) {
@@ -456,6 +463,7 @@ public abstract class Edit {
         if ("removeTrack".equals(k)) {
             RemoveTrack r = new RemoveTrack((String) j.get("track"));
             r.index = ((Number) j.get("index")).intValue();
+            if (j.get("removedMixer") != null) r.removedMixer = Mixer.readStrip(j.get("removedMixer"));
             if (j.get("removed") != null)
                 r.removed = Project.trackFromJson(j.get("removed"));
             return r;

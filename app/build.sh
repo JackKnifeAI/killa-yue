@@ -30,7 +30,7 @@ m = m.replace('</application>', '    <activity android:name=".studio.StudioTestA
 open('out/AndroidManifest.xml', 'w').write(m)
 PY
     MANIFEST=out/AndroidManifest.xml
-    JAVA_DIRS="$JAVA_DIRS test-src"
+    JAVA_DIRS="$JAVA_DIRS test-src ../studio/native/test/java"
     LINK_EXTRA="--replace-version --version-name $(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml)-studiotest"
 fi
 aapt2 compile --dir res -o out/res.zip

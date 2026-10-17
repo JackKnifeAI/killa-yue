@@ -32,6 +32,8 @@ public final class NativeEngine implements AutoCloseable {
     private long h;
     private final boolean device;
     private int measuring; // measureLatency calls in flight (guarded by this): close() waits for them
+    private final ArrayList<String> groupIds = new ArrayList<String>();
+    private final float[] busMeters = new float[20];
     private final ArrayList<String> trackIds = new ArrayList<String>(); // engine track index -> project track ID
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
@@ -81,7 +83,8 @@ public final class NativeEngine implements AutoCloseable {
      * Plays the project's tracks from now on, at the song's position; clip files are relative to folder. On an
      * IOException (a file missing, damaged or at another rate) the tracks that were playing play on.
      */
-    public void load(Project p, File folder) throws IOException {
+    public synchronized void load(Project p, File folder) throws IOException {
+        float[] mixerData = p.mixer.nativeData(p);
         if (p.rate != rate())
             throw new IOException("The project is at " + p.rate + " Hz; the Studio runs at " + rate() + " Hz.");
         int n = p.tracks.size(), clips = 0;
@@ -113,9 +116,11 @@ public final class NativeEngine implements AutoCloseable {
                 k++;
             }
         }
-        nLoad(handle(), gain, pan, mute, solo, clipTrack, files, start, offset, length, clipGain, fadeIn, fadeOut, p.masterDb);
+        nLoad(handle(), gain, pan, mute, solo, clipTrack, files, start, offset, length, clipGain, fadeIn, fadeOut, p.masterDb, mixerData);
         trackIds.clear();
         trackIds.addAll(ids);
+        groupIds.clear();
+        groupIds.addAll(p.mixer.groups);
         performance(p, folder);
     }
 
@@ -170,13 +175,27 @@ public final class NativeEngine implements AutoCloseable {
 
     private float[] meterBuf = new float[0];
 
-    /** Each track's loudest moment (left, right) since the last call, after its fader, by track ID; clears them. */
+    /** Mixer edits are queued independently of disk readers; turning a send never reloads clips. */
+    public synchronized void mixer(Project p) throws IOException {
+        if (p.tracks.size() != trackIds.size()) throw new IOException("Load the project's tracks before its mixer.");
+        for (int i = 0; i < trackIds.size(); i++)
+            if (!trackIds.get(i).equals(p.tracks.get(i).id)) throw new IOException("The mixer belongs to different tracks.");
+        nMixer(handle(), p.mixer.nativeData(p));
+        groupIds.clear();
+        groupIds.addAll(p.mixer.groups);
+    }
+
+    /** Held peaks by track/group ID and reverb/delay return name; reading clears them. */
     public void meters(java.util.Map<String, float[]> out) {
         if (meterBuf.length < 2 * trackIds.size())
             meterBuf = new float[2 * Math.max(16, trackIds.size())];
         int n = nMeters(handle(), meterBuf);
         out.clear();
         for (int i = 0; i < n && i < trackIds.size(); i++) out.put(trackIds.get(i), new float[] {meterBuf[2 * i], meterBuf[2 * i + 1]});
+        nMixerMeters(handle(), busMeters);
+        for (int i = 0; i < groupIds.size(); i++) out.put(groupIds.get(i), new float[] {busMeters[2*i], busMeters[2*i+1]});
+        out.put(Mixer.REVERB, new float[] {busMeters[16], busMeters[17]});
+        out.put(Mixer.DELAY, new float[] {busMeters[18], busMeters[19]});
     }
 
     public Status status() {
@@ -380,7 +399,7 @@ public final class NativeEngine implements AutoCloseable {
     private static native void nStart(long h) throws IOException;
 
     private static native void nLoad(long h, float[] gain, float[] pan, boolean[] mute, boolean[] solo, int[] clipTrack, byte[][] files,
-        long[] start, long[] offset, long[] length, float[] clipGain, long[] fadeIn, long[] fadeOut, float masterDb) throws IOException;
+        long[] start, long[] offset, long[] length, float[] clipGain, long[] fadeIn, long[] fadeOut, float masterDb, float[] mixerData) throws IOException;
 
     private static native boolean nPost(long h, int kind, int track, float value, long frame);
 
@@ -393,6 +412,9 @@ public final class NativeEngine implements AutoCloseable {
     private static native void nCancelLatency(long h);
 
     private static native boolean nLoop(long h, long start, long end, boolean on);
+
+    private static native void nMixer(long h, float[] config) throws IOException;
+    private static native void nMixerMeters(long h, float[] out);
 
     private static native int nMeters(long h, float[] out);
 

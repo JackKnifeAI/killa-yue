@@ -61,7 +61,7 @@ public final class StudioSession implements SessionDiff.Target {
     private Autosave autosave;
     private boolean ticking;
     final Recording recording;
-    private String performanceText;
+    private String performanceText, mixerText;
 
     private StudioSession(Context app) {
         this.app = app;
@@ -143,6 +143,7 @@ public final class StudioSession implements SessionDiff.Target {
             engine.start();
             diff.forget();
             performanceText = null;
+            mixerText = null;
             changed(false);
             engine.seek(pos);
         } catch (IOException ex) {
@@ -206,6 +207,7 @@ public final class StudioSession implements SessionDiff.Target {
         engine = null;
         engineError = null;
         performanceText = null;
+        mixerText = null;
         project = null;
         history = null;
         dir = null;
@@ -372,6 +374,14 @@ public final class StudioSession implements SessionDiff.Target {
     private void changed(boolean save) {
         if (project != null && engine() != null) {
             diff.sync(project, this);
+            String mix = ai.jackknife.killayue.studio.Json.write(project.mixer.json());
+            if (!mix.equals(mixerText))
+                try {
+                    engine.mixer(project);
+                    mixerText = mix;
+                } catch (IOException ex) {
+                    engineError = ex.getMessage();
+                }
             String config = ai.jackknife.killayue.studio.Json.write(project.performance.json());
             if (!config.equals(performanceText))
                 try {
@@ -452,6 +462,7 @@ public final class StudioSession implements SessionDiff.Target {
         try {
             engine.loop(p.loopStart, p.loopEnd, p.loopOn);
             engine.load(p, dir);
+            mixerText = ai.jackknife.killayue.studio.Json.write(p.mixer.json());
         } catch (IOException e) {
             engineError = e.getMessage();
         }

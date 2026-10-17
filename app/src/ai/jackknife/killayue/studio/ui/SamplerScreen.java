@@ -403,6 +403,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         final java.io.File dir = a.session.dir();
         final Project pads = snap.copy();
         pads.tracks.clear();
+        pads.mixer = pads.mixer.stem(null);
         pads.masterDb = 0;
         pads.performance.pattern = true;
         long songEnd = ExportJob.length(snap);
