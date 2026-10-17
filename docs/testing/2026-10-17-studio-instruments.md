@@ -26,13 +26,14 @@ The final complete Java suite passes, including 17 MidiNotesTest assertions. Nat
 
 Pure-Java coverage includes note validation, serialization, migration, quantisation, tempo-aware durations, track removal/restoration, saved note undo, MIDI packet decoding and original sample generation. Native coverage exercises prebuffered attacks, immediate retrigger, release, panic, invalid banks, polyphony and concurrent bank replacement. JNI/WAV coverage exercises timed notes, deterministic repeated export, mute, pan, both banks, another project rate and live keys while stopped. Existing mixer/effects/automation/mastering suites are also rerun.
 
-## Phone validation pending
+## S25 validation — 2026-10-17
 
-No phone install, screenshot, touch, listening, route, MIDI hardware, latency or performance result is claimed. Keep the PR draft until these checks are complete, while song generation is idle:
+Validated on the S25 Ultra (SM-S938W), using the combined Studio stack plus unfinished-song preview PR #22 and progress fix PR #30. The 600-second stress APK was `a3c2aa5`; control/export checks used `38b3f27`; the final Chamber undo retest used `0294587`. These are combined-build results, not independent installs of each PR head.
 
-```
-adb -s 10.0.0.71:45515 shell am start -n ai.jackknife.killayue/.studio.StudioTestActivity --es test instruments --ei seconds 600 --ef master -40
-adb -s 10.0.0.71:45515 shell am start -n ai.jackknife.killayue/.studio.StudioTestActivity --es test instruments-ui
-```
+All 151 offline device JNI/export assertions passed. The combined 16-track run exercised effects, 16 wet inserts, eight groups, shared sends, 48 automation lanes, tempo changes, mastering A/B, streamed instruments, Chamber song/repeat/levels and mute/solo. It passed with 300,004 callbacks: maximum 1.68 ms, average 0.972 ms, none beyond the 2.00 ms burst deadline. There were zero device xruns and zero underruns outside the existing 300 ms seek allowance; 32 underruns occurred within that allowance. It captured 5,832 live pad hits. The reported 8.3 ms output latency is an engine/device estimate, not a measured round trip.
 
-The first runs offline JNI checks and 16 streamed instrument tracks with effects, automation, tempo changes and mastering A/B. The second creates `Instruments device proof`, verifies controller undo/redo and reopened history, and opens Studio for manual piano-roll/key checks. Verify drag, resize, velocity, quantise, cancel, multitouch/glissando, A/B, export/stems, reload, device routes and hardware MIDI. Capture only small JPEG previews over the bridge. Preserve existing projects and remove only the identified fixture after testing.
+Evidence is backed up on ops in `~/killa-studio-device-proof-2026-10-17/`. Test fixtures were backed up and removed. SHA-256 comparison found all 52 original project/library/checkpoint files unchanged, including the completed song and the Yeah remix. The app remains a 1.4.1 test build; nothing was merged or released.
+
+All 19 instrument JNI/export assertions and the real controller's undo/redo/autosave/reopened-history checks passed. Killa Pluck prepared its 49-key bank. Touch drawing/movement, resizing, velocity and exact pitch editing persisted (the inspected edited note was pitch 67, beat 4.25, length 1.5, velocity 0.91). Delete/undo/redo, paging and zoom worked. A glissando and two-pointer keyboard gesture were delivered without an app crash; a cancelled roll drag left project JSON byte-identical. These input checks do not establish subjective sound quality. Pluck and Tines stem exports were stereo 48 kHz with equal 3.955-second length.
+
+The MIDI chooser discovered and opened Killa Studio's virtual bus. The shell test sender was killed before delivering notes, so MIDI note playback is unverified. Physical USB/Bluetooth MIDI, sustain/disconnect behavior on hardware, route changes, round-trip latency and subjective listening remain untested.
