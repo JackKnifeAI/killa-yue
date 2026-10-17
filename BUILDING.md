@@ -8,7 +8,7 @@ Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, 
 
 ### Engine
 
-yue2.cpp at the commit given in section 1 below, with `engine/yue2-gentle.patch` applied (`git apply`). The patch adds gentle mode's pauses and thread limit, read from `YUE_AR_PAUSE_MS`, `YUE_NAR_PAUSE_MS` and `YUE_THREADS`; with them unset the engine behaves as before. Install SPIRV-Headers to a prefix (`cmake -S SPIRV-Headers -B b -DCMAKE_INSTALL_PREFIX=$SPV && cmake --install b`), then:
+yue2.cpp at the commit given in section 1 below, with `engine/yue2-gentle.patch` applied (`git apply`). The patch adds gentle mode's pauses and thread limit, read from `YUE_AR_PAUSE_MS`, `YUE_NAR_PAUSE_MS` and `YUE_THREADS`; with them unset the engine behaves as before. On top of it and `engine/yue2-jni.patch` (below), apply `engine/yue2-resume.patch` (checkpoints: a song carries on where it stopped) and then `engine/yue2-preview.patch` (the `preview` request: an unfinished song decoded as far as it got, its checkpoint left as it was). `engine/resume_test.py` and `engine/preview_test.py` check both on a computer with a CPU build. Install SPIRV-Headers to a prefix (`cmake -S SPIRV-Headers -B b -DCMAKE_INSTALL_PREFIX=$SPV && cmake --install b`), then:
 
 ```
 cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release \

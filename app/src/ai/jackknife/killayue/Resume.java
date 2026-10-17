@@ -20,6 +20,10 @@ import java.util.Arrays;
  * fails or is stopped, its folder stays, and resuming sends the same request with the saved
  * composition: the engine skips the composing and the finished render steps. A finished song's
  * folder is deleted.
+ *
+ * A song that stopped while it was being rendered can also be heard as far as it got: the same
+ * request with "preview" makes the engine decode the saved render, its unfinished part carried to
+ * the solver's guess of the end (engine/yue2-preview.patch). The checkpoint is left as it was.
  */
 public class Resume {
     static File root(Context c) {
@@ -29,6 +33,7 @@ public class Resume {
     /** Gives a new song its checkpoint folder and keeps the request there. */
     static void prepare(Context c, JSONObject req, String title, String album) {
         try {
+            req.remove("preview"); // a song is always made in full; only listen() asks for a preview
             if (req.has("checkpoint")) return; // a resumed song keeps its folder
             File d = new File(root(c), new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date()));
             d.mkdirs();
@@ -62,6 +67,7 @@ public class Resume {
         JSONObject request, composed;
         String title;
         int stepsDone, stepsTotal; // render steps, across all chunks
+        int heardFrames, totalFrames; // how much of the song a preview has to play (25 frames a second)
         long when;
 
         String describe() {
@@ -73,6 +79,16 @@ public class Resume {
 
         boolean resumable() {
             return composed != null;
+        }
+
+        /** Something was rendered, so a preview has audio to give. */
+        boolean listenable() {
+            return composed != null && heardFrames > 0;
+        }
+
+        /** "2:10 of 4:15" */
+        String howFar() {
+            return clock(heardFrames / 25) + " of " + clock(totalFrames / 25);
         }
     }
 
@@ -122,9 +138,23 @@ public class Resume {
             int chunks = Math.max(1, (tLat + chunk - 1) / chunk);
             u.stepsTotal = chunks * st;
             u.stepsDone = Math.min(u.stepsTotal, (start / Math.max(1, chunk)) * st + done);
+            // as the engine's preview counts it: the finished chunks, and the one being worked on once it has steps
+            u.totalFrames = tLat;
+            u.heardFrames = Math.min(tLat, start + (done > 0 ? Math.min(chunk, tLat - start) : 0));
         } catch (Exception e) {
             // no progress to show
         }
+    }
+
+    static String clock(int s) {
+        return (s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
+    }
+
+    /** The request that plays the song as far as it got, leaving its checkpoint as it was. */
+    static JSONObject previewRequest(Unfinished u) throws Exception {
+        JSONObject r = request(u);
+        r.put("preview", true);
+        return r;
     }
 
     /** The request that carries the song on: the same settings, the saved composition and seed. */
