@@ -170,16 +170,19 @@ int Engine::meters(float* out, int max) {
 void Engine::render(float* out, int frames, float& pl, float& pr) {
     std::memset(out, 0, sizeof(float) * 2 * (size_t)frames);
     mixer_.begin(frames);
-    if (playing_ && countIn_ == 0 && cur_) {
+    if (cur_) {
         bool anySolo = mixer_.groupSolo();
         for (auto& s : cur_->tracks) anySolo |= s.solo;
         bool short_ = false;
         for (auto& s : cur_->tracks) {
-            const int got = s.source->read(scratch_.data(), frames);
+            int got = frames;
+            if (playing_ && countIn_ == 0) got = s.source->read(scratch_.data(), frames);
+            else std::fill_n(scratch_.data(), 2 * frames, 0.f); // drain insert tails without moving sources
             if (got < frames) short_ = true;
             float l = 0.f, r = 0.f;
             const int t = (int)(&s - &cur_->tracks[0]);
-            if (mixer_.audible(t, s.mute, s.solo, anySolo)) {
+            bool heard = mixer_.audible(t, s.mute, s.solo, anySolo);
+            if (heard) {
                 panGains(s.pan, s.source->panChannels(), l, r);
                 const float g = dbToGain(s.gainDb);
                 l *= g;
@@ -191,7 +194,7 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
             }
             std::fill_n(trackStereo_.data(), 2 * frames, 0.f);
             mixGliding(scratch_.data(), s.source->channels(), frames, trackStereo_.data(), s.appliedL, s.appliedR, l, r);
-            mixer_.track(t, trackStereo_.data(), out, frames);
+            mixer_.track(t, trackStereo_.data(), out, frames, heard);
             float ml = 0.f, mr = 0.f;
             for (int i = 0; i < frames; i++) {
                 ml = std::max(ml, std::fabs(trackStereo_[2*i]));

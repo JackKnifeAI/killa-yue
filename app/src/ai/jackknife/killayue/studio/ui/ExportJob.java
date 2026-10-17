@@ -105,6 +105,9 @@ final class ExportJob {
                 long len = Math.max(0, length(snap) - snap.mixer.tailFrames(snap.rate));
                 for (Track t : snap.tracks)
                     for (Clip cl : t.clips) len = Math.max(len, cl.start + cl.length);
+                long longestTail = 0;
+                for (Track t : snap.tracks) longestTail = Math.max(longestTail, snap.mixer.stem(t.id).tailFrames(snap.rate));
+                len += longestTail; // aligned stems keep the longest track insert tail
                 for (int i = 0; i < snap.tracks.size(); i++) {
                     Project one = snap.copy();
                     Track keep = one.tracks.get(i);
