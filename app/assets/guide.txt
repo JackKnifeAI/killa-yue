@@ -222,3 +222,6 @@ Repeat starts off. Tap it to cycle quarter-, eighth- and sixteenth-note repeats,
 Mute pad and Solo pad act on the selected pad, for live hits, patterns and exports. M means muted, S means solo; mute wins. All pads off releases held/repeated sounds even when the input queue is busy.
 Record pads captures native-timed touch, repeat and MIDI hits onto the swung sixteenth grid, including their velocities and pattern bank. One recording pass is one Undo step. A capture overflow stops recording with a message. Leaving the Chamber stops pad recording and releases its live inputs.
 MIDI connects USB or Bluetooth keyboards: notes 36–51 play pads 1–16 on any channel. Disconnecting releases held pads. Gate and Loop pattern hits are held until the next step; One-shot keeps the sample's natural duration. Song exports and Bounce to a track retain the final pad tail. Every pattern, order and playing-control change supports Undo.
+
+## Killa Gold pad artwork
+The Chamber uses gold-framed, dark rubber pads in the Killa Gold skin. A pressed pad glows amber for as long as you hold it; a MIDI note-on flashes it for 120 ms. The selection outline still marks the pad being edited. Pattern playback does not flash this artwork. This is appearance only and has no saved project setting. Other skins keep their existing pads.
