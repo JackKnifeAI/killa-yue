@@ -374,15 +374,15 @@ public final class StudioSession implements SessionDiff.Target {
     private void changed(boolean save) {
         if (project != null && engine() != null) {
             diff.sync(project, this);
+            String config = ai.jackknife.killayue.studio.Json.write(project.performance.json());
             String mix = ai.jackknife.killayue.studio.Json.write(project.mixer.json());
-            if (!mix.equals(mixerText))
+            if (!mix.equals(mixerText) || !config.equals(performanceText))
                 try {
                     engine.mixer(project);
                     mixerText = mix;
                 } catch (IOException ex) {
                     engineError = ex.getMessage();
                 }
-            String config = ai.jackknife.killayue.studio.Json.write(project.performance.json());
             if (!config.equals(performanceText))
                 try {
                     engine.performance(project, dir);

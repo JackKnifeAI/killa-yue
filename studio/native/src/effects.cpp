@@ -66,7 +66,7 @@ void EffectsRack::Wet::tick(const EffectConfig& c,int rate,float l,float r,float
     for(int i=0;i<4;++i){int ch=i/2;auto& line=allpass[i];float v=line.read(line.data.size())-.5f*out[ch];line.put(out[ch]+.5f*v);out[ch]=v;}
     wl=out[0];wr=out[1];
 }
-void EffectsRack::State::reset(){for(auto& f:filters)f.reset();gain=1;previous=0;enabled=config.bypass?0:1;ready=false;}
+void EffectsRack::State::reset(){for(auto& f:filters)f.reset();gain=1;previous=0;enabled=config.bypass?0:1;ready=false;paramsReady=false;}
 EffectsRack::EffectsRack(int rate):rate_(rate),states_(75*8){wet_.reserve(kWetInserts);for(int i=0;i<kWetInserts;++i)wet_.emplace_back(rate);}
 void EffectsRack::configure(const float* data){
     uint32_t needed[kWetInserts]{};int n=0;
@@ -94,20 +94,32 @@ void EffectsRack::process(int strip,float* audio,int frames){
         const float release=(c.kind==5||c.kind==6)?1-std::exp(-1.f/(rate_*(c.kind==5?p[3]:p[1])*.001f)):1;
         const float threshold=dbToGain(p[0]), makeup=c.kind==5?dbToGain(p[4]):1;
         const float drive=c.kind==9?dbToGain(p[0]):1, output=c.kind==9?dbToGain(p[3]):1, boost=c.kind==6?dbToGain(p[2]):1;
+        if (!state.paramsReady) { state.previousP=p; state.paramsReady=true; }
+        const auto& old=state.previousP;
+        const float oldAttack=c.kind==5?1-std::exp(-1.f/(rate_*old[2]*.001f)):1;
+        const float oldRelease=(c.kind==5||c.kind==6)?1-std::exp(-1.f/(rate_*(c.kind==5?old[3]:old[1])*.001f)):1;
+        const float oldThreshold=dbToGain(old[0]),oldMakeup=c.kind==5?dbToGain(old[4]):1;
+        const float oldDrive=c.kind==9?dbToGain(old[0]):1,oldOutput=c.kind==9?dbToGain(old[3]):1,oldBoost=c.kind==6?dbToGain(old[2]):1;
+        EffectConfig smooth=c;
         const float enabled=c.bypass?0:1;
         for(int i=0;i<frames;++i){float dryL=audio[2*i],dryR=audio[2*i+1],l=dryL,r=dryR;float f=(float)(i+1)/frames, v=state.previous+(target-state.previous)*f;
+            for(int j=0;j<8;++j)smooth.p[j]=old[j]+(c.p[j]-old[j])*f;
+            const auto& p=smooth.p;
+            float thresholdNow=oldThreshold+(threshold-oldThreshold)*f,makeupNow=oldMakeup+(makeup-oldMakeup)*f;
+            float attackNow=oldAttack+(attack-oldAttack)*f,releaseNow=oldRelease+(release-oldRelease)*f;
+            float driveNow=oldDrive+(drive-oldDrive)*f,outputNow=oldOutput+(output-oldOutput)*f,boostNow=oldBoost+(boost-oldBoost)*f;
             if(c.kind==1||c.kind==3){l*=v;r*=v;}
             else if(c.kind==2){float mid=.5f*(l+r),side=.5f*(l-r)*v;l=mid+side;r=mid-side;}
             else if(c.kind==4){for(auto& filter:state.filters)filter.tick(l,r);}
-            else if(c.kind==5){float peak=std::max(std::fabs(l),std::fabs(r));float wanted=peak>threshold?std::pow(peak/threshold,1/p[1]-1):1;state.gain+=(wanted-state.gain)*(wanted<state.gain?attack:release);float g=state.gain*makeup;l*=g;r*=g;l=dryL+(l-dryL)*p[5];r=dryR+(r-dryR)*p[5];}
-            else if(c.kind==6){l*=boost;r*=boost;float peak=std::max(std::fabs(l),std::fabs(r));float needed=peak>threshold?threshold/peak:1;state.gain=needed<state.gain?needed:std::min(needed,state.gain+(1-state.gain)*release);l*=state.gain;r*=state.gain;}
-            else if((c.kind==7||c.kind==8)&&state.wet>=0){float wl,wr;wet_[state.wet].tick(c,rate_,l,r,wl,wr,v);l=l*(1-p[2])+wl*p[2];r=r*(1-p[2])+wr*p[2];}
-            else if(c.kind==9){float norm=std::tanh(drive);l=std::tanh(l*drive)/norm;r=std::tanh(r*drive)/norm;state.filters[0].tick(l,r);l=(dryL+(l-dryL)*p[2])*output;r=(dryR+(r-dryR)*p[2])*output;}
+            else if(c.kind==5){float peak=std::max(std::fabs(l),std::fabs(r));float wanted=peak>thresholdNow?std::pow(peak/thresholdNow,1/p[1]-1):1;state.gain+=(wanted-state.gain)*(wanted<state.gain?attackNow:releaseNow);float g=state.gain*makeupNow;l*=g;r*=g;l=dryL+(l-dryL)*p[5];r=dryR+(r-dryR)*p[5];}
+            else if(c.kind==6){l*=boostNow;r*=boostNow;float peak=std::max(std::fabs(l),std::fabs(r));float needed=peak>thresholdNow?thresholdNow/peak:1;state.gain=needed<state.gain?needed:std::min(needed,state.gain+(1-state.gain)*releaseNow);l*=state.gain;r*=state.gain;}
+            else if((c.kind==7||c.kind==8)&&state.wet>=0){float wl,wr;wet_[state.wet].tick(smooth,rate_,l,r,wl,wr,v);l=l*(1-p[2])+wl*p[2];r=r*(1-p[2])+wr*p[2];}
+            else if(c.kind==9){float norm=std::tanh(driveNow);l=std::tanh(l*driveNow)/norm;r=std::tanh(r*driveNow)/norm;state.filters[0].tick(l,r);l=(dryL+(l-dryL)*p[2])*outputNow;r=(dryR+(r-dryR)*p[2])*outputNow;}
             else if(c.kind==10){state.filters[0].tick(l,r);l=dryL+(l-dryL)*p[3];r=dryR+(r-dryR)*p[3];}
             float blend=state.enabled+(enabled-state.enabled)*f;
             audio[2*i]=dryL+(l-dryL)*blend;audio[2*i+1]=dryR+(r-dryR)*blend;
         }
-        state.previous=target;state.enabled=enabled;
+        state.previous=target;state.enabled=enabled;state.previousP=c.p;
     }
 }
 }

@@ -52,7 +52,14 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         root = Ui.column(a);
         root.setBackground(Skin.background(a));
         Button group = Ui.button(a, "Add group", false);
-        root.addView(group, new LinearLayout.LayoutParams(-1, Ui.dp(a, 44)));
+        LinearLayout tools = Ui.row(a);
+        tools.addView(group, new LinearLayout.LayoutParams(0, Ui.dp(a, 44), 1));
+        Button automation = Ui.button(a, "Automation", false);
+        tools.addView(automation, new LinearLayout.LayoutParams(0, Ui.dp(a, 44), 1));
+        automation.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { AutomationDialog.show(a); }
+        });
+        root.addView(tools);
         group.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (project() == null) return;
@@ -227,7 +234,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
                         if (w == 1) chain.get(k).bypass = !chain.get(k).bypass;
                         else if (w == 2 && k > 0) java.util.Collections.swap(chain, k, k - 1);
                         else if (w == 3 && k + 1 < chain.size()) java.util.Collections.swap(chain, k, k + 1);
-                        else if (w == 4) chain.remove(k);
+                        else if (w == 4) { m.automation.removeSlot(chain.get(k).id); chain.remove(k); }
                         else { rack(id); return; }
                         save(m, w == 1 ? "Bypass effect" : w == 4 ? "Remove effect" : "Reorder effects"); rack(id);
                     }

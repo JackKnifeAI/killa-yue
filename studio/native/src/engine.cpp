@@ -78,6 +78,7 @@ void Engine::apply(const Message& m) {
         case Msg::Reset:
             limiter_.reset();
             mixer_.reset();
+            if (cur_) for (auto& slot : cur_->tracks) slot.appliedL = slot.appliedR = -1;
             break;
         case Msg::Mixer:
             mixer_.apply();
@@ -135,6 +136,10 @@ void Engine::process(float* out, int frames) {
     float pl = 0.f, pr = 0.f;
     for (int done = 0; done < frames;) {
         int n = std::min(maxFrames_, frames - done);
+        if (mixer_.automated()) {
+            n = std::min(n, 128);
+            if (playing_ && countIn_ == 0) n = (int)(mixer_.boundary(pos_, pos_ + n) - pos_);
+        }
         // the loop's end falls inside this block: render up to it, then carry on from the loop's start (the
         // sources wrap by themselves, reading ahead in playing order)
         if (playing_ && countIn_ > 0) n = (int)std::min((long)n, countIn_);
@@ -169,6 +174,7 @@ int Engine::meters(float* out, int max) {
 
 void Engine::render(float* out, int frames, float& pl, float& pr) {
     std::memset(out, 0, sizeof(float) * 2 * (size_t)frames);
+    mixer_.automate(pos_, playing_ && countIn_ == 0 ? frames : 0);
     mixer_.begin(frames);
     if (cur_) {
         bool anySolo = mixer_.groupSolo();
@@ -183,14 +189,17 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
             const int t = (int)(&s - &cur_->tracks[0]);
             bool heard = mixer_.audible(t, s.mute, s.solo, anySolo);
             if (heard) {
-                panGains(s.pan, s.source->panChannels(), l, r);
-                const float g = dbToGain(s.gainDb);
+                panGains(mixer_.control(t, 1, s.pan), s.source->panChannels(), l, r);
+                const float g = dbToGain(mixer_.control(t, 0, s.gainDb));
                 l *= g;
                 r *= g;
             }
             if (s.appliedL < 0.f) {  // first time played: start where it should be
-                s.appliedL = l;
-                s.appliedR = r;
+                s.appliedL = s.appliedR = 0;
+                if (heard) {
+                    panGains(mixer_.control(t, 1, s.pan, true), s.source->panChannels(), s.appliedL, s.appliedR);
+                    float initial = dbToGain(mixer_.control(t, 0, s.gainDb, true)); s.appliedL *= initial; s.appliedR *= initial;
+                }
             }
             std::fill_n(trackStereo_.data(), 2 * frames, 0.f);
             mixGliding(scratch_.data(), s.source->channels(), frames, trackStereo_.data(), s.appliedL, s.appliedR, l, r);
@@ -210,8 +219,11 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
     mixer_.finish(out, frames);
     performance_.mix(out, frames, countIn_ > 0 ? -countIn_ : pos_, playing_);
     mixer_.master(out, frames);
-    if (master_ != 1.f)
-        for (int i = 0; i < 2 * frames; i++) out[i] *= master_;
+    float masterStart = mixer_.control(74, 0, NAN, true), masterEnd = mixer_.control(74, 0, NAN);
+    float from = std::isfinite(masterStart) ? dbToGain(masterStart) : master_;
+    float to = std::isfinite(masterEnd) ? dbToGain(masterEnd) : master_;
+    if (from != 1.f || to != 1.f)
+        for (int i = 0; i < frames; i++) { float gain = from + (to-from)*(float)(i+1)/frames; out[2*i] *= gain; out[2*i+1] *= gain; }
     if (limiterOn_) limiter_.process(out, frames);  // also when stopped, so its delay drains without a click
     for (int i = 0; i < frames; i++) {
         pl = std::max(pl, std::fabs(out[2 * i]));
