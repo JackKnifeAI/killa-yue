@@ -262,6 +262,23 @@ public class MainActivity extends Activity {
         new Lux.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show();
     }
 
+    /** Asked once: earlier versions could move a phone with a supported GPU to the processor by themselves after a crash. */
+    void askGpuBack() {
+        new Lux.Builder(this).setTitle("Make songs on the GPU again?")
+                .setMessage("Songs on this phone are set to the processor (CPU), which is much slower and needs more memory. "
+                        + "An earlier version could switch to the processor by itself after a crash, without asking. "
+                        + "This phone's GPU is supported, and a GPU driver crash now restarts the driver instead.")
+                .setPositiveButton("Use the GPU", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        cfg.edit().putString("device", "Vulkan0").apply();
+                        if (deviceSpin != null) deviceSpin.setSelection(Math.max(0, Arrays.asList(DEVICES).indexOf("Vulkan0")));
+                        if (EngineService.running && !jobBusy) EngineService.stop(MainActivity.this);
+                        toast("Songs are made on the GPU again");
+                    }
+                })
+                .setNegativeButton("Keep the processor", null).show();
+    }
+
     // ---------- lifecycle ----------
 
     @Override
@@ -355,6 +372,7 @@ public class MainActivity extends Activity {
         probeLoop();
         String check = PhoneCheck.firstLaunch(this);
         if (check.length() > 0) alert("About this phone", check);
+        if (PhoneCheck.askGpuBack(this)) askGpuBack();
         handleLink(getIntent());
     }
 
@@ -1095,11 +1113,19 @@ public class MainActivity extends Activity {
         Resume.prepare(app, req, title, pendingAlbum);
         startJob("Starting", new Task() {
             public void run() throws Exception {
-                ensureEngine(app);
-                jobMsg = "Queued";
-                runningCheckpoint = req.optString("checkpoint");
-                String id = Api.synth(req);
-                waitJob(id);
+                String id;
+                while (true) {
+                    ensureEngine(app);
+                    jobMsg = "Queued";
+                    runningCheckpoint = req.optString("checkpoint");
+                    id = Api.synth(req);
+                    try {
+                        waitJob(id);
+                        break;
+                    } catch (EngineService.Restarted r) {
+                        // the engine is back on the GPU: the same request carries on from its checkpoint
+                    }
+                }
                 jobMsg = "Saving";
                 int n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
                 if (n == 0) throw new Exception("The engine finished but returned no audio.");
@@ -1468,18 +1494,39 @@ public class MainActivity extends Activity {
         throw new Exception("The engine did not answer within three minutes. See the log on the Engine tab.");
     }
 
+    /**
+     * Waits for a job. Throws EngineService.Restarted when the GPU driver crashed and the engine came back on the
+     * GPU: the caller sends the job again (a song carries on from its checkpoint).
+     */
     static void waitJob(String id) throws Exception {
         jobId = id;
         jobMsg = "";
+        int misses = 0;
         while (true) {
             Thread.sleep(1500);
+            if (EngineService.recovering) {
+                jobMsg = "The GPU driver crashed: restarting it";
+                while (EngineService.recovering) {
+                    if (jobCancel) throw new Exception("Cancelled");
+                    Thread.sleep(500);
+                }
+                if (EngineService.running) throw new EngineService.Restarted();
+            }
             if (!EngineService.running) {
                 String why = EngineService.lastError;
                 if (why.startsWith("Android stopped the engine")) throw new Exception(why);
                 throw new Exception("The engine stopped while working. " + why
-                        + "\nThis usually means the phone ran out of memory. Try a shorter song, a smaller context, or the CPU device.");
+                        + "\nIf the phone ran out of memory: try a shorter song or a shorter Max length on the Engine tab, and close other apps.");
             }
-            String s = Api.status(id);
+            String s;
+            try {
+                s = Api.status(id);
+                misses = 0;
+            } catch (Exception e) {
+                // the engine may have just stopped; the checks above decide on the next rounds
+                if (++misses < 4) continue;
+                throw e;
+            }
             if ("done".equals(s)) return;
             if ("cancelled".equals(s)) {
                 jobCancel = true;
@@ -1591,9 +1638,17 @@ public class MainActivity extends Activity {
                 } finally {
                     in.close();
                 }
-                ensureEngine(app);
-                String id = Api.upload(transcribe ? "/transcribe" : "/tokenize", audio, "audio", mode == 0);
-                waitJob(id);
+                String id;
+                while (true) {
+                    ensureEngine(app);
+                    id = Api.upload(transcribe ? "/transcribe" : "/tokenize", audio, "audio", mode == 0);
+                    try {
+                        waitJob(id);
+                        break;
+                    } catch (EngineService.Restarted r) {
+                        // the engine is back on the GPU: send the recording again
+                    }
+                }
                 byte[] raw = Api.resultRaw(id);
                 JSONObject j;
                 try {
