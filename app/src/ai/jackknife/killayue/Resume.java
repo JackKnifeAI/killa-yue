@@ -137,7 +137,9 @@ public class Resume {
             int tLat = b.getInt(4), chunk = b.getInt(16), st = b.getInt(20), start = b.getInt(24), done = b.getInt(28);
             int chunks = Math.max(1, (tLat + chunk - 1) / chunk);
             u.stepsTotal = chunks * st;
-            u.stepsDone = Math.min(u.stepsTotal, (start / Math.max(1, chunk)) * st + done);
+            // A completed render stores start == tLat and done == 0 while decoding is still pending.
+            u.stepsDone = start >= tLat ? u.stepsTotal
+                    : Math.min(u.stepsTotal, (start / Math.max(1, chunk)) * st + done);
             // as the engine's preview counts it: the finished chunks, and the one being worked on once it has steps
             u.totalFrames = tLat;
             u.heardFrames = Math.min(tLat, start + (done > 0 ? Math.min(chunk, tLat - start) : 0));
