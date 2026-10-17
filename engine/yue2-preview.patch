@@ -1,0 +1,155 @@
+diff --git a/src/nar.h b/src/nar.h
+index 02a17f5..68b086c 100644
+--- a/src/nar.h
++++ b/src/nar.h
+@@ -519,7 +519,9 @@ static void nar_dump_named(const Yue2NAR * n, const DebugDumper * dbg) {
+ // and the state of every step, and the latents.
+ // The solver is deterministic, so it can carry on from a saved state:
+ // first_step > 0 takes state as the result of that many steps. on_step, when
+-// given, sees the state after every step (to save it).
++// given, sees the state after every step (to save it). jump makes a preview:
++// from first_step, one velocity evaluation and one stride of t to the end,
++// the solver's own guess of the finished latents; nothing is saved.
+ static bool nar_solve(Yue2NAR *            n,
+                       const Qw3lmKvCache * kv,
+                       float *              state,
+@@ -533,7 +535,8 @@ static bool nar_solve(Yue2NAR *            n,
+                       void * cancel_data                         = nullptr,
+                       int    first_step                          = 0,
+                       void (*on_step)(void *, int, const float *) = nullptr,
+-                      void * step_data                           = nullptr) {
++                      void * step_data                           = nullptr,
++                      bool   jump                                = false) {
+     size_t             count = (size_t) n->latent_dim * T_lat * M;
+     std::vector<float> first(count), mid(count), second(count);
+     float              dt = 1.0f / (float) steps;
+@@ -558,6 +561,16 @@ static bool nar_solve(Yue2NAR *            n,
+         if (dbg->enabled && step == 0) {
+             nar_dump_named(n, dbg);
+         }
++        if (jump) {
++            // the path is straight from the song (t = 0) to the noise (t = 1), so
++            // the velocity at t, carried the rest of the way, lands on the song
++            for (size_t i = 0; i < count; i++) {
++                state[i] -= first[i] * t;
++            }
++            fprintf(stderr, "[NAR] Preview from step %d/%d: one stride to the end, %.0f ms\n", step, steps,
++                    step_timer.ms());
++            return true;
++        }
+         for (size_t i = 0; i < count; i++) {
+             mid[i] = state[i] - first[i] * (dt * 0.5f);
+         }
+diff --git a/src/pipeline.h b/src/pipeline.h
+index b5c55e0..e6b8467 100644
+--- a/src/pipeline.h
++++ b/src/pipeline.h
+@@ -814,8 +814,22 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+                 (float) T_lat / (float) YUE2_FRAME_RATE, prefix_len, chunks, chunks > 1 ? "s" : "", chunk_size, M,
+                 M > 1 ? "s" : "");
+         int resume_start = 0, resume_steps = 0;
++        bool saved = false;
+         if (!r.checkpoint.empty()) {
+-            cp_load_render(r, i, songs, M, T_lat, YUE2_LATENT_DIM, chunk_size, &resume_start, &resume_steps);
++            saved = cp_load_render(r, i, songs, M, T_lat, YUE2_LATENT_DIM, chunk_size, &resume_start, &resume_steps);
++        }
++        // a preview hears the finished chunks, and the one being worked on when it had steps
++        int heard = resume_start + (resume_steps > 0 ? std::min(chunk_size, T_lat - resume_start) : 0);
++        if (r.preview) {
++            if (!saved || heard <= 0) {
++                // none yet, or one made with another Max length (its chunks no longer fit): cp_load_render said which
++                fprintf(stderr, "[Pipeline] FATAL: song %d has no saved render to preview: nothing rendered yet, or the "
++                                "Max length setting changed since\n", i);
++                return false;
++            }
++            fprintf(stderr, "[Preview] Song %d: %d of %d frames (%.1f of %.1f s), %d finished, the rest from step %d/%d\n", i,
++                    heard, T_lat, (float) heard / (float) YUE2_FRAME_RATE, (float) T_lat / (float) YUE2_FRAME_RATE,
++                    resume_start, resume_steps, r.steps);
+         }
+         // the KV set holds this song's prefix once a chunk has forwarded it (or the AR half left it there)
+         bool primed = false;
+@@ -826,6 +840,9 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+             if (start + frames <= resume_start) {
+                 continue;  // rendered before the song stopped
+             }
++            if (r.preview && start >= heard) {
++                break;  // not begun when the song stopped
++            }
+ 
+             // The chunk sequence is the prefix, the codes of the chunk and the
+             // end token. Its head already sits in the set, the whole prefix
+@@ -876,8 +893,9 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+             }
+             int     first_step = start == resume_start ? resume_steps : 0;
+             CpStep  cp         = { &r, songs, i, M, T_lat, YUE2_LATENT_DIM, chunk_size, start, frames, r.steps, block.data() };
++            bool    save       = !r.checkpoint.empty() && !r.preview;  // a preview leaves the saved render as it was
+             if (!nar_solve(nar, &p->kv, block.data(), frames, M, ar_len, i, r.steps, dbg, cancelled, cancel_data,
+-                           first_step, r.checkpoint.empty() ? nullptr : cp_on_step, &cp)) {
++                           first_step, save ? cp_on_step : nullptr, &cp, r.preview)) {
+                 return false;
+             }
+             for (int j = 0; j < M; j++) {
+@@ -887,6 +905,14 @@ static bool pipeline_generate(Yue2Pipeline *          p,
+             fprintf(stderr, "[NAR] Song %d chunk %d/%d: %d frames, cache %d rows, %d forwarded, %.1f s\n", i,
+                     start / chunk_size + 1, chunks, frames, ar_len, ar_len - kept, chunk_timer.ms() / 1000.0);
+         }
++        if (r.preview) {
++            for (int j = 0; j < M; j++) {
++                Yue2Song & song = (*songs)[(size_t) i * M + j];
++                song.T_lat      = heard;
++                song.latents.resize((size_t) heard * YUE2_LATENT_DIM);
++                song.truncated = heard < T_lat;
++            }
++        }
+     }
+ 
+     nar_hold.reset();
+diff --git a/src/request.cpp b/src/request.cpp
+index 2fbac7b..c6a7380 100644
+--- a/src/request.cpp
++++ b/src/request.cpp
+@@ -43,6 +43,7 @@ void request_init(Yue2Request * r) {
+     r->checkpoint    = "";
+     r->abc_tokens    = "";
+     r->max_chunk     = 0;
++    r->preview       = false;
+ }
+ 
+ static inline std::string yy_str(yyjson_val * v) {
+@@ -187,6 +188,9 @@ static void request_parse_obj(yyjson_val * obj, Yue2Request * r) {
+     if ((v = yyjson_obj_get(obj, "max_chunk")) && yyjson_is_int(v)) {
+         r->max_chunk = yyjson_get_int(v);
+     }
++    if ((v = yyjson_obj_get(obj, "preview")) && yyjson_is_bool(v)) {
++        r->preview = yyjson_get_bool(v);
++    }
+     if ((v = yyjson_obj_get(obj, "adapters")) && yyjson_is_arr(v)) {
+         size_t       i, n;
+         yyjson_val * item;
+@@ -311,6 +315,9 @@ std::string request_to_json(const Yue2Request * r, bool sparse) {
+     if (!sparse || r->max_chunk != d.max_chunk) {
+         yyjson_mut_obj_add_int(doc, root, "max_chunk", r->max_chunk);
+     }
++    if (!sparse || r->preview != d.preview) {
++        yyjson_mut_obj_add_bool(doc, root, "preview", r->preview);
++    }
+     if (!sparse || !r->adapters.empty()) {
+         yyjson_mut_val * list = yyjson_mut_arr(doc);
+         for (const Yue2Adapter & a : r->adapters) {
+diff --git a/src/request.h b/src/request.h
+index 577e2a9..dff841a 100644
+--- a/src/request.h
++++ b/src/request.h
+@@ -102,6 +102,12 @@ struct Yue2Request {
+     // the longest stretch rendered in one go, in frames (25 per second). 0 is
+     // as long as the context allows; shorter chunks keep every GPU pass short
+     int max_chunk;  // 0
++
++    // a preview of a song that stopped while it was being rendered: from the
++    // render saved in checkpoint, the finished part as it is and the part that
++    // was being worked on as the solver's guess of its end. The saved render is
++    // left as it was, so the song can still carry on
++    bool preview;  // false
+ };
+ 
+ // fills every field with its default
