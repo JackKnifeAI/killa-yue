@@ -36,6 +36,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
             for (int col = 0; col < 4; col++) {
                 final int k = row * 4 + col;
                 final Button b = Ui.button(a, "" + (k + 1), false);
+                GoldPadArt.apply(b);
                 pads[k] = b;
                 b.setMinHeight(Ui.dp(a, 48));
                 b.setContentDescription("Pad " + (k + 1));
@@ -364,7 +365,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
     }
     void allPadsOff(){Arrays.fill(touchHeld,false);for(boolean[] channel:midiHeld)Arrays.fill(channel,false);if(a.session.engine()!=null)a.session.engine().padsOff();}
     void openMidi(){if(midi==null)midi=new MidiDevices(a,new MidiDevices.Target(){
-        public void note(int channel,int key,int velocity,boolean on){int pad=key-36;if(pad<0||pad>=16||a.session.engine()==null)return;midiHeld[channel][pad]=on;if(on)a.session.engine().pad(pad,velocity/127f,true);else releasePad(pad);}
+        public void note(int channel,int key,int velocity,boolean on){int pad=key-36;if(pad<0||pad>=16||a.session.engine()==null)return;midiHeld[channel][pad]=on;if(on){a.session.engine().pad(pad,velocity/127f,true);GoldPadArt.flash(pads[pad]);}else releasePad(pad);}
         public void control(int channel,int controller,int value){if(controller==120||controller==123)allPadsOff();}
         public void allOff(){allPadsOff();}
     });midi.show();}
