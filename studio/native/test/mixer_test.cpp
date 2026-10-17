@@ -16,7 +16,7 @@ struct Signal : Source {
     int channels() const override { return ch; }
     void seek(long frame) override { at = frame; }
 };
-static float* strip(MixerConfig& c, int id) { return c.data.data() + 2 + 32*id; }
+static float* strip(MixerConfig& c, int id) { return c.data.data() + 2 + kMixerStride*id; }
 static void start(Engine& e, Signal& a, Signal* b = nullptr) {
     auto* s = new Session{48000, {{&a, 0, 0, false, false}}};
     if (b) s->tracks.push_back({b, 0, 0, false, false});

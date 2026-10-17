@@ -7,6 +7,7 @@ import android.widget.EditText;
 import android.widget.ScrollView;
 import ai.jackknife.killayue.Lux;
 import ai.jackknife.killayue.studio.Mixer;
+import ai.jackknife.killayue.studio.Effects;
 import ai.jackknife.killayue.studio.MixerEdit;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
@@ -181,7 +182,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
     String effectName(Mixer.Slot s) {
         if (s.kind == 1) return String.format(java.util.Locale.ROOT, "Trim %+.1f dB", s.value);
         if (s.kind == 2) return "Stereo width " + Math.round(s.value * 100) + "%";
-        return "Polarity invert";
+        return Effects.get(s.kind).name;
     }
     void rack(final String id) {
         final ArrayList<String> slots = new ArrayList<String>();
@@ -199,7 +200,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
             }).show();
     }
     void addEffect(final String id) {
-        new Lux.Builder(a).setTitle("Add effect").setItems(new String[] {"Trim (0 dB)", "Stereo width (100%)", "Polarity invert"},
+        new Lux.Builder(a).setTitle("Add effect").setItems(Effects.names(),
             new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) {
                     Mixer m = project().mixer.copy(); m.addSlot(id, w + 1); save(m, "Add effect"); rack(id);
@@ -215,7 +216,7 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         if (index < 0) return;
         final Mixer.Slot current = project().mixer.get(id).chain.get(index);
         new Lux.Builder(a).setTitle(effectName(current))
-            .setItems(new String[] {"Set value…", current.bypass ? "Enable" : "Bypass", "Move earlier", "Move later", "Remove"},
+            .setItems(new String[] {"Parameters and presets…", current.bypass ? "Enable" : "Bypass", "Move earlier", "Move later", "Remove"},
                 new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         if (w == 0) { effectValue(id, slot); return; }
@@ -236,22 +237,49 @@ final class MixerScreen implements Screen, StudioSession.Listener {
         int index = slotIndex(project().mixer, id, slot);
         if (index < 0) return;
         final Mixer.Slot current = project().mixer.get(id).chain.get(index);
-        if (current.kind == 3) { Ui.toast(a, "Polarity flips both channels. Use Bypass to turn it off."); effect(id, slot); return; }
-        final EditText value = Ui.edit(a, current.kind == 1 ? "-24 to +24 dB" : "0 to 200%", 1);
-        value.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED);
-        value.setText(Float.toString(current.value * (current.kind == 2 ? 100 : 1)));
-        new Lux.Builder(a).setTitle(current.kind == 1 ? "Trim · dB" : "Stereo width · %").setView(value)
-            .setPositiveButton("Set", new DialogInterface.OnClickListener() {
-                public void onClick(DialogInterface d, int w) {
-                    try {
-                        float v = Float.parseFloat(value.getText().toString());
-                        Mixer m = project().mixer.copy(); int k = slotIndex(m, id, slot);
-                        if (k < 0) return;
-                        m.edit(id).chain.get(k).value = v / (current.kind == 2 ? 100 : 1);
-                        save(m, "Effect value"); rack(id);
-                    } catch (IllegalArgumentException ex) { Ui.toast(a, "Use " + (current.kind == 1 ? "-24 to +24 dB." : "0 to 200%.")); }
-                }
-            }).setNegativeButton("Cancel", null).show();
+        final Effects.Definition definition = Effects.get(current.kind);
+        final LinearLayout form = Ui.column(a);
+        int padding = Ui.dp(a, 16); form.setPadding(padding, padding, padding, padding);
+        final EditText[] fields = new EditText[definition.params.length];
+        Button presets = Ui.button(a, "Presets…", false);
+        form.addView(presets);
+        for (int j = 0; j < fields.length; j++) {
+            Effects.Param param = definition.params[j];
+            form.addView(Ui.label(a, param.name + " · " + param.min + " to " + param.max + " " + param.unit));
+            EditText field = Ui.edit(a, param.name, 1);
+            field.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL | android.text.InputType.TYPE_NUMBER_FLAG_SIGNED);
+            field.setText(Float.toString(current.get(j)));
+            fields[j] = field; form.addView(field);
+        }
+        if (fields.length == 0) form.addView(Ui.label(a, "Flips both channels. Use Bypass to turn it off."));
+        presets.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                String[] names = new String[definition.presets.length];
+                for (int i = 0; i < names.length; i++) names[i] = definition.presets[i].name;
+                new Lux.Builder(a).setTitle(definition.name + " presets").setItems(names, new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        float[] values = definition.presets[which].values;
+                        for (int j = 0; j < fields.length; j++) fields[j].setText(Float.toString(values[j]));
+                    }
+                }).show();
+            }
+        });
+        ScrollView scroll = new ScrollView(a); scroll.addView(form);
+        final android.app.AlertDialog dialog = new Lux.Builder(a).setTitle(definition.name).setView(scroll)
+            .setPositiveButton("Apply", null).setNegativeButton("Cancel", null).create();
+        dialog.show();
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                try {
+                    Mixer m = project().mixer.copy(); int k = slotIndex(m, id, slot);
+                    if (k < 0) { dialog.dismiss(); return; }
+                    Mixer.Slot changed = m.edit(id).chain.get(k);
+                    for (int j = 0; j < fields.length; j++) changed.set(j, Float.parseFloat(fields[j].getText().toString().trim()));
+                    Effects.validate(changed);
+                    save(m, definition.name + " parameters"); dialog.dismiss(); rack(id);
+                } catch (IllegalArgumentException ex) { Ui.toast(a, "Check the parameter ranges. " + ex.getMessage()); }
+            }
+        });
     }
 
     static float dbToPos(float db) {

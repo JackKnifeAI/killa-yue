@@ -8,7 +8,7 @@ import java.util.Map;
 
 /** Mixer-only state; source clips remain in Project. Groups cannot feed other groups or send returns. */
 public final class Mixer {
-    public static final int MAX_GROUPS = 8, MAX_SLOTS = 8, STRIDE = 32;
+    public static final int MAX_GROUPS = 8, MAX_SLOTS = 8, STRIDE = 8 + MAX_SLOTS * Effects.SLOT_STRIDE;
     public static final String MASTER = "master", REVERB = "reverb", DELAY = "delay";
     public int nextId = 1;
     public final ArrayList<String> groups = new ArrayList<String>();
@@ -16,9 +16,12 @@ public final class Mixer {
 
     public static final class Slot {
         public String id;
-        public int kind; // 1 trim (dB), 2 stereo width (0..2), 3 polarity inversion
+        public int kind; // Effects kind; stable slot IDs preserve delay/reverb state across rack edits
         public float value;
         public boolean bypass;
+        public final float[] extra = new float[Effects.PARAMS - 1];
+        public float get(int index) { return index == 0 ? value : extra[index-1]; }
+        public void set(int index, float v) { if (index == 0) value = v; else extra[index-1] = v; }
     }
 
     public static final class Strip {
@@ -69,7 +72,7 @@ public final class Mixer {
         Slot f = new Slot();
         f.id = "e" + nextId++;
         f.kind = kind;
-        f.value = kind == 2 ? 1 : 0;
+        Effects.defaults(f);
         s.chain.add(f);
         return f;
     }
@@ -88,6 +91,7 @@ public final class Mixer {
             allowed.add(g);
         }
         if (strips.size() > allowed.size()) bad("The mixer has strips for missing tracks.");
+        int wet = 0;
         for (Map.Entry<String, Strip> entry : strips.entrySet()) {
             String id = entry.getKey();
             Strip s = entry.getValue();
@@ -103,10 +107,8 @@ public final class Mixer {
             for (Slot f : s.chain) {
                 if (f == null) bad("An effect slot is missing.");
                 identifier(f.id, "e", ids);
-                if (f.kind == 1) range(f.value, -24, 24, "trim");
-                else if (f.kind == 2) range(f.value, 0, 2, "stereo width");
-                else if (f.kind == 3) range(f.value, 0, 0, "polarity");
-                else bad("Unknown mixer effect.");
+                Effects.validate(f);
+                if (Effects.wet(f.kind) && ++wet > Effects.MAX_WET) bad("Use up to sixteen reverb/delay inserts in one project; shared sends do not use this limit.");
             }
         }
         for (String required : new String[] {MASTER, REVERB, DELAY})
@@ -143,6 +145,9 @@ public final class Mixer {
         for (Slot f : s.chain) {
             LinkedHashMap<String, Object> k = new LinkedHashMap<String, Object>();
             k.put("id", f.id); k.put("kind", f.kind); k.put("value", f.value); k.put("bypass", f.bypass);
+            ArrayList<Object> extra = new ArrayList<Object>();
+            for (float v : f.extra) extra.add(v);
+            k.put("extra", extra);
             chain.add(k);
         }
         j.put("chain", chain);
@@ -169,7 +174,13 @@ public final class Mixer {
         for (Object o : list(j.get("chain"))) {
             Map<?, ?> k = map(o); Slot f = new Slot();
             f.id = string(k.get("id")); f.kind = integer(k.get("kind"));
-            f.value = number(k.get("value")); f.bypass = bool(k.get("bypass")); s.chain.add(f);
+            f.value = number(k.get("value")); f.bypass = bool(k.get("bypass"));
+            if (k.containsKey("extra")) {
+                List<?> extra = list(k.get("extra"));
+                if (extra.size() != Effects.PARAMS - 1) bad("Damaged effect parameters.");
+                for (int i=0;i<f.extra.length;i++) f.extra[i]=number(extra.get(i));
+            } else if (f.kind > Effects.POLARITY) bad("Effect parameters are missing.");
+            s.chain.add(f);
         }
         return s;
     }
@@ -195,7 +206,11 @@ public final class Mixer {
         out[n + 4] = s.reverb; out[n + 5] = s.delay; out[n + 6] = groups.indexOf(s.route); out[n + 7] = s.chain.size();
         for (int k = 0; k < s.chain.size(); k++) {
             Slot f = s.chain.get(k);
-            out[n + 8 + k * 3] = f.kind; out[n + 9 + k * 3] = f.value; out[n + 10 + k * 3] = f.bypass ? 1 : 0;
+            int at = n + 8 + k * Effects.SLOT_STRIDE;
+            out[at] = f.kind; out[at+1] = f.value; out[at+2] = f.bypass ? 1 : 0;
+            for (int j=0;j<f.extra.length;j++) out[at+3+j]=f.extra[j];
+            int id = Integer.parseInt(f.id.substring(1));
+            out[at+10]=id & 65535; out[at+11]=id >>> 16;
         }
     }
 
@@ -213,8 +228,19 @@ public final class Mixer {
     }
 
     public long tailFrames(int rate) {
-        for (Strip s : strips.values()) if (s.reverb > 0 || s.delay > 0) return rate * 4L;
-        return 0;
+        double tracks=0, groupsTail=0, returns=0, master=0;
+        boolean sends=false;
+        for (Map.Entry<String, Strip> entry : strips.entrySet()) {
+            Strip strip=entry.getValue(); double tail=0;
+            for (Slot slot : strip.chain) tail += Effects.tail(slot);
+            String id=entry.getKey();
+            if (MASTER.equals(id)) master=tail;
+            else if (REVERB.equals(id) || DELAY.equals(id)) returns=Math.max(returns,tail);
+            else if (isGroup(id)) groupsTail=Math.max(groupsTail,tail);
+            else tracks=Math.max(tracks,tail);
+            sends |= strip.reverb>0 || strip.delay>0;
+        }
+        return (long)Math.ceil(rate*(tracks+groupsTail+master+(sends?4+returns:0)));
     }
 
     private static Map<?, ?> map(Object o) { if (!(o instanceof Map)) bad("Damaged mixer object."); return (Map<?, ?>) o; }
