@@ -136,6 +136,11 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
                 HistoryDialog.show(a);
             }
         });
+        Button automation = Ui.button(a, "Automation", false);
+        row.addView(automation);
+        automation.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { AutomationDialog.show(a); }
+        });
         final Button mode = RoundFace.button(a, "✥");
         mode.setContentDescription("Timeline mode: navigate");
         row.addView(mode);

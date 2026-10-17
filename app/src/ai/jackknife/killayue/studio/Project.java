@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 5;
+    public static final int VERSION = 6;
 
     public int version = VERSION;
     public String name;
@@ -164,6 +164,8 @@ public final class Project {
         out.loopOn = bool(p, "loopOn");
         out.performance = Performance.read(p.get("performance"));
         for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
+        if (!map(p.get("mixer"), "the mixer").containsKey("automation"))
+            throw new IllegalArgumentException("The project's automation lanes are missing.");
         out.mixer = Mixer.read(p.get("mixer"));
         out.validate();
         return out;

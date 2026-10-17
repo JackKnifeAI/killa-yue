@@ -119,6 +119,14 @@ A gold strip for each track, followed by your groups, the shared Reverb and Dela
 - Use up to sixteen reverb/delay inserts across the project, including bypassed slots. Shared sends do not use this limit. Each rack still holds up to eight effects. Mix values use 0 for dry and 1 for fully wet.
 - Track, group and return effects follow their faders. Master effects run before the Master fader and its safety limiter. The live Chamber pads feed Master; bounce them to a track to use that track's group and sends.
 - Every mixer edit is saved and can be undone. One knob or fader drag makes one undo step. Old projects open with empty racks and sends off.
+## Automation
+Open Automation from Arrange's transport bar or the top of Mixer. Add lane, choose a strip, then Volume, Pan, a send, or an effect parameter. Effect bypass is also available: 0 means enabled, 1 means bypassed. Master has volume and effect lanes; returns have volume, pan and effect lanes.
+- New lanes are enabled and start with one point at beat 0 using the control's current value. Empty lanes do nothing. Enabled lanes override their manual control; the mixer faders still show the manual values. Mute / enable returns control to the manual setting without deleting your points.
+- Tap the graph to add a point. Drag a point to change its beat and value, snapping to quarter beats. The drag is previewed in the graph and saved once when released, so one Undo reverses the gesture. Cancelling a drag discards its preview.
+- Select a point, then Edit point for an exact beat and value, or Delete point to remove it. Beat 0 is the project's beginning. Dropping a point on an existing beat replaces that point; Undo restores both.
+- ◀ / ▶ move through the timeline. Zoom in / Zoom out change the visible span from 1 to 256 beats (default 16). The moving line shows playback position. Delete lane removes the lane as one undo step; Undo also works inside the editor.
+- Values move between points and hold the first/last value outside them. Filter mode and bypass hold each value until the next point. Points stay at their musical beats when tempo changes. Playback, looping, full-mix export and isolated stems use the lanes; stems omit group, send, return and Master lanes.
+- Automation follows an effect when its rack slot moves. Removing an effect, group or track removes its lanes; Undo brings them back. The project supports 128 lanes and 4096 points, including extra points needed at tempo changes. New and older projects start with no automation.
 ## Stems
 Splits a track into four tracks: drums, bass, other and vocals. It runs on the phone, in the background, while you work.
 - Download the stems model: about 414 MB, once.

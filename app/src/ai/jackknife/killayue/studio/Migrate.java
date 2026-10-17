@@ -41,6 +41,11 @@ final class Migrate {
         if (version < 3)
             m.put("performance", new Performance().json());
         if (version < 4) m.put("mixer", new Mixer().json());
+        if (version < 6 && m.get("mixer") instanceof Map) {
+            LinkedHashMap<String,Object> mixer = new LinkedHashMap<String,Object>();
+            for (Map.Entry<?,?> entry : ((Map<?,?>)m.get("mixer")).entrySet()) mixer.put(String.valueOf(entry.getKey()),entry.getValue());
+            mixer.put("automation",new Automation().json()); m.put("mixer",mixer);
+        }
         m.put("version", Integer.valueOf(Project.VERSION));
         return m;
     }

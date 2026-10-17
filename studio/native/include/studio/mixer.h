@@ -5,10 +5,11 @@
 #include <vector>
 #include <memory>
 #include "studio/effects.h"
+#include "studio/automation.h"
 #include "studio/spsc.h"
 namespace studio {
 struct MixerConfig {
-    static constexpr int size = 2 + 75 * kMixerStride;
+    static constexpr int size = kAutomationOffset + kAutomationSize;
     std::array<float, size> data{};
     MixerConfig() { for (int i = 0; i < 75; ++i) data[2 + i * kMixerStride + 6] = -1; }
     bool valid() const;
@@ -22,6 +23,11 @@ public:
     void apply(); // callback, once for each Msg::Mixer
     void reset();
     void begin(int frames);
+    bool automated() const { return config_.data[kAutomationOffset] > 0; }
+    long boundary(long at, long end) const { return AutomationData::next(config_.data.data(), at, end); }
+    void automate(long at, int frames);
+    float control(int strip, int parameter, float base, bool start = false) const;
+
     bool groupSolo() const;
     bool audible(int track, bool mute, bool solo, bool anySolo) const;
     void track(int index, float* stereo, float* master, int frames, bool heard = true);
@@ -43,6 +49,7 @@ private:
     std::array<std::vector<float>, 8> comb_;
     std::array<size_t, 8> combPos_{};
     size_t delayPos_ = 0;
+    std::array<std::array<float, 4>, 75> autoStart_, autoEnd_;
     std::array<float, 75> previousL_, previousR_, previousGate_;
     std::array<float, 75> previousRev_{}, previousDelay_{};
     std::array<bool, 8> groupHeard_{};
