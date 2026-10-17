@@ -124,7 +124,7 @@ public final class Automation {
     /** Five-float lane headers, then frame-low/frame-high/value points. Frame halves are exact integers. */
     public void pack(Project project,float[] out,int offset) {
         TempoMap tempo=new TempoMap(project.rate,project.performance);int laneCount=0,pointCount=0;
-        for(Lane lane:lanes){if(!lane.enabled||lane.points.isEmpty())continue;
+        for(Lane lane:lanes){if(!lane.enabled||lane.points.isEmpty()||project.mixer.mastering.bypass(project.mixer,lane.slot))continue;
             Effects.Param param=parameter(project.mixer,lane);TreeMap<Long,Float> frames=new TreeMap<Long,Float>();
             for(Map.Entry<Double,Float> point:lane.points.entrySet())frames.put(tempo.frameAt(point.getKey()),point.getValue());
             if(!param.whole)for(Long at:project.performance.tempos.keySet()){

@@ -61,13 +61,7 @@ final class ExportJob {
 
     /** The end of the last clip that is heard (the length of the mix). */
     static long length(Project p) {
-        long end = 0;
-        for (Track t : p.tracks)
-            if (p.audible(t))
-                for (Clip c : t.clips) end = Math.max(end, c.start + c.length);
-        if (p.performance.pattern)
-            end = Math.max(end, new ai.jackknife.killayue.studio.TempoMap(p.rate, p.performance).frameAt(p.performance.patternLength / 4.0));
-        return end == 0 ? 0 : end + p.mixer.tailFrames(p.rate);
+        return p.renderFrames();
     }
 
     /** Runs one export; returns the files it made. */

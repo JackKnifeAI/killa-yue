@@ -63,18 +63,22 @@ public class StudioTestActivity extends Activity {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("mixer") || test.equals("effects") || test.equals("automation")) {
+                    if (test.equals("mixer") || test.equals("effects") || test.equals("automation") || test.equals("mastering")) {
                         String oldTmp = System.getProperty("java.io.tmpdir");
                         try {
                             System.setProperty("java.io.tmpdir", getCacheDir().getPath());
                             NativeMixerTest.main(new String[0]);
-                            if (test.equals("effects") || test.equals("automation")) {
+                            if (test.equals("effects") || test.equals("automation") || test.equals("mastering")) {
                                 NativeEffectsTest.main(new String[0]);
                                 log("PASS effects offline JNI/export fixture: " + NativeEffectsTest.passed + " assertions");
-                                if (test.equals("automation")) {
+                                if (test.equals("automation") || test.equals("mastering")) {
                                     NativeAutomationTest.main(new String[0]);
                                     log("PASS automation offline JNI/export fixture: " + NativeAutomationTest.passed + " assertions");
                                 }
+                            }
+                            if (test.equals("mastering")) {
+                                NativeMasteringTest.main(new String[0]);
+                                log("PASS mastering offline JNI/export fixture: " + NativeMasteringTest.passed + " assertions");
                             }
                             log("PASS mixer offline JNI/export fixture: " + NativeMixerTest.passed + " assertions");
                         } finally {
@@ -215,7 +219,8 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(false);
         try {
             Project p = tracks(e.rate(), seconds, dir);
-            final boolean automationTest = "automation".equals(getIntent().getStringExtra("test"));
+            final boolean masteringTest = "mastering".equals(getIntent().getStringExtra("test"));
+            final boolean automationTest = masteringTest || "automation".equals(getIntent().getStringExtra("test"));
             final boolean effectsTest = automationTest || "effects".equals(getIntent().getStringExtra("test"));
             final boolean mixerTest = effectsTest || "mixer".equals(getIntent().getStringExtra("test"));
             if (mixerTest) {
@@ -235,10 +240,10 @@ public class StudioTestActivity extends Activity {
                 for (String id : p.mixer.groups) {
                     p.mixer.edit(id).gainDb = -6;
                     p.mixer.edit(id).reverb = .1f;
-                    for (int k = 0; k < 8; k++) p.mixer.addSlot(id, 1).value = -.5f;
+                    for (int k = 0; k < (masteringTest && id.equals(Mixer.MASTER) ? 5 : 8); k++) p.mixer.addSlot(id, 1).value = -.5f;
                 }
                 for (String id : new String[] {Mixer.MASTER, Mixer.REVERB, Mixer.DELAY})
-                    for (int k = 0; k < 8; k++) p.mixer.addSlot(id, 1).value = -.5f;
+                    for (int k = 0; k < (masteringTest && id.equals(Mixer.MASTER) ? 5 : 8); k++) p.mixer.addSlot(id, 1).value = -.5f;
                 log(effectsTest ? "effects: 16 tracks, all seven effects, 16 wet inserts, 8 groups, shared sends; send/parameter edits every 25 ms"
                     : "mixer: 8 groups, both sends, 8 inserts on all 27 strips; send edit every 25 ms");
             }
@@ -255,6 +260,10 @@ public class StudioTestActivity extends Activity {
                 }
                 log("automation: 48 active lanes, tempo change halfway through, native envelopes plus live mixer edits");
             }
+            if (masteringTest) {
+                p.mixer = Mastering.preset(p, 1);
+                log("mastering: Balanced rack with A/B toggled every second");
+            }
             log("stress: 16 tracks, " + p.tracks.get(0).clips.size() + " clips each, " + seconds + " s, master " + master + " dB");
             e.load(p, dir);
             e.master(master);
@@ -270,6 +279,7 @@ public class StudioTestActivity extends Activity {
                     break;
                 String id = p.tracks.get(rng.nextInt(16)).id;
                 if (mixerTest) {
+                    if (masteringTest) p.mixer.mastering.before = (ms / 1000) % 2 == 0;
                     p.mixer.edit(id).reverb = rng.nextFloat() * .2f;
                     p.mixer.edit(id).delay = rng.nextFloat() * .2f;
                     if (effectsTest) p.mixer.edit(id).chain.get(0).set(1, rng.nextFloat()*12-6);
