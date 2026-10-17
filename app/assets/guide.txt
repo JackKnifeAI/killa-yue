@@ -177,3 +177,7 @@ Export includes the enabled sampler pattern. A pattern-only project exports one 
 Moving clips into a partial overlap on the same track adds matching fades across the overlap. Undo restores the previous fades. Playback capture stops if the first five seconds stay silent; the source may be paused or may prohibit capture.
 
 Long loop recordings reserve the last of the 64 playback tracks for “More takes (in order)”: later passes are kept as separate clips in sequence on that muted track. Move a wanted pass back to the loop position before comping it. No recorded audio is discarded. Loop recording needs one free track.
+
+## Listen to an unfinished song
+Create > Resume a song lists saved checkpoints. Listen to how far it got makes a playable preview from a saved render without changing the checkpoint. It starts only when you choose Listen. The preview may cover the whole song at unfinished quality, or just the chunks begun so far. It can sound rough. Its progress shows elapsed time, without a full-song countdown or render-step bar.
+When it plays, Keep in library saves a separate copy; Close leaves the checkpoint available; Resume finishes the original render. Previewing does not teach the normal song-time estimator.
