@@ -8,6 +8,8 @@ Killa YuE is a native Android app around [YuE2](https://github.com/multimodal-ar
 
 As far as we could find when we built it (October 2026), this is the first app that runs YuE2 on a phone's GPU.
 
+**If Killa YuE made you a song, please ⭐ star this repository.** Stars are how other artists find a free, open-source studio like this one, and they tell us which features to build next.
+
 ## Status
 
 Version 1.4.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
