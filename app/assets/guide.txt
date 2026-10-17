@@ -225,3 +225,7 @@ MIDI connects USB or Bluetooth keyboards: notes 36–51 play pads 1–16 on any 
 
 ## Killa Gold pad artwork
 The Chamber uses gold-framed, dark rubber pads in the Killa Gold skin. A pressed pad glows amber for as long as you hold it; a MIDI note-on flashes it for 120 ms. The selection outline still marks the pad being edited. Pattern playback does not flash this artwork. This is appearance only and has no saved project setting. Other skins keep their existing pads.
+
+## Listen to an unfinished song
+Create > Resume a song lists saved checkpoints. Listen to how far it got makes a playable preview from a saved render without changing the checkpoint. It starts only when you choose Listen. The preview may cover the whole song at unfinished quality, or just the chunks begun so far. It can sound rough. Its progress shows elapsed time, without a full-song countdown or render-step bar.
+When it plays, Keep in library saves a separate copy; Close leaves the checkpoint available; Resume finishes the original render. Previewing does not teach the normal song-time estimator.

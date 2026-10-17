@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     // one job at a time, shared across activity restarts
     public static volatile boolean jobBusy;
     static volatile String jobId, jobMsg = "", jobError = "";
+    static volatile boolean jobPreview; // previews do not follow a full song's render schedule
     static volatile String runningCheckpoint = ""; // the checkpoint folder of the song being made
     static volatile boolean jobCancel, engineHealthy;
     static volatile long jobStart;
@@ -1341,6 +1342,10 @@ public class MainActivity extends Activity {
     }
 
     void startJob(String msg, final Task t) {
+        startJob(msg, t, false);
+    }
+
+    void startJob(String msg, final Task t, boolean preview) {
         if (ai.jackknife.killayue.studio.ui.StudioSession.recordingBusy()) {
             toast("Finish the recording before starting a song job.");
             return;
@@ -1349,6 +1354,7 @@ public class MainActivity extends Activity {
             toast("The engine is busy with another job");
             return;
         }
+        jobPreview = preview;
         jobBusy = true;
         jobCancel = false;
         jobError = "";
@@ -1364,7 +1370,9 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             // the default number of render passes
         }
-        Eta.begin(getApplicationContext(), lengthSeconds(), st, EngineService.gentle(this));
+        // Preview replays a saved state, then projects/decodes it; a full-song ETA is misleading.
+        if (preview) Eta.end();
+        else Eta.begin(getApplicationContext(), lengthSeconds(), st, EngineService.gentle(this));
         Widget.refresh(this, true);
         new Thread(new Runnable() {
             public void run() {
@@ -1499,7 +1507,7 @@ public class MainActivity extends Activity {
                         })
                         .setNegativeButton("Close", null).show();
             }
-        });
+        }, true);
     }
 
     void resume(Resume.Unfinished u) {
@@ -4502,17 +4510,17 @@ public class MainActivity extends Activity {
 
         genBtn.setText(jobBusy ? "Cancel" : "Generate song");
         if (jobBusy) {
-            String st = jobMsg.length() > 0 ? jobMsg : EngineService.stage;
+            String st = jobMsg.length() > 0 ? jobMsg : jobPreview ? "Making an unfinished-song preview" : EngineService.stage;
             if (st.length() == 0) st = "Working";
             int cur = EngineService.progCur, max = EngineService.progMax;
-            boolean bar = jobMsg.length() == 0 && max > 0;
+            boolean bar = !jobPreview && jobMsg.length() == 0 && max > 0;
             prog.setVisibility(View.VISIBLE);
             prog.setIndeterminate(!bar);
             if (bar) {
                 prog.setMax(max);
                 prog.setProgress(cur);
                 st += "  " + cur + " / " + max;
-            } else if (jobMsg.length() == 0 && cur > 0) {
+            } else if (!jobPreview && jobMsg.length() == 0 && cur > 0) {
                 st += "  " + cur + " notes";
             }
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);

@@ -86,7 +86,7 @@ New in 1.3.0:
 - **Automatic lyric sync**: a speech recogniser on the phone (whisper.cpp) listens to the finished song and times every line to when it is sung, with a progress bar and the time left.
 - **Sheet music**: an engraved full score as a vector PDF, or a part for any of 38 instruments in its own key and clef; tabs for guitar, bass, ukulele, mandolin and banjo; chords to sing along to with diagrams and the lyrics under the lines; MusicXML and MIDI. Read, print and share them in the app.
 - **Write with AI**: a songwriter that runs on the phone (llama.cpp with Gemma 4 E4B, abliterated, a separate download) writes lyrics and style prompts, and can look things up on the web first.
-- **Resume a song** that stopped part way (the GPU lost, or the app or engine stopped): it carries on from its last finished render step and sounds the same as an uninterrupted song.
+- **Resume a song** that stopped part way (the GPU lost, or the app or engine stopped): it carries on from its last finished render step and sounds the same as an uninterrupted song. **Listen to how far it got** previews a saved render without changing its checkpoint; Keep in library saves the preview separately. Preview progress shows elapsed time without a full-song estimate.
 - **GPU covers** for phones without the 8 Elite NPU, a **home-screen widget**, **ringtones and a wake-up song**, and **community skins** (Akai '84 is in `skins/`).
 
 What comes next is in [ROADMAP.md](ROADMAP.md).
