@@ -21,8 +21,8 @@ public final class MixerTest {
         history.run(new MixerEdit(p, m, "Build mixer", null));
         check(p.toText().equals(Project.fromText(p.toText()).toText()), "routing and slot IDs round trip");
         float[] packed = p.mixer.nativeData(p);
-        check(packed[1] == 1 && packed[2+6] == 0 && packed[2+32+6] == -1, "track indices route to groups or master");
-        check(packed[2+64*32+5] == .5f && packed[2+74*32+8] == 2, "group sends and master chain pack");
+        check(packed[1] == 1 && packed[2+6] == 0 && packed[2+Mixer.STRIDE+6] == -1, "track indices route to groups or master");
+        check(packed[2+64*Mixer.STRIDE+5] == .5f && packed[2+74*Mixer.STRIDE+8] == 2, "group sends and master chain pack");
         p.mixer.edit(group).solo = true;
         check(p.audible(a) && !p.audible(b), "group solo includes members only");
         p.mixer.edit(group).mute = true;
@@ -63,7 +63,7 @@ public final class MixerTest {
         java.util.Map<String, Object> old = p.toJson();
         old.put("version", 3); old.remove("mixer");
         Project migrated = Project.fromText(Json.write(old));
-        check(migrated.version == 4 && migrated.mixer.groups.isEmpty() && migrated.mixer.get(a.id).chain.isEmpty(), "v3 projects migrate dry");
+        check(migrated.version == Project.VERSION && migrated.mixer.groups.isEmpty() && migrated.mixer.get(a.id).chain.isEmpty(), "v3 projects migrate dry");
         java.util.Map<String, Object> missing = p.toJson();
         missing.remove("mixer");
         try { Project.fromText(Json.write(missing)); throw new AssertionError("v4 must not silently discard missing mixer state"); }
@@ -78,7 +78,7 @@ public final class MixerTest {
         check(ordered.mixer.get(Mixer.MASTER).chain.get(0).id.equals(last.id)
             && ordered.mixer.get(Mixer.MASTER).chain.get(0).bypass
             && ordered.mixer.get(Mixer.MASTER).chain.get(1).id.equals(first), "rack order, identity and bypass survive saving");
-        check(ordered.mixer.nativeData(ordered)[2+74*32+10] == 1, "bypass reaches native config");
+        check(ordered.mixer.nativeData(ordered)[2+74*Mixer.STRIDE+10] == 1, "bypass reaches native config");
         history.undo();
         check(p.mixer.get(Mixer.MASTER).chain.size() == 1 && p.mixer.get(Mixer.MASTER).chain.get(0).id.equals(first), "rack order undo");
         int next = p.mixer.nextId;

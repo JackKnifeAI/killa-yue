@@ -107,8 +107,16 @@ A gold strip for each track, followed by your groups, the shared Reverb and Dela
 - Tap a group's name to rename or remove it. Removing a group puts its tracks back on Master. Undo restores the group and its routing.
 - REV and DLY are sends: they copy some of a track or group's sound into the shared reverb or delay. Drag either small gold knob up or down from 0 to 100; double-tap for 0. Both start at 0 (off). Sends follow that strip's volume, pan and effects. A track's sends are taken before its group's volume and effects.
 - Reverb adds a short stereo room tail. Delay repeats at 250 milliseconds, each repeat at 30% of the previous one. The return faders change how much wet sound reaches Master; their M buttons silence it. Returns cannot send into themselves.
-- FX rack opens that strip's effects, processed from top to bottom, up to eight slots. New racks are empty. Tap Add effect, then a slot to set its value, bypass it, move it earlier or later, or remove it. Bypass leaves the slot in place but stops its effect.
-- Trim adjusts level from -24 to +24 dB; it starts at 0 dB. Stereo width starts at 100% (unchanged), 0% makes mono, and 200% widens the difference between left and right. Polarity invert flips both channels; it is active when added and has no amount knob.
+- FX rack opens that strip's effects, processed from top to bottom, up to eight slots. New racks are empty. Tap Add effect, then a slot to open Parameters and presets, bypass it, move it earlier or later, or remove it. Bypass leaves the slot in place and fades to dry sound. Parameters and presets are applied together as one undo step when you tap Apply; Cancel discards the form. Presets fill the fields so you can adjust them before applying.
+- Trim adjusts level from -24 to +24 dB; it starts at 0 dB. Stereo width starts at 1x (unchanged), 0x makes mono, and 2x widens the difference between left and right. Polarity invert flips both channels; it is active when added and has no amount knob.
+- EQ has a low shelf at 120 Hz, an adjustable mid bell, and a high shelf at 8 kHz, each -18 to +18 dB (default 0). Mid frequency starts at 1000 Hz, Q at 1. Low cut (0–2000 Hz) and high cut (0–20000 Hz) start at 0, meaning off. Presets: Flat, Vocal clarity, Warm.
+- Compressor reduces peaks above Threshold (-60–0 dB, default -18) by Ratio (1–20:1, default 4). Attack is 0.1–200 ms (10), Release 10–2000 ms (120), Makeup 0–24 dB (0), and Mix 0–1 (1). Both channels share gain reduction to keep the stereo image steady. Presets: Gentle, Vocal, Parallel drums.
+- Peak limiter has Ceiling -24–0 dB (default -1), Release 10–2000 ms (80), and Input gain 0–24 dB (0). It catches sample peaks without added delay; it does not measure intersample true peaks. Presets: Safety, Gentle level, More level. The final Master safety limiter remains separate.
+- Reverb has Room decay 0.1–0.85 (default 0.65), Damping 0–1 (0.4), Wet mix 0–1 (0.2), and Pre-delay 0–100 ms (12). Presets: Small room, Vocal room, Long space.
+- Delay has Time 1–1000 ms (default 250), Feedback 0–0.65 (0.3), Wet mix 0–1 (0.25), and Ping-pong amount 0–1 (0). Ping-pong sends feedback toward the opposite channel. Presets: Slap, Echo, Ping-pong. Changing time glides the delay tap and can bend pitch.
+- Saturation adds soft distortion: Drive 0–30 dB (default 6), Tone low-pass 500–20000 Hz (8000), Mix 0–1 (0.5), Output -24–0 dB (-3). Presets: Warm, Crunch, Soft edge.
+- Filter mode is 0 low-pass, 1 high-pass or 2 band-pass (default 0). Cutoff is 20–20000 Hz (20000), Resonance Q 0.2–10 (0.7071), and Mix 0–1 (1). Presets: Low-pass, High-pass, Telephone. Frequencies above the project's usable band are limited to 45% of its sample rate.
+- Use up to sixteen reverb/delay inserts across the project, including bypassed slots. Shared sends do not use this limit. Each rack still holds up to eight effects. Mix values use 0 for dry and 1 for fully wet.
 - Track, group and return effects follow their faders. Master effects run before the Master fader and its safety limiter. The live Chamber pads feed Master; bounce them to a track to use that track's group and sends.
 - Every mixer edit is saved and can be undone. One knob or fader drag makes one undo step. Old projects open with empty racks and sends off.
 ## Stems
@@ -123,7 +131,7 @@ Splits a track into four tracks: drums, bass, other and vocals. It runs on the p
 - M4A: small, for sharing.
 - To the library: the mix becomes a song in your library.
 - Stems: every track as its own file, with its track volume, pan and FX rack. Track mute and solo are ignored. Groups, sends and Master effects are left out, so these are separate ingredients for another mix.
-- A full mix includes groups, sends and all FX racks. When a send is in use, export adds four seconds for the reverb and delay to fade away.
+- A full mix includes groups, sends and all FX racks. Export allows for insert tails plus four seconds for shared sends. Chains of long delays can extend the tail by several minutes. Stem files stay aligned and include the longest isolated track insert tail. Bypassed inserts add no tail.
 
 # Studio — Play Along
 ## Record

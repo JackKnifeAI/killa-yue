@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 4;
+    public static final int VERSION = 5;
 
     public int version = VERSION;
     public String name;

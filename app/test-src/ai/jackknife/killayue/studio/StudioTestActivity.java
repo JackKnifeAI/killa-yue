@@ -63,11 +63,15 @@ public class StudioTestActivity extends Activity {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("mixer")) {
+                    if (test.equals("mixer") || test.equals("effects")) {
                         String oldTmp = System.getProperty("java.io.tmpdir");
                         try {
                             System.setProperty("java.io.tmpdir", getCacheDir().getPath());
                             NativeMixerTest.main(new String[0]);
+                            if (test.equals("effects")) {
+                                NativeEffectsTest.main(new String[0]);
+                                log("PASS effects offline JNI/export fixture: " + NativeEffectsTest.passed + " assertions");
+                            }
                             log("PASS mixer offline JNI/export fixture: " + NativeMixerTest.passed + " assertions");
                         } finally {
                             if (oldTmp != null) System.setProperty("java.io.tmpdir", oldTmp);
@@ -207,7 +211,8 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(false);
         try {
             Project p = tracks(e.rate(), seconds, dir);
-            final boolean mixerTest = "mixer".equals(getIntent().getStringExtra("test"));
+            final boolean effectsTest = "effects".equals(getIntent().getStringExtra("test"));
+            final boolean mixerTest = effectsTest || "mixer".equals(getIntent().getStringExtra("test"));
             if (mixerTest) {
                 for (int i = 0; i < 8; i++) p.mixer.addGroup("Group " + (i + 1));
                 for (int i = 0; i < p.tracks.size(); i++) {
@@ -215,7 +220,12 @@ public class StudioTestActivity extends Activity {
                     p.mixer.edit(id).route = p.mixer.groups.get(i % 8);
                     p.mixer.edit(id).reverb = .12f;
                     p.mixer.edit(id).delay = .08f;
-                    for (int k = 0; k < 8; k++) p.mixer.addSlot(id, k % 2 + 1).value = k % 2 == 0 ? -1 : .9f;
+                    if (effectsTest) {
+                        for (int kind = Effects.EQ; kind <= Effects.FILTER; kind++) {
+                            if (i >= 8 && Effects.wet(kind)) continue;
+                            p.mixer.addSlot(id, kind);
+                        }
+                    } else for (int k = 0; k < 8; k++) p.mixer.addSlot(id, k % 2 + 1).value = k % 2 == 0 ? -1 : .9f;
                 }
                 for (String id : p.mixer.groups) {
                     p.mixer.edit(id).gainDb = -6;
@@ -224,7 +234,8 @@ public class StudioTestActivity extends Activity {
                 }
                 for (String id : new String[] {Mixer.MASTER, Mixer.REVERB, Mixer.DELAY})
                     for (int k = 0; k < 8; k++) p.mixer.addSlot(id, 1).value = -.5f;
-                log("mixer: 8 groups, both sends, 8 inserts on all 27 strips; send edit every 25 ms");
+                log(effectsTest ? "effects: 16 tracks, all seven effects, 16 wet inserts, 8 groups, shared sends; send/parameter edits every 25 ms"
+                    : "mixer: 8 groups, both sends, 8 inserts on all 27 strips; send edit every 25 ms");
             }
             log("stress: 16 tracks, " + p.tracks.get(0).clips.size() + " clips each, " + seconds + " s, master " + master + " dB");
             e.load(p, dir);
@@ -243,6 +254,7 @@ public class StudioTestActivity extends Activity {
                 if (mixerTest) {
                     p.mixer.edit(id).reverb = rng.nextFloat() * .2f;
                     p.mixer.edit(id).delay = rng.nextFloat() * .2f;
+                    if (effectsTest) p.mixer.edit(id).chain.get(0).set(1, rng.nextFloat()*12-6);
                     e.mixer(p);
                 }
                 switch (rng.nextInt(4)) {
