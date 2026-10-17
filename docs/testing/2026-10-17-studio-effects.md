@@ -12,17 +12,17 @@ Adds seven original native inserts to the mixer racks: three-band EQ with low/hi
 
 The first native run overlapped header edits and is not used as validation. A clean rebuild and the subsequent run after the transport-tail fix passed, including loop playback under both sanitizers. Final logs are on ops at `/tmp/killa-effects-java.log`, `/tmp/killa-effects-app.log`, and `/tmp/killa-effects-final-native.log`.
 
-## Device validation
+## S25 validation — 2026-10-17
 
-Pending. The S25 ADB endpoint supplied for this work is `10.0.0.71:45515`; engine work is also using the phone. Do not treat host results as phone performance measurements or ask for review before the device checks.
+Validated on the S25 Ultra (SM-S938W), using the combined Studio stack plus unfinished-song preview PR #22 and progress fix PR #30. The 600-second stress APK was `a3c2aa5`; control/export checks used `38b3f27`; the final Chamber undo retest used `0294587`. These are combined-build results, not independent installs of each PR head.
 
-The test APK has an `effects` fixture. It first runs the JNI/export tests, then plays sixteen tracks through all seven new effects, sixteen wet inserts, eight groups, shared sends and repeated send/EQ edits. Once the phone is free:
+All 151 offline device JNI/export assertions passed. The combined 16-track run exercised effects, 16 wet inserts, eight groups, shared sends, 48 automation lanes, tempo changes, mastering A/B, streamed instruments, Chamber song/repeat/levels and mute/solo. It passed with 300,004 callbacks: maximum 1.68 ms, average 0.972 ms, none beyond the 2.00 ms burst deadline. There were zero device xruns and zero underruns outside the existing 300 ms seek allowance; 32 underruns occurred within that allowance. It captured 5,832 live pad hits. The reported 8.3 ms output latency is an engine/device estimate, not a measured round trip.
 
-```sh
-adb -s 10.0.0.71:45515 shell am start -n ai.jackknife.killayue/.studio.StudioTestActivity --es test effects --ei seconds 600 --ef master -40
-```
+Evidence is backed up on ops in `~/killa-studio-device-proof-2026-10-17/`. Test fixtures were backed up and removed. SHA-256 comparison found all 52 original project/library/checkpoint files unchanged, including the completed song and the Yeah remix. The app remains a 1.4.1 test build; nothing was merged or released.
 
-Also inspect the parameter/preset form, bypass, rack order, saved undo and export in a throwaway project, using small JPEG previews for screenshots. Keep user projects and active generation work intact. Bluetooth/USB route testing, subjective listening and screenshots remain untested.
+The 66 effects JNI/export assertions passed on the phone. In the actual UI, EQ Vocal clarity populated the expected values, Apply saved them, cancelling Flat preserved them, bypass/enable worked, and moving EQ before Trim retained its values. Saved JSON confirms the reordered enabled EQ and its low-cut/preset parameters. Full-mix and stem export passed.
+
+Remaining: subjective listening, physical route changes, and manually opening every effect/preset combination. All seven effects were exercised by the device fixtures; only EQ received the detailed form walkthrough.
 
 ## Implementation limits and provenance
 
