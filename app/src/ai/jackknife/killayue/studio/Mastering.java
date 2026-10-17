@@ -50,6 +50,7 @@ public final class Mastering {
         for(String key:new String[]{"before","stamp","beforeLufs","afterLufs","peakDb"})mastering.remove(key);
         for(String key:new String[]{"nextId","name","sourceSong","sourceTitle","loopStart","loopEnd","loopOn"})json.remove(key);
         mixer.remove("nextId");
+        for (Object track : (java.util.List<?>)json.get("tracks")) ((Map<String,Object>)((Map<?,?>)track).get("notes")).remove("nextId");
         ((Map<String,Object>)json.get("performance")).put("click",false);
         try{byte[] hash=java.security.MessageDigest.getInstance("SHA-256").digest(Json.write(json).getBytes("UTF-8"));StringBuilder text=new StringBuilder();for(byte b:hash){int n=b&255;if(n<16)text.append('0');text.append(Integer.toHexString(n));}return text.toString();}
         catch(java.security.NoSuchAlgorithmException ex){throw new IllegalStateException(ex);}catch(java.io.UnsupportedEncodingException ex){throw new IllegalStateException(ex);}

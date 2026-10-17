@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 7;
+    public static final int VERSION = 8;
 
     public int version = VERSION;
     public String name;
@@ -79,8 +79,10 @@ public final class Project {
     /** Full-mix duration, shared by export and mastering so they measure the same audio. */
     public long renderFrames() {
         long end = 0;
-        for (Track track : tracks) if (audible(track))
+        for (Track track : tracks) if (audible(track)) {
             for (Clip clip : track.clips) end = Math.max(end, clip.start + clip.length);
+            end = Math.max(end, track.notes.end(this));
+        }
         if (performance.pattern) end = Math.max(end, new TempoMap(rate, performance).frameAt(performance.patternLength / 4.0));
         if (end == 0) return 0;
         try { return Math.addExact(end, mixer.tailFrames(rate)); }
@@ -100,6 +102,7 @@ public final class Project {
         HashSet<String> ids = new HashSet<String>();
         for (Track t : tracks) {
             id(ids, t.id);
+            t.notes.validate();
             if (t.name == null) throw new IllegalArgumentException("Track " + t.id + " has no name.");
             finite("track " + t.id + " level", t.gainDb);
             if (!(t.pan >= -1f && t.pan <= 1f)) throw new IllegalArgumentException("Track " + t.id + " is panned beyond the edge (" + t.pan + ").");
@@ -174,7 +177,10 @@ public final class Project {
         out.loopEnd = (long) num(p, "loopEnd", false);
         out.loopOn = bool(p, "loopOn");
         out.performance = Performance.read(p.get("performance"));
-        for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
+        for (Object to : list(p, "tracks")) {
+            if (!map(to,"a track").containsKey("notes")) throw new IllegalArgumentException("The track note data is missing.");
+            out.tracks.add(trackFromJson(to));
+        }
         if (!map(p.get("mixer"), "the mixer").containsKey("automation"))
             throw new IllegalArgumentException("The project's automation lanes are missing.");
         if (!map(p.get("mixer"), "the mixer").containsKey("mastering"))
@@ -188,6 +194,7 @@ public final class Project {
     static LinkedHashMap<String, Object> trackJson(Track t) {
         LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
         j.put("id", t.id);
+        j.put("notes", t.notes.json());
         j.put("name", t.name);
         j.put("gainDb", Float.valueOf(t.gainDb));
         j.put("pan", Float.valueOf(t.pan));
@@ -216,6 +223,7 @@ public final class Project {
         Map<?, ?> tj = map(to, "a track");
         Track t = new Track();
         t.id = str(tj, "id");
+        if (tj.containsKey("notes")) t.notes = MidiNotes.read(tj.get("notes"));
         t.name = str(tj, "name");
         t.gainDb = (float) num(tj, "gainDb", true);
         t.pan = (float) num(tj, "pan", true);

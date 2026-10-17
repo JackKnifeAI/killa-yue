@@ -77,6 +77,11 @@ public abstract class Edit {
         return new Setting("master", null, Float.valueOf(finiteLevel(db)));
     }
 
+    public static Edit addInstrument(String name, int instrument) {
+        if (instrument < 0 || instrument > 1) throw new IllegalArgumentException("Unknown instrument.");
+        AddTrack edit = new AddTrack(name, "", 0); edit.role = "instrument:" + instrument; return edit;
+    }
+
     /** Removes a track; undo puts the same track back in its place. */
     public static Edit removeTrack(String trackId) {
         return new RemoveTrack(trackId);
@@ -272,7 +277,8 @@ public abstract class Edit {
             if (added == null) {
                 added = p.addTrack(name);
                 added.role = role;
-                p.addClip(added, file, 0, 0, length);
+                if (!file.isEmpty()) p.addClip(added, file, 0, 0, length);
+                else if (role != null && role.startsWith("instrument:")) added.notes.instrument = Integer.parseInt(role.substring(11));
             } else {
                 p.tracks.add(added);
             }
@@ -443,6 +449,7 @@ public abstract class Edit {
             throw new IllegalArgumentException("The history is damaged: an edit is not an object.");
         Map<?, ?> j = (Map<?, ?>) o;
         Object k = j.get("kind");
+        if ("notes".equals(k)) return NotesEdit.read(j);
         if ("mixer".equals(k)) return MixerEdit.read(j);
         if ("snapshot".equals(k))
             return new Snapshot((String) j.get("label"), (String) j.get("before"), (String) j.get("after"));

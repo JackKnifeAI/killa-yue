@@ -77,7 +77,11 @@ public final class SessionDiff {
         StringBuilder b = new StringBuilder();
         b.append(p.rate);
         for (Track t : p.tracks) {
-            b.append('|').append(t.id);
+            b.append('|').append(t.id).append(Json.write(t.notes.json()));
+            if (!t.notes.notes.isEmpty()) {
+                b.append(p.performance.tempo);
+                for (java.util.Map.Entry<Long,Double> point : p.performance.tempos.entrySet()) b.append(":").append(point.getKey()).append(":").append(point.getValue());
+            }
             for (Clip c : t.clips)
                 b.append(';')
                     .append(c.id)

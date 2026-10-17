@@ -88,7 +88,13 @@ public final class NativeEngine implements AutoCloseable {
         if (p.rate != rate())
             throw new IOException("The project is at " + p.rate + " Hz; the Studio runs at " + rate() + " Hz.");
         int n = p.tracks.size(), clips = 0;
-        for (Track t : p.tracks) clips += t.clips.size();
+        ArrayList<ArrayList<Clip>> material = new ArrayList<ArrayList<Clip>>();
+        for (Track track : p.tracks) {
+            ArrayList<Clip> list = new ArrayList<Clip>(track.clips);
+            for (MidiNotes.Note note : track.notes.notes) InstrumentSamples.ensure(folder,p.rate,track.notes.instrument,note.key);
+            list.addAll(track.notes.clips(p)); material.add(list);
+        }
+        for (ArrayList<Clip> list : material) clips += list.size();
         float[] gain = new float[n], pan = new float[n], clipGain = new float[clips];
         boolean[] mute = new boolean[n], solo = new boolean[n];
         int[] clipTrack = new int[clips];
@@ -104,7 +110,7 @@ public final class NativeEngine implements AutoCloseable {
             pan[i] = t.pan;
             mute[i] = t.mute;
             solo[i] = t.solo;
-            for (Clip c : t.clips) {
+            for (Clip c : material.get(i)) {
                 clipTrack[k] = i;
                 files[k] = new File(folder, c.file).getPath().getBytes(UTF8);
                 start[k] = c.start;
@@ -353,6 +359,17 @@ public final class NativeEngine implements AutoCloseable {
         }
         nTempos(handle(), tf, tb);
     }
+    /** Call after InstrumentSamples.bank has prepared the files on a worker. Live notes feed Master. */
+    public void keyboard(File dir,int instrument) throws IOException {
+        byte[][] paths = new byte[MidiNotes.HIGH-MidiNotes.LOW+1][];
+        for(int key=MidiNotes.LOW;key<=MidiNotes.HIGH;key++) paths[key-MidiNotes.LOW]=new File(dir,InstrumentSamples.path(instrument,rate(),key)).getPath().getBytes(UTF8);
+        nKeyboard(handle(),paths);
+    }
+    public boolean note(int key,float velocity,boolean on){return nNote(handle(),key,velocity,on);}
+    public void notesOff(){nNotesOff(handle());}
+    private static native void nKeyboard(long h,byte[][] paths) throws IOException;
+    private static native boolean nNote(long h,int key,float velocity,boolean on);
+    private static native void nNotesOff(long h);
     public boolean pad(int pad, float velocity, boolean on) {
         return nPad(handle(), pad, velocity, on);
     }

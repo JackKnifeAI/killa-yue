@@ -5,6 +5,7 @@ import java.util.ArrayList;
 /** A track of the project: its level, pan, mute and solo, and its clips. */
 public final class Track {
     public String id, name;
+    public MidiNotes notes = new MidiNotes();
     public float gainDb, pan;
     public boolean mute, solo;
     public int color = PALETTE[0];  // ARGB, for its lane and strip

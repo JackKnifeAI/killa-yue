@@ -1,4 +1,5 @@
 #include "studio/engine.h"
+#include "studio/keyboard.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +8,7 @@
 namespace studio {
 
 Engine::Engine(int rate, int maxFrames)
-    : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), trackStereo_(2 * (size_t)maxFrames, 0.f), mixer_(rate, maxFrames), limiter_(rate), performance_(rate) {
+    : rate_(rate), maxFrames_(maxFrames), scratch_(2 * (size_t)maxFrames, 0.f), trackStereo_(2 * (size_t)maxFrames, 0.f), mixer_(rate, maxFrames), limiter_(rate), performance_(rate), keyboard_(new Keyboard(rate)) {
     for (auto& m : meter_) m.store(0.f, std::memory_order_relaxed);
 }
 
@@ -218,6 +219,7 @@ void Engine::render(float* out, int frames, float& pl, float& pr) {
     }
     mixer_.finish(out, frames);
     performance_.mix(out, frames, countIn_ > 0 ? -countIn_ : pos_, playing_);
+    keyboard_->mix(out, frames);
     mixer_.master(out, frames);
     float masterStart = mixer_.control(74, 0, NAN, true), masterEnd = mixer_.control(74, 0, NAN);
     float from = std::isfinite(masterStart) ? dbToGain(masterStart) : master_;

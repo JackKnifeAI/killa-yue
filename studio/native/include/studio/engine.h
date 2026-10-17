@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <vector>
+#include <memory>
 
 #include "studio/mix.h"
 #include "studio/mixer.h"
@@ -12,6 +13,7 @@
 #include "studio/spsc.h"
 
 namespace studio {
+class Keyboard;
 
 struct Source {
     // Fills frames of interleaved audio (channels() channels); returns the frames that had audio, the rest are zeros.
@@ -93,6 +95,7 @@ class Engine {
     // thread. Returns the number of tracks (out holds 2 x max).
     int meters(float* out, int max);
     int rate() const { return rate_; }
+    Keyboard& keyboard() { return *keyboard_; }
     PerformanceAudio& performance() { return performance_; }
 
    private:
@@ -110,6 +113,7 @@ class Engine {
     MixerGraph mixer_;
     Limiter limiter_;
     PerformanceAudio performance_;
+    std::unique_ptr<Keyboard> keyboard_;
     long countIn_ = 0;
     float master_ = 1.f;
     bool playing_ = false;
