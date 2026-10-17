@@ -1,6 +1,6 @@
 # Mixer depth validation
 
-Branch: `ops/mixer-depth`, based on main `c80f5b3`. App version remains 1.4.0; the development APK is labelled `1.4.0-studiotest`. Project format becomes 4.
+The initial mixer work introduced project format 4. The current combined device validation uses the updated 1.4.1 Studio stack described below.
 
 ## Completed on ops
 
@@ -12,26 +12,14 @@ Branch: `ops/mixer-depth`, based on main `c80f5b3`. App version remains 1.4.0; t
 - `libstudio.so` and `libkillastem.so` rebuilt from this branch with NDK 30; Studio uses Oboe 1.11.0.
 - `STUDIO_TEST=1 app/build.sh`: pass; APK signature verified by the build. Both packaged Studio libraries match their branch build outputs byte for byte.
 
-## Still required on the S25
+## S25 validation — 2026-10-17
 
-No install, mixer touch test, listening evaluation, device timing result or mixer screenshot has been completed for this change. The phone was generating a song, so the generation was left running as directed by the Studio phase 2 brief. Keep this PR in draft until device checks are completed.
+Validated on the S25 Ultra (SM-S938W), using the combined Studio stack plus unfinished-song preview PR #22 and progress fix PR #30. The 600-second stress APK was `a3c2aa5`; control/export checks used `38b3f27`; the final Chamber undo retest used `0294587`. These are combined-build results, not independent installs of each PR head.
 
-After generation finishes:
+All 151 offline device JNI/export assertions passed. The combined 16-track run exercised effects, 16 wet inserts, eight groups, shared sends, 48 automation lanes, tempo changes, mastering A/B, streamed instruments, Chamber song/repeat/levels and mute/solo. It passed with 300,004 callbacks: maximum 1.68 ms, average 0.972 ms, none beyond the 2.00 ms burst deadline. There were zero device xruns and zero underruns outside the existing 300 ms seek allowance; 32 underruns occurred within that allowance. It captured 5,832 live pad hits. The reported 8.3 ms output latency is an engine/device estimate, not a measured round trip.
 
-1. Take a fresh backup of the phone's project metadata, history and app preferences. Preserve the current “Yeah. (remix)” project; do not restore an older backup over newer work.
-2. Install the branch's test APK using the currently connected ADB endpoint. Do not uninstall the app.
-3. Run the offline JNI/export fixture and 10-minute device test:
-   ```sh
-   adb shell am start -n ai.jackknife.killayue/.studio.StudioTestActivity --es test mixer --ei seconds 600 --ef master -40
-   ```
-   This drives 16 tracks, eight groups, both shared sends and eight slots on every active strip. Sends update every 25 ms. The report includes callback timing, disk underruns and device xruns, with the existing startup/seek allowances.
-4. Save `files/studio-test.txt` and logcat before starting the next test:
-   ```sh
-   adb shell am start -n ai.jackknife.killayue/.studio.StudioTestActivity --es test mixer-ui
-   ```
-   This creates “Mixer device proof” and exercises the real controller, autosave and persisted undo.
-5. In Mixer, check portrait and landscape layout, horizontal/vertical scrolling away from controls, cap-only faders, all three knob gestures and double-tap resets, group add/rename/remove/routing, mute/solo, every rack action and undo/redo. Verify playback, full-mix export, isolated stems and Chamber bounce. Listen to the wet sound and bypass transitions.
-6. Capture small JPEG previews for inspection; keep the full-resolution screenshot on disk. Update the mixer tour screenshot and this report with measured results.
-7. Back up the disposable test project to ops before removing it. Leave only “Yeah. (remix)” in Studio, with its original metadata/history preserved.
+Evidence is backed up on ops in `~/killa-studio-device-proof-2026-10-17/`. Test fixtures were backed up and removed. SHA-256 comparison found all 52 original project/library/checkpoint files unchanged, including the completed song and the Yeah remix. The app remains a 1.4.1 test build; nothing was merged or released.
 
-The utility racks and shared send processors are original code. The complete EQ/compressor/limiter/reverb/delay/saturation/filter preset suite is the next phase. Stems intentionally keep track inserts and omit groups, sends and master processing; full mixes include them and add four seconds when sends are active. Projects saved in format 4 require the updated app.
+The real mixer controller passed setup undo/redo, one history step per send gesture, autosave and reopened history. Portrait mixer inspection, horizontal navigation, EQ rack operations, full-mix A/B export and aligned stems passed. Full mixes measured 8.227792 s; both isolated stems measured 4.076875 s, all stereo 48 kHz. Existing group/send routing remained in the saved fixture.
+
+Remaining: subjective wet/bypass listening, physical route changes, landscape layout, and a complete manual sweep of every legacy knob/reset/group gesture. These are not inferred from the automated tests.
