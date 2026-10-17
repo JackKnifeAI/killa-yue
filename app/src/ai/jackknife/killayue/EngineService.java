@@ -161,12 +161,43 @@ public class EngineService extends Service {
         }
     }
 
-    /** True once this engine has shown progress on a job, so a later crash is not blamed on the GPU driver. */
+    /** True once this engine has shown progress on a job. */
     static volatile boolean sawProgress;
+
+    /** What this run's log showed going wrong: "gpu" (the Vulkan driver), "memory", or "" (nothing recognised). */
+    static volatile String fault = "";
+    /** True while the engine is being restarted on the GPU after a driver crash: a job waits, then sends its work again. */
+    static volatile boolean recovering;
+    /** Driver restarts since the engine was started for a job; each one runs the driver more carefully (recoveryEnv). */
+    static volatile int gpuRestarts;
+    static final int GPU_RESTARTS_MAX = 2;
+
+    /** Thrown to a waiting job when the engine came back on the GPU after a driver crash: send the job again. */
+    static final class Restarted extends Exception {
+        Restarted() {
+            super("The engine restarted after a GPU driver crash");
+        }
+    }
+
+    /** Out of memory, in the engine's own words (ggml, Vulkan, the C++ runtime). Checked before the GPU markers. */
+    static boolean memoryFault(String line) {
+        return line.contains("Device memory allocation of size") || line.contains("ErrorOutOfDeviceMemory")
+                || line.contains("ErrorOutOfHostMemory") || line.contains("bad_alloc") || line.contains("out of memory")
+                || line.contains("Cannot allocate memory");
+    }
+
+    /** The Vulkan driver failed: device lost, a fence error, or the GPU could not be opened. */
+    static boolean gpuFault(String line) {
+        return line.contains("DeviceLost") || line.contains("VK_ERROR_DEVICE_LOST") || line.contains("vk::SystemError")
+                || (line.contains("ggml_vulkan:") && (line.contains("lost") || line.contains("error") || line.contains("Fence")))
+                || (line.contains("--device") && line.contains("not found"));
+    }
 
     static void parse(String line) {
         Eta.line(line);
         if (!sawProgress && (line.startsWith("[AR] ") || line.startsWith("[NAR] Step"))) sawProgress = true;
+        if (memoryFault(line)) fault = "memory";
+        else if (fault.length() == 0 && gpuFault(line)) fault = "gpu";
         Matcher m = P_NAR.matcher(line);
         if (m.find()) {
             setStage("Rendering audio", Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
@@ -210,8 +241,9 @@ public class EngineService extends Service {
         self = this;
         startForeground(1, note("Engine running"));
         // Starting touches shared storage, which can stall under load, so it runs off the main thread.
-        if (proc == null && !launching) {
+        if (proc == null && !launching && !recovering) {
             launching = true;
+            gpuRestarts = 0;
             running = true; // "starting" until the engine answers, as before
             new Thread(new Runnable() {
                 public void run() {
@@ -311,11 +343,47 @@ public class EngineService extends Service {
         return vk;
     }
 
+    /**
+     * The engine's environment, for both ways of running it. After a GPU driver crash (level 1 and up) the driver
+     * runs more carefully: one GPU job at a time and small ones, then without fused shaders. Slower, never the CPU.
+     */
+    static java.util.LinkedHashMap<String, String> engineEnv(Context c, File vk, boolean gentle, int level) {
+        java.util.LinkedHashMap<String, String> env = new java.util.LinkedHashMap<String, String>();
+        String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
+        env.put("VK_DRIVER_FILES", icd);   // read by our loader, libkvulkan.so, which the engine library links to by that name
+        env.put("VK_ICD_FILENAMES", icd);
+        env.put("HOME", c.getFilesDir().getAbsolutePath());
+        env.put("TMPDIR", c.getCacheDir().getAbsolutePath());
+        if (gentle) {
+            // smaller GPU jobs, so the screen gets the GPU between them
+            env.put("GGML_VK_MAX_NODES_PER_SUBMIT", "8");
+            // read by our engine and driver patches (engine/); older builds ignore them
+            env.put("YUE_THREADS", "2");
+            env.put("YUE_AR_PAUSE_MS", "15");
+            env.put("YUE_NAR_PAUSE_MS", "1500");
+            env.put("TU_KGSL_PRIORITY", "15");
+        }
+        if (level >= 1) {
+            env.put("GGML_VK_SERIALIZE_SUBMISSIONS", "1");
+            env.put("GGML_VK_MAX_NODES_PER_SUBMIT", "8");
+            env.put("TU_KGSL_PRIORITY", "15");
+        }
+        if (level >= 2) {
+            env.put("GGML_VK_MAX_NODES_PER_SUBMIT", "4");
+            env.put("GGML_VK_DISABLE_FUSION", "1");
+            env.put("GGML_VK_DISABLE_GRAPH_OPTIMIZE", "1");
+        }
+        return env;
+    }
+
     private void launch() {
         try {
-            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "killayue:engine");
-            wake.acquire();
+            if (wake == null) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "killayue:engine");
+            }
+            if (!wake.isHeld()) wake.acquire();
+            fault = "";
             List<String> args = buildArgs(this);
             boolean gentle = gentle(this);
             // Gentle mode, CPU side: the engine runs at a lower priority than everything on screen.
@@ -334,23 +402,11 @@ public class EngineService extends Service {
             pb.redirectErrorStream(true);
             pb.directory(getFilesDir());
             pb.environment().put("LD_LIBRARY_PATH", vk.getAbsolutePath() + ":" + lib);
-            String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
-            pb.environment().put("VK_DRIVER_FILES", icd);
-            pb.environment().put("VK_ICD_FILENAMES", icd);
-            pb.environment().put("HOME", getFilesDir().getAbsolutePath());
-            pb.environment().put("TMPDIR", getCacheDir().getAbsolutePath());
-            if (gentle) {
-                // smaller GPU jobs, so the screen gets the GPU between them
-                pb.environment().put("GGML_VK_MAX_NODES_PER_SUBMIT", "8");
-                // read by our engine and driver patches (engine/); older builds ignore them
-                pb.environment().put("YUE_THREADS", "2");
-                pb.environment().put("YUE_AR_PAUSE_MS", "15");
-                pb.environment().put("YUE_NAR_PAUSE_MS", "1500");
-                pb.environment().put("TU_KGSL_PRIORITY", "15");
-            }
+            pb.environment().putAll(engineEnv(this, vk, gentle, gpuRestarts));
             lastError = "";
             openLogFile(this);
             addLog("[App] Starting engine: " + args.toString());
+            if (gpuRestarts > 0) addLog("[App] Careful GPU mode " + gpuRestarts + ": " + engineEnv(this, vk, gentle, gpuRestarts));
             final Process p = pb.start();
             if (destroyed) {
                 // the service was stopped while the engine was being started
@@ -402,17 +458,51 @@ public class EngineService extends Service {
         if ((code == 137 || code == 9) && lastError.length() == 0) {
             lastError = Background.killedMessage(EngineService.this); // SIGKILL: Android stopped it
         }
-        SharedPreferences sp = getSharedPreferences("cfg", 0);
-        if ((code == 134 || code == 139) && !sawProgress && "Vulkan0".equals(sp.getString("device", "Vulkan0"))) {
-            // the GPU driver crashed before any work was done: this phone's GPU is not one it can drive
-            sp.edit().putString("device", "CPU").apply();
-            lastError = "The GPU driver crashed on this phone before the song started, so Killa YuE has switched to the processor. "
-                    + "That is much slower. The Engine tab's \"Device report\" helps add support for this phone.";
+        // The device setting is never changed here: only the person using the phone picks the processor.
+        boolean onGpu = "Vulkan0".equals(getSharedPreferences("cfg", 0).getString("device", "Vulkan0"));
+        if (code != 0 && "gpu".equals(fault) && onGpu && !destroyed) {
+            if (gpuRestarts < GPU_RESTARTS_MAX) {
+                restartOnGpu();
+                return;
+            }
+            lastError = "The GPU driver crashed " + (gpuRestarts + 1) + " times in a row, and restarting it more carefully did not help. "
+                    + "Nothing was switched: songs are still made on the GPU. The Engine tab's \"Device report\" helps fix this phone. "
+                    + "To make songs anyway, you can choose the processor (CPU) under Engine > Device; it is much slower.";
+        } else if (code != 0 && "memory".equals(fault)) {
+            lastError = "The engine ran out of memory. Close other apps, or pick a shorter Max length on the Engine tab, and try again.";
         }
         if (code != 0 && lastError.length() == 0) lastError = "Engine stopped (exit code " + code + ")";
+        recovering = false;
         running = false;
         setStage("", 0, 0);
         stopSelf();
+    }
+
+    /** Starts the engine again on the GPU after a driver crash, more carefully each time; a waiting job sends its work again. */
+    private void restartOnGpu() {
+        gpuRestarts++;
+        recovering = true;
+        lastError = "";
+        final long pause = gpuRestarts == 1 ? 3000 : 10000; // time for the driver to reset the GPU context
+        addLog("[App] The GPU driver crashed: restarting the engine on the GPU, more carefully (" + gpuRestarts + " of "
+                + GPU_RESTARTS_MAX + "). The crash log is kept as engine-previous.log.");
+        setStage("Restarting the GPU driver", 0, 0);
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    Thread.sleep(pause);
+                } catch (InterruptedException e) {
+                    // start now
+                }
+                if (destroyed) {
+                    recovering = false;
+                    running = false;
+                    return;
+                }
+                launch();
+                recovering = false;
+            }
+        }, "engine-recover").start();
     }
 
     // ---------------- the engine in its own app process (EngineHost, JNI) ----------------
@@ -430,22 +520,13 @@ public class EngineService extends Service {
         final File logf = new File(getFilesDir(), "engine-run.log");
         logf.delete();
         ArrayList<String> env = new ArrayList<String>();
-        String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
-        env.add("VK_DRIVER_FILES=" + icd);   // read by our loader, libkvulkan.so, which the engine library links to by that name
-        env.add("VK_ICD_FILENAMES=" + icd);
-        env.add("HOME=" + getFilesDir().getAbsolutePath());
-        env.add("TMPDIR=" + getCacheDir().getAbsolutePath());
-        if (gentle) {
-            env.add("GGML_VK_MAX_NODES_PER_SUBMIT=8");
-            env.add("YUE_THREADS=2");
-            env.add("YUE_AR_PAUSE_MS=15");
-            env.add("YUE_NAR_PAUSE_MS=1500");
-            env.add("TU_KGSL_PRIORITY=15");
-        }
+        for (java.util.Map.Entry<String, String> e : engineEnv(this, vk, gentle, gpuRestarts).entrySet())
+            env.add(e.getKey() + "=" + e.getValue());
         args.set(0, "yue-server");
         lastError = "";
         openLogFile(this);
         addLog("[App] Starting engine in its own process: " + args.toString());
+        if (gpuRestarts > 0) addLog("[App] Careful GPU mode " + gpuRestarts + ": " + env);
         final long since = System.currentTimeMillis();
         Intent in = new Intent(this, EngineHost.class)
                 .putExtra("args", args.toArray(new String[0]))
