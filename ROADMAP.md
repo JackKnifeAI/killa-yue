@@ -45,6 +45,10 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Killa Gold** now wears its leather across the whole screen.
 - **Fixes**: karaoke keeps its place through rests.
 
+## 1.4.1 (released): GPU driver recovery
+
+A fix release. The engine sorts a crash by its log (GPU driver fault or out of memory) instead of by its exit code; a driver fault restarts the engine on the GPU, up to twice, more carefully each time, and the job carries on from its checkpoint. Nothing switches to the processor by itself any more; phones an earlier version moved there are asked once whether to go back to the GPU.
+
 ## 1.4.0 (released): the Studio
 
 Shipped further than planned: Remix (stems, mixer, export), and also Play Along recording, clip editing with stretch and pitch, and the Chamber pads with pad recording and bounce to a track. The plan as it was written:
