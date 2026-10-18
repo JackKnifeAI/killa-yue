@@ -73,10 +73,11 @@ These are conservative project limits, not manufacturer temperature specificatio
 A driver/kernel hang can outlive a process timeout or reset the device; no app sandbox
 can guarantee containment of a defective kernel GPU driver. Instructions say this clearly.
 
-Reports contain model/manufacturer, Android API and firmware build ID, CPU/GPU capabilities,
+Reports contain model/manufacturer, Android API and firmware build/incremental/security-patch revision, CPU/GPU capabilities,
 APK/native binary hashes and synthetic test outcomes. The device configuration digest groups
-the same model/firmware/GPU/selected backend; it is not a unique phone ID. Driver versions are
-recorded separately so a new bundled driver can be retested on the same hardware cohort.
+the same model/firmware/GPU/selected backend; it is not a unique phone ID. Stock-driver versions
+also participate in the match, so an OTA/driver update cannot silently count as an app fix.
+Bundled-driver versions are recorded separately so a new Turnip candidate can be retested on the same hardware cohort.
 No serial, Android ID, account, installed-app inventory, IP address, song, lyric, screenshot
 or general engine log is collected by the diagnostic code. Reports stay in private app
 storage unless the person explicitly exports them. Public GitHub reports are tied to the

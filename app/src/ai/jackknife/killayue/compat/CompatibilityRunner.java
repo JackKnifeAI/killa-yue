@@ -66,7 +66,8 @@ final class CompatibilityRunner {
         report.put("app_version", context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName);
         report.put("package", context.getPackageName());
         report.put("manufacturer", Build.MANUFACTURER).put("model", Build.MODEL);
-        report.put("android_api", Build.VERSION.SDK_INT).put("firmware", Build.ID);
+        String firmware = Build.ID + "/" + Build.VERSION.INCREMENTAL + "/" + Build.VERSION.SECURITY_PATCH;
+        report.put("android_api", Build.VERSION.SDK_INT).put("firmware", firmware);
         report.put("apk_sha256", digest(new File(context.getApplicationInfo().sourceDir)));
         report.put("request_id", plan.requestId).put("issue", plan.issue);
         report.put("scope", "portable-ggml-small-matrix; not full song generation or legacy bundled engine certification");
@@ -96,11 +97,12 @@ final class CompatibilityRunner {
             if (caps.has(key)) capabilities.put(key, caps.get(key));
         report.put("capabilities", capabilities);
         JSONArray devices = caps.optJSONArray("devices");
-        String identity = Build.MANUFACTURER + "\n" + Build.MODEL + "\n" + Build.VERSION.SDK_INT + "\n" + Build.ID + "\n" + plan.driver;
+        String identity = Build.MANUFACTURER + "\n" + Build.MODEL + "\n" + Build.VERSION.SDK_INT + "\n" + firmware + "\n" + plan.driver;
         if (devices != null) for (int i = 0; i < devices.length(); i++) {
             JSONObject d = devices.getJSONObject(i);
             // Hardware cohort, not a unique phone identifier. A candidate Turnip version may change.
             identity += "\n" + d.getLong("vendor_id") + ":" + d.getLong("device_id");
+            if (!"turnip".equals(plan.driver)) identity += ":" + d.getLong("driver_version");
         }
         String deviceKey = hex(MessageDigest.getInstance("SHA-256").digest(identity.getBytes("UTF-8")));
         report.put("device_key", deviceKey);

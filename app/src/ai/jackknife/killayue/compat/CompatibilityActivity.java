@@ -137,7 +137,8 @@ public final class CompatibilityActivity extends Activity {
         final String body = "Compatibility report generated locally; shared by the tester.\n\n```json\n" + report.toString() + "\n```\n\nWhat I want to do / what failed:\n";
         final String title = "[Compatibility] " + report.optString("manufacturer") + " " + report.optString("model")
             + " — " + report.optString("driver") + " — " + report.optString("status");
-        final Uri url = Uri.parse(REPO + "/issues/new").buildUpon().appendQueryParameter("template", "compatibility-request.md")
+        // Explicit title/body also work while the new issue template is still in a draft PR.
+        final Uri url = Uri.parse(REPO + "/issues/new").buildUpon()
             .appendQueryParameter("title", title).appendQueryParameter("body", body).build();
         final boolean fits = url.toString().length() <= 7500;
         new AlertDialog.Builder(this).setTitle("Share this report publicly?")
@@ -146,7 +147,8 @@ public final class CompatibilityActivity extends Activity {
             .setPositiveButton(fits ? "Open filled-in report" : "Copy and open GitHub", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int which) {
                     if (!fits) ((ClipboardManager) getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("Compatibility report", body));
-                    try { startActivity(new Intent(Intent.ACTION_VIEW, fits ? url : Uri.parse(REPO + "/issues/new?template=compatibility-request.md"))); }
+                    Uri destination = fits ? url : Uri.parse(REPO + "/issues/new").buildUpon().appendQueryParameter("title", title).build();
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, destination)); }
                     catch (Exception e) { message("No browser is available. Save the JSON report and submit it from another device."); }
                 }
             }).setNegativeButton("Keep private", null).show();
