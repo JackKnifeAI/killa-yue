@@ -45,6 +45,17 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Killa Gold** now wears its leather across the whole screen.
 - **Fixes**: karaoke keeps its place through rests.
 
+## 1.5.0: Studio expansion
+
+- **Mixer and effects**: groups, sends, editable effect chains, EQ, compressor, limiter, delay, reverb, saturation and filter.
+- **Automation**: editable curves for levels, pan, sends and effect parameters, with undo and saved projects.
+- **Mastering**: Dynamic, Balanced and Loud presets, measured loudness and sample peaks, and Before/Mastered comparison.
+- **Instruments**: piano-roll editing, a two-row keyboard, and original Killa Pluck and Killa Tines sounds streamed from storage.
+- **The Chamber**: four pattern banks, song order, note repeat, sixteen velocity levels, mute/solo, and one Undo step for a pad-recording pass.
+- **Killa Gold pads**: gold frames, dark rubber faces and amber pressed artwork.
+- **Unfinished songs**: listen to a checkpoint without changing it, save the preview separately, and resume the original; preview progress reports elapsed time.
+- **Updates**: check GitHub for a new version, review its notes, download and verify the APK, and confirm installation through Android.
+
 ## 1.4.1 (released): GPU driver recovery
 
 A fix release. The engine sorts a crash by its log (GPU driver fault or out of memory) instead of by its exit code; a driver fault restarts the engine on the GPU, up to twice, more carefully each time, and the job carries on from its checkpoint. Nothing switches to the processor by itself any more; phones an earlier version moved there are asked once whether to go back to the GPU.
@@ -65,9 +76,9 @@ Open any song in the new Studio tab, split it into stems, then mute, solo, level
 - **Your own voice**: train a voice adapter from your recordings.
 - **Faster rendering**: half-precision rendering and more.
 
-## Studio tab (planned)
+## Studio tab: delivered and remaining
 
-Everything an artist does after the song is made, in the same app, offline and free. It is rebuilt for Killa YuE from our earlier Killa Studio work.
+The Studio now includes stems, arrangement, Play Along recording, sampler pads, mixer effects, automation, mastering and piano-roll instruments. The original scope below remains a reference. Sampled acoustic instrument packs, MIDI recording and MIDI-file import/export, portable project export, and AI voices and beats remain future work. Killa Pluck and Killa Tines are original designed sounds, not acoustic recordings.
 
 - **Stems**: split any song into vocals, drums, bass and the rest with a separation model on the phone's GPU. Every stem becomes an ordinary track you can edit.
 - **Arrange**: audio and instrument tracks; move, trim, split, duplicate and loop clips; crossfades, markers, snap to the beat, and undo.

@@ -77,6 +77,11 @@ public abstract class Edit {
         return new Setting("master", null, Float.valueOf(finiteLevel(db)));
     }
 
+    public static Edit addInstrument(String name, int instrument) {
+        if (instrument < 0 || instrument > 1) throw new IllegalArgumentException("Unknown instrument.");
+        AddTrack edit = new AddTrack(name, "", 0); edit.role = "instrument:" + instrument; return edit;
+    }
+
     /** Removes a track; undo puts the same track back in its place. */
     public static Edit removeTrack(String trackId) {
         return new RemoveTrack(trackId);
@@ -215,6 +220,8 @@ public abstract class Edit {
     static final class RemoveTrack extends Edit {
         final String track;
         Track removed;
+        Mixer.Strip removedMixer;
+        Automation removedAutomation = new Automation();
         int index;
 
         RemoveTrack(String track) {
@@ -225,11 +232,16 @@ public abstract class Edit {
             Track t = need(p, track);
             index = p.tracks.indexOf(t);
             removed = t;
+            removedMixer = p.mixer.strips.remove(track);
+            removedAutomation = Automation.read(p.mixer.automation.json());
+            p.mixer.automation.removeStrip(track);
             p.tracks.remove(index);
         }
 
         void revert(Project p) {
             p.tracks.add(index, removed);
+            if (removedMixer != null) p.mixer.strips.put(track, removedMixer);
+            p.mixer.automation = Automation.read(removedAutomation.json());
         }
 
         public String label() {
@@ -239,6 +251,8 @@ public abstract class Edit {
         LinkedHashMap<String, Object> toJson() {
             LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
             j.put("kind", "removeTrack");
+            if (removedMixer != null) j.put("removedMixer", Mixer.stripJson(removedMixer));
+            j.put("removedAutomation", removedAutomation.json());
             j.put("track", track);
             j.put("index", Integer.valueOf(index));
             if (removed != null)
@@ -263,7 +277,8 @@ public abstract class Edit {
             if (added == null) {
                 added = p.addTrack(name);
                 added.role = role;
-                p.addClip(added, file, 0, 0, length);
+                if (!file.isEmpty()) p.addClip(added, file, 0, 0, length);
+                else if (role != null && role.startsWith("instrument:")) added.notes.instrument = Integer.parseInt(role.substring(11));
             } else {
                 p.tracks.add(added);
             }
@@ -385,7 +400,8 @@ public abstract class Edit {
     }
 
     static final class Snapshot extends Edit {
-        final String title, before, after;
+        final String title, before;
+        String after;
         Snapshot(String title, String before, String after) {
             this.title = title;
             this.before = before;
@@ -404,6 +420,8 @@ public abstract class Edit {
             p.loopEnd = n.loopEnd;
             p.loopOn = n.loopOn;
             p.performance = n.performance;
+            n.mixer.nextId = Math.max(p.mixer.nextId, n.mixer.nextId);
+            p.mixer = n.mixer;
             p.tracks.clear();
             p.tracks.addAll(n.tracks);
         }
@@ -412,6 +430,14 @@ public abstract class Edit {
         }
         void revert(Project p) {
             restore(p, before);
+        }
+        boolean merge(Edit next, Project p) {
+            if (!(next instanceof Snapshot)) return false;
+            Snapshot n = (Snapshot) next;
+            if (!title.equals(n.title) || !after.equals(n.before)) return false;
+            n.apply(p);
+            after = n.after;
+            return true;
         }
         public String label() {
             return title;
@@ -432,6 +458,8 @@ public abstract class Edit {
             throw new IllegalArgumentException("The history is damaged: an edit is not an object.");
         Map<?, ?> j = (Map<?, ?>) o;
         Object k = j.get("kind");
+        if ("notes".equals(k)) return NotesEdit.read(j);
+        if ("mixer".equals(k)) return MixerEdit.read(j);
         if ("snapshot".equals(k))
             return new Snapshot((String) j.get("label"), (String) j.get("before"), (String) j.get("after"));
         if ("loop".equals(k)) {
@@ -456,6 +484,8 @@ public abstract class Edit {
         if ("removeTrack".equals(k)) {
             RemoveTrack r = new RemoveTrack((String) j.get("track"));
             r.index = ((Number) j.get("index")).intValue();
+            if (j.get("removedAutomation") != null) r.removedAutomation = Automation.read(j.get("removedAutomation"));
+            if (j.get("removedMixer") != null) r.removedMixer = Mixer.readStrip(j.get("removedMixer"));
             if (j.get("removed") != null)
                 r.removed = Project.trackFromJson(j.get("removed"));
             return r;

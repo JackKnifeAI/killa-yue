@@ -12,6 +12,12 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
     final ScrollView page;
     final Button[] pads = new Button[16];
     int selected;
+    Button repeatBtn, levelsBtn, songBtn, muteBtn, soloBtn;
+    final Button[] banks = new Button[4];
+    final boolean[] touchHeld = new boolean[16];
+    final boolean[][] midiHeld = new boolean[16][16];
+    final double[] hitBuffer = new double[1+4*256];
+    MidiDevices midi;
     SamplerScreen(final StudioActivity a) {
         this.a = a;
         root = Ui.column(a);
@@ -30,6 +36,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
             for (int col = 0; col < 4; col++) {
                 final int k = row * 4 + col;
                 final Button b = Ui.button(a, "" + (k + 1), false);
+                GoldPadArt.apply(b);
                 pads[k] = b;
                 b.setMinHeight(Ui.dp(a, 48));
                 b.setContentDescription("Pad " + (k + 1));
@@ -41,14 +48,15 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                         if (a.session.engine() == null)
                             return false;
                         if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                            selected = k;
+                            if(p()!=null&&!p().performance.chamber.levels) selected = k;
+                            touchHeld[k]=true;
                             float vel = Math.max(.2f, Math.min(1, e.getPressure()));
                             a.session.engine().pad(k, vel, true);
-                            if (recording) recordHit(k, vel);
                             pattern();
                         }
-                        if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL)
-                            a.session.engine().pad(k, 0, false);
+                        if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                            touchHeld[k]=false;releasePad(k);
+                        }
                         return false;
                     }
                 });
@@ -56,7 +64,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                     public boolean onLongClick(View v) {
                         if (p() == null)
                             return true;
-                        selected = k;
+                        selected = p().performance.chamber.levels?p().performance.chamber.levelPad:k;
                         shape();
                         return true;
                     }
@@ -92,7 +100,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         add(perform, "Clear pad", new Runnable() {
             public void run() {
                 Project q = p().copy();
-                java.util.Arrays.fill(q.performance.steps[selected], 0f);
+                java.util.Arrays.fill(q.performance.chamber.rows()[selected], 0f);
                 save(q, "Clear pad " + (selected + 1));
             }
         });
@@ -126,6 +134,19 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                 });
             }
         });
+        LinearLayout bankRow=Ui.row(a);root.addView(bankRow);
+        for(int bank=0;bank<4;bank++){final int index=bank;banks[bank]=add(bankRow,""+(char)('A'+bank),new Runnable(){public void run(){collectHits(recording);Project q=p().copy();q.performance.chamber.active=index;save(q,"Select pattern "+(char)('A'+index));}});}
+        LinearLayout songRow=Ui.row(a);root.addView(songRow);
+        songBtn=add(songRow,"Song: off",new Runnable(){public void run(){collectHits(recording);Project q=p().copy();q.performance.chamber.song=!q.performance.chamber.song;save(q,"Song mode");}});
+        add(songRow,"Song order",new Runnable(){public void run(){songOrder();}});
+        add(songRow,"MIDI",new Runnable(){public void run(){openMidi();}});
+        LinearLayout liveRow=Ui.row(a);root.addView(liveRow);
+        repeatBtn=add(liveRow,"Repeat: off",new Runnable(){public void run(){Project q=p().copy();q.performance.chamber.repeat=(q.performance.chamber.repeat+1)%4;save(q,"Note repeat");}});
+        levelsBtn=add(liveRow,"16 levels: off",new Runnable(){public void run(){allPadsOff();Project q=p().copy();q.performance.chamber.levels=!q.performance.chamber.levels;q.performance.chamber.levelPad=selected;save(q,"16 velocity levels");}});
+        LinearLayout mixRow=Ui.row(a);root.addView(mixRow);
+        muteBtn=add(mixRow,"Mute pad",new Runnable(){public void run(){Project q=p().copy();q.performance.chamber.mute[selected]=!q.performance.chamber.mute[selected];save(q,"Mute pad "+(selected+1));}});
+        soloBtn=add(mixRow,"Solo pad",new Runnable(){public void run(){Project q=p().copy();q.performance.chamber.solo[selected]=!q.performance.chamber.solo[selected];save(q,"Solo pad "+(selected+1));}});
+        add(mixRow,"All pads off",new Runnable(){public void run(){allPadsOff();}});
         steps = Ui.column(a);
         root.addView(steps, new LinearLayout.LayoutParams(-1, -2));
         a.session.listen(this);
@@ -338,6 +359,26 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                       })
             .show();
     }
+    void releasePad(int pad) {
+        if(touchHeld[pad])return;for(int channel=0;channel<16;channel++)if(midiHeld[channel][pad])return;
+        if(a.session.engine()!=null&&!a.session.engine().pad(pad,0,false))a.session.engine().padsOff();
+    }
+    void allPadsOff(){Arrays.fill(touchHeld,false);for(boolean[] channel:midiHeld)Arrays.fill(channel,false);if(a.session.engine()!=null)a.session.engine().padsOff();}
+    void openMidi(){if(midi==null)midi=new MidiDevices(a,new MidiDevices.Target(){
+        public void note(int channel,int key,int velocity,boolean on){int pad=key-36;if(pad<0||pad>=16||a.session.engine()==null)return;midiHeld[channel][pad]=on;if(on){a.session.engine().pad(pad,velocity/127f,true);GoldPadArt.flash(pads[pad]);}else releasePad(pad);}
+        public void control(int channel,int controller,int value){if(controller==120||controller==123)allPadsOff();}
+        public void allOff(){allPadsOff();}
+    });midi.show();}
+    void songOrder(){
+        final EditText text=new EditText(a);StringBuilder order=new StringBuilder();for(int bank:p().performance.chamber.chain){if(order.length()>0)order.append(' ');order.append((char)('A'+bank));}text.setText(order.toString());text.setHint("A A B A C D");text.setSingleLine(false);
+        final android.app.AlertDialog dialog=new Lux.Builder(a).setTitle("Song order · up to 128 patterns").setView(text).setPositiveButton("Apply",null).setNegativeButton("Cancel",null).create();dialog.show();
+        dialog.getButton(-1).setOnClickListener(new View.OnClickListener(){public void onClick(View v){try{
+            collectHits(recording);Project q=p().copy();Chamber chamber=q.performance.chamber;chamber.chain.clear();
+            for(String item:text.getText().toString().trim().toUpperCase(java.util.Locale.ROOT).split("[ ,]+")){if(item.length()!=1||item.charAt(0)<'A'||item.charAt(0)>'D')throw new IllegalArgumentException("Use pattern letters A, B, C and D, separated by spaces.");chamber.chain.add(item.charAt(0)-'A');}
+            chamber.song=true;chamber.validate();save(q,"Edit pad song order");dialog.dismiss();
+        }catch(IllegalArgumentException ex){Ui.toast(a,ex.getMessage());}}});
+    }
+
     // ---------- performing: record hits onto the grid, then bounce the pads to their own track ----------
 
     boolean recording;
@@ -346,6 +387,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
 
     void setRecording(boolean on) {
         if (p() == null) return;
+        collectHits(recording);
         recording = on;
         recordBtn.setText(on ? "■ Stop recording" : "● Record pads");
         recordBtn.setTextColor(on ? 0xffe0607e : Skin.TEXT);
@@ -364,37 +406,38 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         Ui.toast(a, "Recording: play the pads; each hit lands on the nearest step.");
     }
 
-    /** A live hit onto the nearest step of the pattern, swing and tempo changes included; soft or hard by touch. */
-    void recordHit(int pad, float vel) {
-        NativeEngine.Status st = a.session.status();
-        Project cur = p();
-        if (st == null || !st.playing || cur == null) return;
-        int len = cur.performance.patternLength;
-        double sixteenth = new TempoMap(cur.rate, cur.performance).beatAt(st.position) * 4;
-        long base = (long) Math.floor(sixteenth);
-        double swing = cur.performance.swing, best = Double.MAX_VALUE;
-        long at = base;
-        for (long s = base - 1; s <= base + 1; s++) {  // the swung grid: odd steps sit late
-            double d = Math.abs(sixteenth - (s + ((s & 1) != 0 ? swing : 0)));
-            if (d < best) {
-                best = d;
-                at = s;
+    /** Native timestamps include note repeats and 16-level velocities. One recording pass is one undo. */
+    void collectHits(boolean record) {
+        NativeEngine engine=a.session.engine();Project cur=p();if(engine==null||cur==null)return;
+        Project changed=null;boolean missed=false;
+        for(int batch=0;batch<8;batch++){
+            int count=engine.padHits(hitBuffer);missed|=hitBuffer[0]>0;
+            for(int i=0;i<count&&record;i++){
+                long frame=(long)hitBuffer[1+4*i];int pad=(int)hitBuffer[2+4*i],bank=(int)hitBuffer[4+4*i];float velocity=(float)hitBuffer[3+4*i];
+                if(frame<0||pad<0||pad>=16||bank<0||bank>3)continue;
+                double sixteenth=new TempoMap(cur.rate,cur.performance).beatAt(frame)*4;long base=(long)Math.floor(sixteenth),at=base;double best=Double.MAX_VALUE;
+                for(long step=base-1;step<=base+1;step++){double delta=Math.abs(sixteenth-(step+((step&1)!=0?cur.performance.swing:0)));if(delta<best){best=delta;at=step;}}
+                int step=(int)Math.floorMod(at,cur.performance.patternLength);
+                float old=(changed==null?cur:changed).performance.chamber.patterns[bank][pad][step];
+                if(velocity>old){if(changed==null)changed=cur.copy();changed.performance.chamber.patterns[bank][pad][step]=velocity;}
             }
+            if(count<256)break;
         }
-        int step = (int) (((at % len) + len) % len);
-        Project q = cur.copy();
-        float v = vel >= .75f ? 1f : .5f;
-        q.performance.steps[pad][step] = Math.max(q.performance.steps[pad][step], v);
-        if (q.performance.steps[pad][step] == cur.performance.steps[pad][step]) return;
-        a.session.drag(ClipEdits.change(cur, q, "Record pads"), pass);
+        if(changed!=null)a.session.drag(ClipEdits.change(cur,changed,"Record pads"),pass);
+        if(record&&missed){recording=false;pass=null;recordBtn.setText("● Record pads");recordBtn.setTextColor(Skin.TEXT);Ui.toast(a,"Pad recording stopped: some hits arrived faster than they could be saved.");}
     }
 
     /** The pads, rendered alone into a new track, and the pattern switched off so it is not heard twice: one undo. */
     void bounce() {
-        final Project snap = p();
+        if(recording)setRecording(false);
+        final Project snap = p()==null?null:p().copy();
         if (snap == null) return;
         boolean any = false;
-        for (float[] row : snap.performance.steps) for (float x : row) any |= x > 0;
+        Chamber chamber=snap.performance.chamber;
+        for(int cycle=0;cycle<(chamber.song?chamber.chain.size():1);cycle++){
+            int bank=chamber.song?chamber.chain.get(cycle):chamber.active;
+            for(int pad=0;pad<16;pad++)if(chamber.audible(pad))for(float x:chamber.patterns[bank][pad])any|=x>0;
+        }
         if (!any) {
             Ui.toast(a, "There is nothing in the pattern yet: record some pads, or tap the steps.");
             return;
@@ -403,16 +446,16 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         final java.io.File dir = a.session.dir();
         final Project pads = snap.copy();
         pads.tracks.clear();
+        pads.mixer = pads.mixer.stem(null);
         pads.masterDb = 0;
         pads.performance.pattern = true;
-        long songEnd = ExportJob.length(snap);
-        final long frames = Math.max(songEnd, ExportJob.length(pads));
         final String rel = "audio/pads-" + System.currentTimeMillis() + ".wav";
         final java.util.concurrent.atomic.AtomicBoolean cancel = new java.util.concurrent.atomic.AtomicBoolean();
         Ui.toast(a, "Bouncing the pads…");
         new Thread(new Runnable() {
             public void run() {
                 try {
+                    final long frames=Math.max(ExportJob.length(snap,dir),ExportJob.length(pads,dir));
                     ExportJob.render(pads, dir, new java.io.File(dir, rel), frames, false, "Pads", new ExportJob.Progress() {
                         public void at(String what, float f) {}
                     }, cancel);
@@ -475,6 +518,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
     void highlight() {
         for (int i = 0; i < 16; i++) {
             boolean on = i == selected;
+            pads[i].setAlpha(p()!=null&&!p().performance.chamber.audible(i)?.4f:1f);
             pads[i].setTextColor(on ? Skin.HI : Skin.TEXT);
             pads[i].setShadowLayer(on ? Ui.dp(a, 8) : 0, 0, 0, on ? (0xEE << 24) | Skin.GLOW : 0);
             if (on) {  // a lit ring in the skin's accent, clear on every skin
@@ -493,7 +537,12 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         steps.removeAllViews();
         if (p() == null)
             return;
-        steps.addView(Ui.text(a, "Pad " + (selected + 1) + " · steps: off / soft / hard" + (p().performance.pattern ? " · PLAYING" : ""),
+        Chamber chamber=p().performance.chamber;
+        repeatBtn.setText(new String[]{"Repeat: off","Repeat: 1/4","Repeat: 1/8","Repeat: 1/16"}[chamber.repeat]);
+        levelsBtn.setText(chamber.levels?"16 levels: pad "+(chamber.levelPad+1):"16 levels: off");
+        songBtn.setText(chamber.song?"Song: on":"Song: off");muteBtn.setText(chamber.mute[selected]?"Unmute pad":"Mute pad");soloBtn.setText(chamber.solo[selected]?"Unsolo pad":"Solo pad");
+        for(int bank=0;bank<4;bank++)banks[bank].setTextColor(chamber.active==bank?Skin.HI:Skin.TEXT);
+        steps.addView(Ui.text(a, "Pattern "+(char)('A'+chamber.active)+" · Pad " + (selected + 1) + " · steps: off / soft / hard" + (p().performance.pattern ? " · PLAYING" : ""),
                               Skin.HI, 12));
         // eight steps a row, each an equal share of the width, so 16 and 32 both fit the screen
         int rows = p().performance.patternLength / 8;
@@ -502,7 +551,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
             steps.addView(line, new LinearLayout.LayoutParams(-1, -2));
             for (int col = 0; col < 8; col++) {
                 final int step = row * 8 + col;
-                float v = p().performance.steps[selected][step];
+                float v = p().performance.chamber.rows()[selected][step];
                 Button b = Ui.button(a, "" + (step + 1), v > 0);
                 b.setAlpha(v == 0 ? .45f : v < 1 ? .7f : 1);
                 b.setSingleLine(true);
@@ -516,8 +565,8 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
                 b.setOnClickListener(new View.OnClickListener() {
                     public void onClick(View v) {
                         Project q = p().copy();
-                        float old = q.performance.steps[selected][step];
-                        q.performance.steps[selected][step] = old == 0 ? .5f : old < 1 ? 1 : 0;
+                        float old = q.performance.chamber.rows()[selected][step];
+                        q.performance.chamber.rows()[selected][step] = old == 0 ? .5f : old < 1 ? 1 : 0;
                         save(q, "Step velocity");
                     }
                 });
@@ -530,7 +579,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
         for (int i = 0; i < 16; i++) {
             Performance.Pad d = p().performance.pads[i];
             String label = d.name.isEmpty() ? new String[] {"Kick", "Snare", "Hat", "Tom"}[i % 4] : d.name;
-            pads[i].setText((i + 1) + "\n" + label);
+            pads[i].setText((i + 1) + (p().performance.chamber.mute[i]?" M":"") + (p().performance.chamber.solo[i]?" S":"") + "\n" + label);
         }
         pattern();
     }
@@ -538,9 +587,7 @@ final class SamplerScreen implements Screen, StudioSession.Listener {
     public View view() { return page; }
     public void shown() { projectChanged(); }
     public void hidden() {
-        if (a.session.engine() != null)
-            for (int i = 0; i < 16; i++)
-                a.session.engine().pad(i, 0, false);
+        if(recording)setRecording(false);allPadsOff();if(midi!=null){midi.close();midi=null;}
     }
-    public void frame(NativeEngine.Status s) {}
+    public void frame(NativeEngine.Status s) {collectHits(recording);}
 }

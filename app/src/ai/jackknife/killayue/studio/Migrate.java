@@ -40,6 +40,31 @@ final class Migrate {
         }
         if (version < 3)
             m.put("performance", new Performance().json());
+        if (version < 4) m.put("mixer", new Mixer().json());
+        if (version < 6 && m.get("mixer") instanceof Map) {
+            LinkedHashMap<String,Object> mixer = new LinkedHashMap<String,Object>();
+            for (Map.Entry<?,?> entry : ((Map<?,?>)m.get("mixer")).entrySet()) mixer.put(String.valueOf(entry.getKey()),entry.getValue());
+            mixer.put("automation",new Automation().json()); m.put("mixer",mixer);
+        }
+        if (version < 7 && m.get("mixer") instanceof Map) {
+            LinkedHashMap<String,Object> mixer = new LinkedHashMap<String,Object>();
+            for (Map.Entry<?,?> entry : ((Map<?,?>)m.get("mixer")).entrySet()) mixer.put(String.valueOf(entry.getKey()),entry.getValue());
+            mixer.put("mastering",new Mastering().json()); m.put("mixer",mixer);
+        }
+        if (version < 8 && m.get("tracks") instanceof List) {
+            ArrayList<Object> tracks = new ArrayList<Object>();
+            for (Object item : (List<?>)m.get("tracks")) {
+                LinkedHashMap<String,Object> track = new LinkedHashMap<String,Object>();
+                for (Map.Entry<?,?> e : ((Map<?,?>)item).entrySet()) track.put(String.valueOf(e.getKey()),e.getValue());
+                track.put("notes",new MidiNotes().json()); tracks.add(track);
+            }
+            m.put("tracks",tracks);
+        }
+        if(version<9 && m.get("performance") instanceof Map){
+            LinkedHashMap<String,Object> performance=new LinkedHashMap<String,Object>();
+            for(Map.Entry<?,?> entry:((Map<?,?>)m.get("performance")).entrySet())performance.put(String.valueOf(entry.getKey()),entry.getValue());
+            performance.put("chamber",new Chamber(new float[16][32]).json());m.put("performance",performance);
+        }
         m.put("version", Integer.valueOf(Project.VERSION));
         return m;
     }

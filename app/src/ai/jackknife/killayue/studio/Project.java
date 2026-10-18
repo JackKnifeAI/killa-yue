@@ -12,7 +12,7 @@ import java.util.Map;
  * Plain Java with no Android in it; saved as JSON by ProjectStore.
  */
 public final class Project {
-    public static final int VERSION = 3;
+    public static final int VERSION = 9;
 
     public int version = VERSION;
     public String name;
@@ -24,6 +24,7 @@ public final class Project {
     public long loopStart, loopEnd;         // the loop region in frames; loopOn plays it round
     public boolean loopOn;
     public Performance performance = new Performance();
+    public Mixer mixer = new Mixer();
 
     public Project(String name, int rate) {
         this.name = name;
@@ -64,11 +65,32 @@ public final class Project {
         return null;
     }
 
-    /** Heard in the mix: not muted, and either nothing is soloed or this track is. Mute beats solo. */
+    /** Group solo includes its tracks; track solo passes through its group. Either mute wins over solo. */
     public boolean audible(Track t) {
-        if (t.mute) return false;
-        for (Track o : tracks) if (o.solo) return t.solo;
-        return true;
+        Mixer.Strip strip = mixer.strips.get(t.id);
+        Mixer.Strip group = strip == null ? null : mixer.strips.get(strip.route);
+        if (t.mute || (group != null && group.mute)) return false;
+        boolean solo = false;
+        for (Track o : tracks) solo |= o.solo;
+        for (String g : mixer.groups) solo |= mixer.get(g).solo;
+        return !solo || t.solo || (group != null && group.solo);
+    }
+
+    /** Full-mix duration, shared by export and mastering so they measure the same audio. */
+    public long renderFrames() {
+        long end = 0;
+        for (Track track : tracks) if (audible(track)) {
+            for (Clip clip : track.clips) end = Math.max(end, clip.start + clip.length);
+            end = Math.max(end, track.notes.end(this));
+        }
+        if (performance.pattern) end = Math.max(end, performance.patternFrames(rate));
+        if (end == 0) return 0;
+        try { return Math.addExact(end, mixer.tailFrames(rate)); }
+        catch (ArithmeticException ex) { throw new IllegalArgumentException("This mix is too long to render."); }
+    }
+
+    public long renderFrames(java.io.File dir) throws java.io.IOException {
+        Project snapshot=copy();snapshot.performance.resolveLengths(dir);return snapshot.renderFrames();
     }
 
     /** Throws IllegalArgumentException, in words a reader can act on, for anything a project must never hold. */
@@ -80,9 +102,11 @@ public final class Project {
         if (name == null) throw new IllegalArgumentException("The project has no name.");
         finite("master level", masterDb);
         performance.validate();
+        mixer.validate(this);
         HashSet<String> ids = new HashSet<String>();
         for (Track t : tracks) {
             id(ids, t.id);
+            t.notes.validate();
             if (t.name == null) throw new IllegalArgumentException("Track " + t.id + " has no name.");
             finite("track " + t.id + " level", t.gainDb);
             if (!(t.pan >= -1f && t.pan <= 1f)) throw new IllegalArgumentException("Track " + t.id + " is panned beyond the edge (" + t.pan + ").");
@@ -137,6 +161,7 @@ public final class Project {
         for (Track t : tracks) ts.add(trackJson(t));
         p.put("tracks", ts);
         p.put("performance", performance.json());
+        p.put("mixer", mixer.json());
         return p;
     }
 
@@ -155,8 +180,17 @@ public final class Project {
         out.loopStart = (long) num(p, "loopStart", false);
         out.loopEnd = (long) num(p, "loopEnd", false);
         out.loopOn = bool(p, "loopOn");
+        if (!map(p.get("performance"),"performance settings").containsKey("chamber")) throw new IllegalArgumentException("The Chamber settings are missing.");
         out.performance = Performance.read(p.get("performance"));
-        for (Object to : list(p, "tracks")) out.tracks.add(trackFromJson(to));
+        for (Object to : list(p, "tracks")) {
+            if (!map(to,"a track").containsKey("notes")) throw new IllegalArgumentException("The track note data is missing.");
+            out.tracks.add(trackFromJson(to));
+        }
+        if (!map(p.get("mixer"), "the mixer").containsKey("automation"))
+            throw new IllegalArgumentException("The project's automation lanes are missing.");
+        if (!map(p.get("mixer"), "the mixer").containsKey("mastering"))
+            throw new IllegalArgumentException("The project's mastering settings are missing.");
+        out.mixer = Mixer.read(p.get("mixer"));
         out.validate();
         return out;
     }
@@ -165,6 +199,7 @@ public final class Project {
     static LinkedHashMap<String, Object> trackJson(Track t) {
         LinkedHashMap<String, Object> j = new LinkedHashMap<String, Object>();
         j.put("id", t.id);
+        j.put("notes", t.notes.json());
         j.put("name", t.name);
         j.put("gainDb", Float.valueOf(t.gainDb));
         j.put("pan", Float.valueOf(t.pan));
@@ -193,6 +228,7 @@ public final class Project {
         Map<?, ?> tj = map(to, "a track");
         Track t = new Track();
         t.id = str(tj, "id");
+        if (tj.containsKey("notes")) t.notes = MidiNotes.read(tj.get("notes"));
         t.name = str(tj, "name");
         t.gainDb = (float) num(tj, "gainDb", true);
         t.pan = (float) num(tj, "pan", true);

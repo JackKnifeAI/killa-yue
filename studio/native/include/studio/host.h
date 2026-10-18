@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "studio/device.h"
+#include "studio/keyboard.h"
 #include "studio/disk.h"
 #include "studio/engine.h"
 #include "studio/latency.h"
@@ -40,6 +41,7 @@ class Host : public Renderer, public InputSink {
     static Host* offline(int rate);
     ~Host() override;
 
+    Keyboard& keyboard() { return engine_->keyboard(); }
     PerformanceAudio& performance() { return engine_->performance(); }
     bool record(const char* path, long countIn, bool external, std::string& err) {
         if (recorder_.active()) { err = "A take is already open."; return false; }
@@ -72,10 +74,12 @@ class Host : public Renderer, public InputSink {
     bool load(const std::vector<TrackSpec>& tracks, std::string& err) { return load(tracks, masterDb_, err); }
     // The same, with the master level that goes with these tracks (it reaches the engine even if its queue
     // is full now: then it follows at the next status() or post()).
-    bool load(const std::vector<TrackSpec>& tracks, float masterDb, std::string& err);
+    bool load(const std::vector<TrackSpec>& tracks, float masterDb, std::string& err, const MixerConfig* mixer = nullptr);
     bool post(const Message& m);
     Status status();  // also frees the tracks the engine has let go of
     DeviceStats deviceStats();
+    bool mixer(const MixerConfig& c) { return engine_->mixer(c); }
+    int mixerMeters(float* out, int max) { return engine_->mixerMeters(out, max); }
     int meters(float* out, int max) { return engine_->meters(out, max); }  // per track (L, R); clears them
     int sessionsHeld() const { return (int)gens_.size(); }                 // the current one plus any not yet let go of
     int filesOpen() const;                                                 // over every session held

@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     // one job at a time, shared across activity restarts
     public static volatile boolean jobBusy;
     static volatile String jobId, jobMsg = "", jobError = "";
+    static volatile boolean jobPreview; // previews do not follow a full song's render schedule
     static volatile String runningCheckpoint = ""; // the checkpoint folder of the song being made
     static volatile boolean jobCancel, engineHealthy;
     static volatile long jobStart;
@@ -373,6 +374,7 @@ public class MainActivity extends Activity {
         String check = PhoneCheck.firstLaunch(this);
         if (check.length() > 0) alert("About this phone", check);
         if (PhoneCheck.askGpuBack(this)) askGpuBack();
+        else if (check.length() == 0) Updates.onLaunch(this); // one question at a time on launch
         handleLink(getIntent());
     }
 
@@ -411,6 +413,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
+        Updates.resume(this);   // back from allowing Killa YuE to install apps
         if (wakeBtn != null) wakeBtn.setText(wakeLabel());
     }
 
@@ -1341,6 +1344,10 @@ public class MainActivity extends Activity {
     }
 
     void startJob(String msg, final Task t) {
+        startJob(msg, t, false);
+    }
+
+    void startJob(String msg, final Task t, boolean preview) {
         if (ai.jackknife.killayue.studio.ui.StudioSession.recordingBusy()) {
             toast("Finish the recording before starting a song job.");
             return;
@@ -1349,6 +1356,7 @@ public class MainActivity extends Activity {
             toast("The engine is busy with another job");
             return;
         }
+        jobPreview = preview;
         jobBusy = true;
         jobCancel = false;
         jobError = "";
@@ -1364,7 +1372,9 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             // the default number of render passes
         }
-        Eta.begin(getApplicationContext(), lengthSeconds(), st, EngineService.gentle(this));
+        // Preview replays a saved state, then projects/decodes it; a full-song ETA is misleading.
+        if (preview) Eta.end();
+        else Eta.begin(getApplicationContext(), lengthSeconds(), st, EngineService.gentle(this));
         Widget.refresh(this, true);
         new Thread(new Runnable() {
             public void run() {
@@ -1409,14 +1419,97 @@ public class MainActivity extends Activity {
             return;
         }
         final Resume.Unfinished u = found;
-        new Lux.Builder(this).setTitle("That did not work")
+        AlertDialog.Builder b = new Lux.Builder(this).setTitle("That did not work")
                 .setMessage(err + "\n\nWhat was made so far is saved (" + u.describe().replaceFirst("^.*?·  ", "")
-                        + "). Resume carries on from there.")
+                        + "). Resume carries on from there."
+                        + (u.listenable() ? " Listen plays it as far as it got (" + u.howFar() + ")." : ""))
                 .setPositiveButton("Resume", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         resume(u);
                     }
-                }).setNegativeButton("Later", null).show();
+                }).setNegativeButton("Later", null);
+        if (u.listenable()) {
+            b.setNeutralButton("Listen", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    listen(u);
+                }
+            });
+        }
+        b.show();
+    }
+
+    /**
+     * Plays an unfinished song as far as it got: the engine decodes its saved render (a few minutes on the GPU).
+     * The checkpoint stays, so Resume still carries the song on; Keep puts the preview in the library.
+     */
+    void listen(final Resume.Unfinished u) {
+        final Context app = getApplicationContext();
+        final File out = new File(u.dir, "preview-0.wav");
+        final ArrayList<Api.Part> parts = new ArrayList<Api.Part>();
+        final String name = (u.title.length() > 0 ? u.title : "Untitled") + " (unfinished, " + u.howFar() + ")";
+        startJob("Making a preview of how far it got", new Task() {
+            public void run() throws Exception {
+                JSONObject req = Resume.previewRequest(u);
+                req.put("output_format", "wav16");
+                String id;
+                while (true) {
+                    ensureEngine(app);
+                    jobMsg = "Making a preview of how far it got";
+                    id = Api.synth(req);
+                    try {
+                        waitJob(id);
+                        break;
+                    } catch (EngineService.Restarted r) {
+                        // the engine is back on the GPU: ask again
+                    }
+                }
+                // audio only: the engine's own description of the job would bring "preview" and the checkpoint along
+                for (Api.Part p : Api.parts(Api.resultRaw(id))) {
+                    if (p.type.startsWith("audio/")) {
+                        if (parts.isEmpty()) Store.write(out, p.body);
+                        parts.add(p);
+                    }
+                }
+                if (parts.isEmpty()) throw new Exception("The engine returned no audio for the preview.");
+            }
+
+            public void done() {
+                try {
+                    JSONObject m = new JSONObject(Resume.request(u).toString());
+                    m.put("_title", name);
+                    m.put("_path", out.getAbsolutePath());
+                    play(m);
+                } catch (Exception e) {
+                    toast("Could not play the preview");
+                    return;
+                }
+                new Lux.Builder(MainActivity.this).setTitle("How far it got")
+                        .setMessage("Playing " + u.howFar() + ". What was still being rendered is the engine's best guess, so it can "
+                                + "sound rough. Resume finishes the song properly from where it stopped.")
+                        .setPositiveButton("Resume", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                stopPlayer();
+                                resume(u);
+                            }
+                        })
+                        .setNeutralButton("Keep in library", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) {
+                                try {
+                                    pendingTitle = name;
+                                    pendingAlbum = "";
+                                    JSONObject kept = Resume.request(u);
+                                    kept.remove("checkpoint"); // a song of its own in the library, apart from the unfinished one
+                                    saveTracks(getApplicationContext(), parts, kept);
+                                    refreshLibrary();
+                                    toast("Saved to the library. The unfinished song is still there to resume.");
+                                } catch (Exception e) {
+                                    toast("Could not save the preview");
+                                }
+                            }
+                        })
+                        .setNegativeButton("Close", null).show();
+            }
+        }, true);
     }
 
     void resume(Resume.Unfinished u) {
@@ -1440,26 +1533,27 @@ public class MainActivity extends Activity {
         new Lux.Builder(this).setTitle("Unfinished songs").setItems(names, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, final int w) {
                 final Resume.Unfinished u = list.get(w);
-                AlertDialog.Builder b = new Lux.Builder(MainActivity.this).setTitle(u.title.length() > 0 ? u.title : "Untitled")
-                        .setMessage(u.describe().replaceFirst("^.*?·  ", ""))
-                        .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
+                final ArrayList<String> acts = new ArrayList<String>();
+                if (u.listenable()) acts.add("Listen to how far it got (" + u.howFar() + ")");
+                if (u.resumable()) acts.add("Resume: carry on from where it stopped");
+                acts.add("Delete");
+                new Lux.Builder(MainActivity.this)
+                        .setTitle((u.title.length() > 0 ? u.title : "Untitled") + ": " + u.describe().replaceFirst("^.*?·  ", ""))
+                        .setItems(acts.toArray(new String[0]), new DialogInterface.OnClickListener() {
                             public void onClick(DialogInterface d2, int w2) {
-                                Resume.delete(u.dir);
-                                toast("Deleted");
+                                String act = acts.get(w2);
+                                if (act.startsWith("Delete")) {
+                                    Resume.delete(u.dir);
+                                    toast("Deleted");
+                                } else if (jobBusy) {
+                                    toast("The engine is busy with another job");
+                                } else if (act.startsWith("Listen")) {
+                                    listen(u);
+                                } else {
+                                    resume(u);
+                                }
                             }
-                        }).setNegativeButton("Back", null);
-                if (u.resumable()) {
-                    b.setPositiveButton("Resume", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface d2, int w2) {
-                            if (jobBusy) {
-                                toast("The engine is busy with another job");
-                                return;
-                            }
-                            resume(u);
-                        }
-                    });
-                }
-                b.show();
+                        }).setNegativeButton("Back", null).show();
             }
         }).setNegativeButton("Close", null).show();
     }
@@ -2492,6 +2586,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent in) {
         super.onNewIntent(in);
+        if (Updates.result(this, in)) return; // Android's installer answering about an update
         setIntent(in);
         handleLink(in);
     }
@@ -3497,7 +3592,8 @@ public class MainActivity extends Activity {
     }
 
     void play(JSONObject m) {
-        File f = new File(Store.library(this), m.optString("_audio"));
+        // "_path": a file outside the library, such as an unfinished song's preview
+        File f = m.has("_path") ? new File(m.optString("_path")) : new File(Store.library(this), m.optString("_audio"));
         try {
             stopPlayer();
             player = new MediaPlayer();
@@ -3621,10 +3717,16 @@ public class MainActivity extends Activity {
             }
         });
 
-        c.addView(chipRow(new String[] {"How everything works"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"How everything works", "Check for updates now"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     Guide.show(MainActivity.this);
+                }
+            },
+            new Runnable() {
+                public void run() {
+                    toast("Checking for updates");
+                    Updates.check(MainActivity.this, true);
                 }
             }
         }), gap(8));
@@ -3740,6 +3842,17 @@ public class MainActivity extends Activity {
             }
         });
         c.addView(procBox, gap(8));
+        final CheckBox updBox = new CheckBox(this);
+        updBox.setText("Check for updates (once a day, the app asks GitHub for the newest version and offers to install it)");
+        updBox.setTextColor(TEXT);
+        updBox.setShadowLayer(4, 0, 1, 0x99000000);
+        updBox.setChecked(Updates.enabled(this));
+        updBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                Updates.enabled(MainActivity.this, on);
+            }
+        });
+        c.addView(updBox, gap(8));
         bgStatus = text("", DIM, 13);
         bgStatus.setShadowLayer(4, 0, 1, 0x99000000);
         c.addView(bgStatus, gap(8));
@@ -4417,17 +4530,17 @@ public class MainActivity extends Activity {
 
         genBtn.setText(jobBusy ? "Cancel" : "Generate song");
         if (jobBusy) {
-            String st = jobMsg.length() > 0 ? jobMsg : EngineService.stage;
+            String st = jobMsg.length() > 0 ? jobMsg : jobPreview ? "Making an unfinished-song preview" : EngineService.stage;
             if (st.length() == 0) st = "Working";
             int cur = EngineService.progCur, max = EngineService.progMax;
-            boolean bar = jobMsg.length() == 0 && max > 0;
+            boolean bar = !jobPreview && jobMsg.length() == 0 && max > 0;
             prog.setVisibility(View.VISIBLE);
             prog.setIndeterminate(!bar);
             if (bar) {
                 prog.setMax(max);
                 prog.setProgress(cur);
                 st += "  " + cur + " / " + max;
-            } else if (jobMsg.length() == 0 && cur > 0) {
+            } else if (!jobPreview && jobMsg.length() == 0 && cur > 0) {
                 st += "  " + cur + " notes";
             }
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);

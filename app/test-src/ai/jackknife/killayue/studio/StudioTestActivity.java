@@ -47,6 +47,18 @@ public class StudioTestActivity extends Activity {
         final float master = getIntent().getFloatExtra("master", -40f);
         report = new File(getFilesDir(), "studio-test.txt");
         report.delete();
+        if (test.equals("chamber-ui")) {
+            ai.jackknife.killayue.studio.ui.ChamberProof.start(this);
+            return;
+        }
+        if (test.equals("instruments-ui")) {
+            ai.jackknife.killayue.studio.ui.InstrumentsProof.start(this);
+            return;
+        }
+        if (test.equals("mixer-ui")) {
+            ai.jackknife.killayue.studio.ui.MixerProof.start(this);
+            return;
+        }
         if (test.equals("playalong-recover")) {
             ai.jackknife.killayue.studio.ui.PlayAlongProof.recover(this);
             return;
@@ -59,7 +71,37 @@ public class StudioTestActivity extends Activity {
             public void run() {
                 try {
                     NativeEngine.load();
-                    if (test.equals("playalong"))
+                    if (test.equals("mixer") || test.equals("effects") || test.equals("automation") || test.equals("mastering") || test.equals("instruments") || test.equals("chamber")) {
+                        String oldTmp = System.getProperty("java.io.tmpdir");
+                        try {
+                            System.setProperty("java.io.tmpdir", getCacheDir().getPath());
+                            NativeMixerTest.main(new String[0]);
+                            if (test.equals("effects") || test.equals("automation") || test.equals("mastering") || test.equals("instruments") || test.equals("chamber")) {
+                                NativeEffectsTest.main(new String[0]);
+                                log("PASS effects offline JNI/export fixture: " + NativeEffectsTest.passed + " assertions");
+                                if (test.equals("automation") || test.equals("mastering") || test.equals("instruments") || test.equals("chamber")) {
+                                    NativeAutomationTest.main(new String[0]);
+                                    log("PASS automation offline JNI/export fixture: " + NativeAutomationTest.passed + " assertions");
+                                }
+                            }
+                            if (test.equals("mastering") || test.equals("instruments") || test.equals("chamber")) {
+                                NativeMasteringTest.main(new String[0]);
+                                log("PASS mastering offline JNI/export fixture: " + NativeMasteringTest.passed + " assertions");
+                            }
+                            if (test.equals("instruments") || test.equals("chamber")) {
+                                NativeInstrumentsTest.main(new String[0]);
+                                log("PASS instruments offline JNI/export fixture: " + NativeInstrumentsTest.passed + " assertions");
+                            }
+                            if (test.equals("chamber")) {
+                                NativeChamberTest.main(new String[0]);
+                                log("PASS Chamber offline JNI/export fixture: " + NativeChamberTest.passed + " assertions");
+                            }
+                            log("PASS mixer offline JNI/export fixture: " + NativeMixerTest.passed + " assertions");
+                        } finally {
+                            if (oldTmp != null) System.setProperty("java.io.tmpdir", oldTmp);
+                        }
+                        stress(seconds, master);
+                    } else if (test.equals("playalong"))
                         playAlong(seconds);
                     else if (test.equals("stress"))
                         stress(seconds, master);
@@ -193,20 +235,96 @@ public class StudioTestActivity extends Activity {
         NativeEngine e = NativeEngine.onDevice(false);
         try {
             Project p = tracks(e.rate(), seconds, dir);
+            final boolean chamberTest = "chamber".equals(getIntent().getStringExtra("test"));
+            final boolean instrumentsTest = chamberTest || "instruments".equals(getIntent().getStringExtra("test"));
+            final boolean masteringTest = instrumentsTest || "mastering".equals(getIntent().getStringExtra("test"));
+            final boolean automationTest = masteringTest || "automation".equals(getIntent().getStringExtra("test"));
+            final boolean effectsTest = automationTest || "effects".equals(getIntent().getStringExtra("test"));
+            final boolean mixerTest = effectsTest || "mixer".equals(getIntent().getStringExtra("test"));
+            if (mixerTest) {
+                for (int i = 0; i < 8; i++) p.mixer.addGroup("Group " + (i + 1));
+                for (int i = 0; i < p.tracks.size(); i++) {
+                    String id = p.tracks.get(i).id;
+                    p.mixer.edit(id).route = p.mixer.groups.get(i % 8);
+                    p.mixer.edit(id).reverb = .12f;
+                    p.mixer.edit(id).delay = .08f;
+                    if (effectsTest) {
+                        for (int kind = Effects.EQ; kind <= Effects.FILTER; kind++) {
+                            if (i >= 8 && Effects.wet(kind)) continue;
+                            p.mixer.addSlot(id, kind);
+                        }
+                    } else for (int k = 0; k < 8; k++) p.mixer.addSlot(id, k % 2 + 1).value = k % 2 == 0 ? -1 : .9f;
+                }
+                for (String id : p.mixer.groups) {
+                    p.mixer.edit(id).gainDb = -6;
+                    p.mixer.edit(id).reverb = .1f;
+                    for (int k = 0; k < (masteringTest && id.equals(Mixer.MASTER) ? 5 : 8); k++) p.mixer.addSlot(id, 1).value = -.5f;
+                }
+                for (String id : new String[] {Mixer.MASTER, Mixer.REVERB, Mixer.DELAY})
+                    for (int k = 0; k < (masteringTest && id.equals(Mixer.MASTER) ? 5 : 8); k++) p.mixer.addSlot(id, 1).value = -.5f;
+                log(effectsTest ? "effects: 16 tracks, all seven effects, 16 wet inserts, 8 groups, shared sends; send/parameter edits every 25 ms"
+                    : "mixer: 8 groups, both sends, 8 inserts on all 27 strips; send edit every 25 ms");
+            }
+            if (automationTest) {
+                p.performance.tempos.put((long)p.rate * seconds / 2, 100.0);
+                double end = new TempoMap(p.rate,p.performance).beatAt((long)p.rate * seconds);
+                for (Track track : p.tracks) {
+                    Automation.Lane level = p.mixer.automation.add(track.id,"",0);
+                    level.points.put(0.0,-12f); level.points.put(end,-3f);
+                    Automation.Lane pan = p.mixer.automation.add(track.id,"",1);
+                    pan.points.put(0.0,-.8f); pan.points.put(end,.8f);
+                    Automation.Lane eq = p.mixer.automation.add(track.id,p.mixer.get(track.id).chain.get(0).id,1);
+                    eq.points.put(0.0,-6f); eq.points.put(end,6f);
+                }
+                log("automation: 48 active lanes, tempo change halfway through, native envelopes plus live mixer edits");
+            }
+            if (masteringTest) {
+                p.mixer = Mastering.preset(p, 1);
+                log("mastering: Balanced rack with A/B toggled every second");
+            }
+            if (instrumentsTest) {
+                for (int i=0;i<p.tracks.size();i++) {
+                    Track track=p.tracks.get(i);track.notes.instrument=i%2;
+                    for (int key : new int[]{48+i%12,60+i%12}) InstrumentSamples.ensure(dir,p.rate,track.notes.instrument,key);
+                    double end=new TempoMap(p.rate,p.performance).beatAt((long)p.rate*(seconds+5));
+                    for (int beat=0;beat<end;beat++) { MidiNotes.Note note=track.notes.add(beat,48+i%12+(beat%2)*12);note.length=.5;note.velocity=.2f; }
+                }
+                log("instruments: 16 streamed note tracks, two original banks, tempo map and mixer effects");
+            }
+            if(chamberTest){
+                Performance performance=p.performance;performance.pattern=true;performance.patternLength=32;
+                performance.chamber.song=true;performance.chamber.repeat=3;performance.chamber.chain.clear();
+                for(int i=0;i<128;i++)performance.chamber.chain.add(i%4);
+                for(int bank=0;bank<4;bank++)for(int pad=0;pad<16;pad++)for(int step=bank;step<32;step+=4)performance.chamber.patterns[bank][pad][step]=.04f;
+                log("Chamber: A/B/C/D song, native repeat, 16 velocity levels and pad mute/solo edits");
+            }
             log("stress: 16 tracks, " + p.tracks.get(0).clips.size() + " clips each, " + seconds + " s, master " + master + " dB");
             e.load(p, dir);
             e.master(master);
             e.start();
             e.play();
             Random rng = new Random(1);
-            long t0 = System.nanoTime(), lastSeek = 0, lastStatus = 0, lastLine = 0;
+            long t0 = System.nanoTime(), lastSeek = 0, lastStatus = 0, lastLine = 0, lastChamber = -1, lastPad = -1;
+            double[] captured = new double[1025];long capturedHits = 0;
             long prevUnder = 0, prevXruns = 0, bad = 0, afterSeek = 0, xrunsBad = 0, xrunsEarly = 0;
             NativeEngine.Status s = e.status();
             while (alive) {
                 long ms = (System.nanoTime() - t0) / 1000000;
                 if (ms >= seconds * 1000L)
                     break;
+                if(chamberTest){
+                    if(ms/1000!=lastChamber){lastChamber=ms/1000;p.performance.chamber.levels=(lastChamber%2)==0;p.performance.chamber.levelPad=(int)(lastChamber%16);p.performance.chamber.mute[3]=(lastChamber%3)==0;p.performance.chamber.solo[7]=(lastChamber%5)==0;e.performance(p,dir);}
+                    if(ms/250!=lastPad){if(lastPad>=0)e.pad((int)(lastPad%16),0,false);lastPad=ms/250;e.pad((int)(lastPad%16),.1f,true);}
+                    capturedHits+=e.padHits(captured);if(captured[0]>0)throw new IOException("Live pad hit queue overflowed.");
+                }
                 String id = p.tracks.get(rng.nextInt(16)).id;
+                if (mixerTest) {
+                    if (masteringTest) p.mixer.mastering.before = (ms / 1000) % 2 == 0;
+                    p.mixer.edit(id).reverb = rng.nextFloat() * .2f;
+                    p.mixer.edit(id).delay = rng.nextFloat() * .2f;
+                    if (effectsTest) p.mixer.edit(id).chain.get(0).set(1, rng.nextFloat()*12-6);
+                    e.mixer(p);
+                }
                 switch (rng.nextInt(4)) {
                     case 0:
                         e.gain(id, -20f * rng.nextFloat());
@@ -250,15 +368,16 @@ public class StudioTestActivity extends Activity {
                         s.callbackAvgMs, s.slowCallbacks));
                     lastLine = ms;
                 }
-                Thread.sleep(5);
+                Thread.sleep(mixerTest ? 25 : 5);
             }
-            e.stop();
+            e.padsOff();e.stop();
+            if(chamberTest)log("captured live pad hits="+capturedHits);
             s = e.status();
             log(device(s));
             log(String.format(java.util.Locale.ROOT,
                 "callbacks %d, slowest %.2f ms (a burst is %.2f ms), average %.3f ms, %d slower than a burst", s.callbacks, s.callbackMaxMs,
                 1000.0 * s.burst / s.deviceRate, s.callbackAvgMs, s.slowCallbacks));
-            log("RESULT " + (bad == 0 && xrunsBad == 0 ? "PASS" : "FAIL") + " stress: underruns " + bad + " (+" + afterSeek
+            log("RESULT " + (alive && bad == 0 && xrunsBad == 0 ? "PASS" : "FAIL") + " stress: underruns " + bad + " (+" + afterSeek
                 + " within 300 ms of a seek), device xruns " + xrunsBad + " (+" + xrunsEarly + " in the first 2 s)");
         } finally {
             e.close();

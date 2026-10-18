@@ -12,7 +12,7 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-Version 1.4.1. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+Version 1.5.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
 
 ## Requirements
 
@@ -65,6 +65,17 @@ CPU mode is much slower than the GPU. We have not timed it on any phone yet, so 
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, ready for TikTok, Reels and Shorts.
 - **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Engine tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
 
+New in 1.5.0, **Studio expansion**:
+
+- **Mixer and effects**: groups, sends, editable effect chains, EQ, compressor, limiter, delay, reverb, saturation and filter.
+- **Automation**: editable curves for levels, pan, sends and effect parameters, with undo and saved projects.
+- **Mastering**: Dynamic, Balanced and Loud presets, measured loudness and sample peaks, and Before/Mastered comparison.
+- **Instruments**: piano-roll editing, a two-row keyboard, and original Killa Pluck and Killa Tines sounds streamed from storage.
+- **The Chamber**: four pattern banks, song order, note repeat, sixteen velocity levels, mute/solo, and one Undo step for a pad-recording pass.
+- **Killa Gold pads**: gold frames, dark rubber faces and amber pressed artwork.
+- **Unfinished songs**: listen to a checkpoint without changing it, save the preview separately, and resume the original; preview progress reports elapsed time.
+- **Updates**: check GitHub for a new version, review its notes, download and verify the APK, and confirm installation through Android.
+
 New in 1.4.1, **GPU driver recovery**:
 
 - When the GPU driver crashes, the engine restarts on the GPU, more carefully each time, and the song carries on from where it stopped.
@@ -75,7 +86,7 @@ New in 1.4.0, **the Studio**, a music studio inside the app:
 
 - **Stems**: split any song into drums, bass, other and vocals on the phone (Meta's Demucs, a 414 MB download), each its own track.
 - **Arrange and edit**: move, trim, split, duplicate, fade, nudge, stretch and pitch clips, swipe-comp the best take, markers and tempo changes, with an undo and redo history.
-- **Mixer**: a gold strip per track with pan knobs, faders, meters, mute and solo.
+- **Mixer**: gold strips with pan, faders, meters and mute/solo. Version 1.5.0 adds groups, sends and editable effect racks.
 - **Record (Play Along)**: sing or play over a song from the microphone, a USB interface or another app's sound, with count-in, click, punch, loop takes, latency calibration and recovery of interrupted takes.
 - **The Chamber**: sixteen pads; load any project clip or sound file, chop it at its hits, trim, tune and shape it, record what you play onto the step grid, and bounce the pads to their own track.
 - **Export and wrap up**: the mix as WAV or M4A, every stem, or straight into your library; Wrap up turns a finished project into a song and frees its space.
@@ -86,7 +97,7 @@ New in 1.3.0:
 - **Automatic lyric sync**: a speech recogniser on the phone (whisper.cpp) listens to the finished song and times every line to when it is sung, with a progress bar and the time left.
 - **Sheet music**: an engraved full score as a vector PDF, or a part for any of 38 instruments in its own key and clef; tabs for guitar, bass, ukulele, mandolin and banjo; chords to sing along to with diagrams and the lyrics under the lines; MusicXML and MIDI. Read, print and share them in the app.
 - **Write with AI**: a songwriter that runs on the phone (llama.cpp with Gemma 4 E4B, abliterated, a separate download) writes lyrics and style prompts, and can look things up on the web first.
-- **Resume a song** that stopped part way (the GPU lost, or the app or engine stopped): it carries on from its last finished render step and sounds the same as an uninterrupted song.
+- **Resume a song** that stopped part way (the GPU lost, or the app or engine stopped): it carries on from its last finished render step and sounds the same as an uninterrupted song. **Listen to how far it got** previews a saved render without changing its checkpoint; Keep in library saves the preview separately. Preview progress shows elapsed time without a full-song estimate.
 - **GPU covers** for phones without the 8 Elite NPU, a **home-screen widget**, **ringtones and a wake-up song**, and **community skins** (Akai '84 is in `skins/`).
 
 What comes next is in [ROADMAP.md](ROADMAP.md).
@@ -158,8 +169,12 @@ The tracks laid out in time. The round buttons: back to the start, play and stop
 </td></tr>
 <tr><td><img src="docs/screenshots/11-mixer.jpg" alt="Mixer"></td><td>
 
+### Piano roll and instruments
+
+From Arrange, **Piano roll** adds a sampled Pluck or Tines track. Draw, move and resize notes, edit velocity, quantise and undo each gesture. Notes follow tempo changes and stream through the track's mixer processing into playback and exports. A two-row keyboard auditions the original sounds; USB or Bluetooth MIDI keyboards provide velocity and sustain. The four-second samples are generated once and streamed from the project folder, with short attacks cached for responsive retriggering.
+
 ### Mixer
-A strip for every track and the master, each in a gold panel. Touch the **gold knob** and drag up or down to pan; touch the **fader's cap** and drag to set the volume; double-tap either to reset it. Anywhere else, swipe left and right along the strips. The meters show each track's level, and the small round **M** and **S** mute and solo.
+Gold strips for tracks, groups, shared **Reverb** and **Delay** returns, and **Master**. Drag a gold knob to pan or send, or the fader's cap to set volume; double-tap to reset. Empty space scrolls the mixer. **Add group**, then tap a track's name to route it; a group's fader controls its members together. **REV / DLY** start at zero and share a short stereo reverb or 250 ms delay. **FX rack** holds up to eight ordered effects: EQ with low/high cuts, compressor, peak limiter, reverb, delay, saturation and filter, plus trim, stereo width and polarity. Each has presets, editable parameters, bypass, reorder and remove. Apply saves the parameter form as one undo step. Up to sixteen reverb/delay inserts can be used across a project; shared sends remain available. Racks start empty. Meters follow the strip's processing; **M / S** mute and solo tracks or groups. Every change supports undo, and full-mix export includes the routing, effects and tails. **Automation** opens beat-based lanes for volume, pan, sends, effect parameters and bypass: tap or drag points, edit exact values, mute a lane, or undo a gesture. Lanes follow tempo changes and are included in playback and export. **Mastering** measures a detached render and adds an undoable EQ/gain/peak-limiter preset targeting -18, -14 or -10 LUFS. A/B switches between the original and mastered processing; exports follow the selected side. The dialog reports actual loudness and sample peak, and marks readings stale after edits.
 
 </td></tr>
 <tr><td><img src="docs/screenshots/12-stems.jpg" alt="Stems"></td><td>
@@ -223,3 +238,11 @@ For anything that should not be public, including security reports: **jackknifea
 ## Who made this
 
 Alexander, founder of JackKnife AI, and Claudia, his AI partner, who wrote the code. It went from an idea to a song in one day, on the phone it runs on.
+
+### Chamber songs and performance controls
+
+**A/B/C/D** banks turn pad patterns into a saved song order. Native **Note repeat** follows tempo changes; **16 levels** spreads one sound across sixteen velocities. Per-pad mute/solo works in live playing, patterns and export. MIDI notes 36–51 trigger the pads, and Record pads captures repeated hits with their audio timestamps and velocities. Bounce and export retain the last pad's decay.
+
+### Killa Gold pads
+
+The Chamber’s Killa Gold pads have a dark rubber resting face and an amber struck face. Touch holds and MIDI note-ons light the artwork, while pad labels and the selection outline remain visible. Other skins retain their existing pad appearance.

@@ -33,7 +33,7 @@ import ai.jackknife.killayue.studio.WavOut;
 /**
  * Exports from a project, on a worker thread, through an off-line engine of its own (never the one playing):
  * the mix as a float WAV, a CD-quality 16-bit WAV at 44.1 kHz (resampled, then TPDF-dithered), an M4A, a new
- * song in the library, or every track as its own stem (the master limiter bypassed, so they add up to the mix).
+ * song in the library, or every track as its own stem (track inserts included; groups, sends and master processing bypassed).
  * Files go to Music/Killa YuE/Studio/<project>.
  */
 final class ExportJob {
@@ -60,14 +60,9 @@ final class ExportJob {
     }
 
     /** The end of the last clip that is heard (the length of the mix). */
+    static long length(Project p,File dir) throws IOException { return p.renderFrames(dir); }
     static long length(Project p) {
-        long end = 0;
-        for (Track t : p.tracks)
-            if (p.audible(t))
-                for (Clip c : t.clips) end = Math.max(end, c.start + c.length);
-        if (p.performance.pattern)
-            end = Math.max(end, new ai.jackknife.killayue.studio.TempoMap(p.rate, p.performance).frameAt(p.performance.patternLength / 4.0));
-        return end;
+        return p.renderFrames();
     }
 
     /** Runs one export; returns the files it made. */
@@ -78,7 +73,7 @@ final class ExportJob {
         File folder = folder(snap);
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
         String base = safe(snap.name);
-        long frames = length(snap);
+        long frames = length(snap, dir);
         if (frames <= 0 && kind != STEMS) throw new IOException("There is nothing to export: no track is heard.");
         ImportJob.checkSpace(folder, frames / (double) snap.rate * (kind == STEMS ? snap.tracks.size() : 2), snap.rate);
         File tmp = new File(c.getCacheDir(), "studio-export-" + stamp + ".wav");
@@ -102,9 +97,14 @@ final class ExportJob {
             } else {
                 File stems = new File(folder, base + " " + stamp + " stems");
                 stems.mkdirs();
-                long len = length(snap);
-                for (Track t : snap.tracks)
+                long len = Math.max(0, length(snap, dir) - snap.mixer.tailFrames(snap.rate));
+                for (Track t : snap.tracks) {
                     for (Clip cl : t.clips) len = Math.max(len, cl.start + cl.length);
+                    len = Math.max(len, t.notes.end(snap));
+                }
+                long longestTail = 0;
+                for (Track t : snap.tracks) longestTail = Math.max(longestTail, snap.mixer.stem(t.id).tailFrames(snap.rate));
+                len += longestTail; // aligned stems keep the longest track insert tail
                 for (int i = 0; i < snap.tracks.size(); i++) {
                     Project one = snap.copy();
                     Track keep = one.tracks.get(i);
@@ -112,6 +112,7 @@ final class ExportJob {
                     keep.mute = false;
                     keep.solo = false;
                     one.tracks.add(keep);
+                    one.mixer = one.mixer.stem(keep.id);
                     one.masterDb = 0;
                     one.performance.pattern = false;
                     File f = new File(stems, String.format(Locale.ROOT, "%02d ", i + 1) + safe(keep.name) + ".wav");
@@ -121,6 +122,7 @@ final class ExportJob {
                 if (snap.performance.pattern) {
                     Project pads = snap.copy();
                     pads.tracks.clear();
+                    pads.mixer = pads.mixer.stem(null);
                     pads.masterDb = 0;
                     File f = new File(stems, "Sampler.wav");
                     render(pads, dir, f, len, false, "Sampler stem", p, cancel);

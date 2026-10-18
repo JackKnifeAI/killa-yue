@@ -3,3 +3,5 @@ local.env
 *.keystore
 *.jks
 __pycache__/
+/build-studio/
+/build-studio-ai/

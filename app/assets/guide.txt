@@ -72,6 +72,8 @@ Songs take longer, and the phone stays smooth while one is made.
 Studio jobs such as splitting stems run on the phone's fast cores instead of in the background. Faster, but music may stutter while one runs. Off by default.
 ## Run the engine in its own app process
 Runs the engine apart from the app, so Android's limits on child processes no longer apply. Takes effect with the next song.
+## Check for updates
+On when the app is installed. Once a day the app asks GitHub for the newest version and tells you when one is out. Update downloads it (it resumes after a dropped connection), checks it against the SHA-256 published with the release, and asks Android to install it; the first time, Android asks you to allow Killa YuE to install apps. Android only accepts an update signed with the same key as your copy, and your songs, projects and models stay. Later asks again tomorrow; Skip this version waits for the next one. Nothing is installed without you, and never while a song is being made. "Check for updates now" asks straight away.
 ## Allow in background
 Lets Android keep the engine running while the app is closed, so songs finish when the screen is off.
 ## Downloads
@@ -98,12 +100,35 @@ The tracks laid out in time.
 - Tap the timeline to move the playhead; pinch to zoom.
 - M mutes a track; S solos it (only soloed tracks are heard).
 ## Mixer
-A strip for every track, and the master at the end.
-- Swipe left or right anywhere except on a control to move along the strips.
-- The gold knob pans the track left or right: touch the knob itself and drag up or down. Double-tap it to put it back in the centre.
-- The fader sets the track's volume: touch its gold cap and drag. Double-tap the cap to put it back at 0 dB.
-- The meter beside the fader shows how loud the track is playing.
-- M mutes and S solos, as in Arrange.
+A gold strip for each track, followed by your groups, the shared Reverb and Delay returns, and Master.
+- Swipe left or right through empty strip space. Only a knob or the fader cap takes hold of a drag. On a short screen, swipe up or down through empty space to reach the lower controls.
+- The large gold knob pans left or right. Touch the knob and drag up or down; double-tap to centre it. Pan starts in the centre.
+- The fader sets volume. Touch its gold cap and drag; double-tap the cap for 0 dB. New groups and returns start at 0 dB. The meter shows the level after the strip's volume and effects.
+- M mutes a track, group or return. S solos a track or group. Group solo includes its member tracks; soloing one track still plays it through its group. Group mute silences all its members, including their sends. Mute and solo start off.
+- Add group makes a named group, up to eight. Tap a track's name or To line to send it to Master or a group. Tracks start routed straight to Master. Groups feed Master; a group cannot feed another group.
+- Tap a group's name to rename or remove it. Removing a group puts its tracks back on Master. Undo restores the group and its routing.
+- REV and DLY are sends: they copy some of a track or group's sound into the shared reverb or delay. Drag either small gold knob up or down from 0 to 100; double-tap for 0. Both start at 0 (off). Sends follow that strip's volume, pan and effects. A track's sends are taken before its group's volume and effects.
+- Reverb adds a short stereo room tail. Delay repeats at 250 milliseconds, each repeat at 30% of the previous one. The return faders change how much wet sound reaches Master; their M buttons silence it. Returns cannot send into themselves.
+- FX rack opens that strip's effects, processed from top to bottom, up to eight slots. New racks are empty. Tap Add effect, then a slot to open Parameters and presets, bypass it, move it earlier or later, or remove it. Bypass leaves the slot in place and fades to dry sound. Parameters and presets are applied together as one undo step when you tap Apply; Cancel discards the form. Presets fill the fields so you can adjust them before applying.
+- Trim adjusts level from -24 to +24 dB; it starts at 0 dB. Stereo width starts at 1x (unchanged), 0x makes mono, and 2x widens the difference between left and right. Polarity invert flips both channels; it is active when added and has no amount knob.
+- EQ has a low shelf at 120 Hz, an adjustable mid bell, and a high shelf at 8 kHz, each -18 to +18 dB (default 0). Mid frequency starts at 1000 Hz, Q at 1. Low cut (0–2000 Hz) and high cut (0–20000 Hz) start at 0, meaning off. Presets: Flat, Vocal clarity, Warm.
+- Compressor reduces peaks above Threshold (-60–0 dB, default -18) by Ratio (1–20:1, default 4). Attack is 0.1–200 ms (10), Release 10–2000 ms (120), Makeup 0–24 dB (0), and Mix 0–1 (1). Both channels share gain reduction to keep the stereo image steady. Presets: Gentle, Vocal, Parallel drums.
+- Peak limiter has Ceiling -24–0 dB (default -1), Release 10–2000 ms (80), and Input gain 0–24 dB (0). It catches sample peaks without added delay; it does not measure intersample true peaks. Presets: Safety, Gentle level, More level. The final Master safety limiter remains separate.
+- Reverb has Room decay 0.1–0.85 (default 0.65), Damping 0–1 (0.4), Wet mix 0–1 (0.2), and Pre-delay 0–100 ms (12). Presets: Small room, Vocal room, Long space.
+- Delay has Time 1–1000 ms (default 250), Feedback 0–0.65 (0.3), Wet mix 0–1 (0.25), and Ping-pong amount 0–1 (0). Ping-pong sends feedback toward the opposite channel. Presets: Slap, Echo, Ping-pong. Changing time glides the delay tap and can bend pitch.
+- Saturation adds soft distortion: Drive 0–30 dB (default 6), Tone low-pass 500–20000 Hz (8000), Mix 0–1 (0.5), Output -24–0 dB (-3). Presets: Warm, Crunch, Soft edge.
+- Filter mode is 0 low-pass, 1 high-pass or 2 band-pass (default 0). Cutoff is 20–20000 Hz (20000), Resonance Q 0.2–10 (0.7071), and Mix 0–1 (1). Presets: Low-pass, High-pass, Telephone. Frequencies above the project's usable band are limited to 45% of its sample rate.
+- Use up to sixteen reverb/delay inserts across the project, including bypassed slots. Shared sends do not use this limit. Each rack still holds up to eight effects. Mix values use 0 for dry and 1 for fully wet.
+- Track, group and return effects follow their faders. Master effects run before the Master fader and its safety limiter. The live Chamber pads feed Master; bounce them to a track to use that track's group and sends.
+- Every mixer edit is saved and can be undone. One knob or fader drag makes one undo step. Old projects open with empty racks and sends off.
+## Automation
+Open Automation from Arrange's transport bar or the top of Mixer. Add lane, choose a strip, then Volume, Pan, a send, or an effect parameter. Effect bypass is also available: 0 means enabled, 1 means bypassed. Master has volume and effect lanes; returns have volume, pan and effect lanes.
+- New lanes are enabled and start with one point at beat 0 using the control's current value. Empty lanes do nothing. Enabled lanes override their manual control; the mixer faders still show the manual values. Mute / enable returns control to the manual setting without deleting your points.
+- Tap the graph to add a point. Drag a point to change its beat and value, snapping to quarter beats. The drag is previewed in the graph and saved once when released, so one Undo reverses the gesture. Cancelling a drag discards its preview.
+- Select a point, then Edit point for an exact beat and value, or Delete point to remove it. Beat 0 is the project's beginning. Dropping a point on an existing beat replaces that point; Undo restores both.
+- ◀ / ▶ move through the timeline. Zoom in / Zoom out change the visible span from 1 to 256 beats (default 16). The moving line shows playback position. Delete lane removes the lane as one undo step; Undo also works inside the editor.
+- Values move between points and hold the first/last value outside them. Filter mode and bypass hold each value until the next point. Points stay at their musical beats when tempo changes. Playback, looping, full-mix export and isolated stems use the lanes; stems omit group, send, return and Master lanes.
+- Automation follows an effect when its rack slot moves. Removing an effect, group or track removes its lanes; Undo brings them back. The project supports 128 lanes and 4096 points, including extra points needed at tempo changes. New and older projects start with no automation.
 ## Stems
 Splits a track into four tracks: drums, bass, other and vocals. It runs on the phone, in the background, while you work.
 - Download the stems model: about 414 MB, once.
@@ -115,7 +140,8 @@ Splits a track into four tracks: drums, bass, other and vocals. It runs on the p
 - WAV 16-bit: CD quality.
 - M4A: small, for sharing.
 - To the library: the mix becomes a song in your library.
-- Stems: every track as its own file.
+- Stems: every track as its own file, with its track volume, pan and FX rack. Track mute and solo are ignored. Groups, sends and Master effects are left out, so these are separate ingredients for another mix.
+- A full mix includes groups, sends and all FX racks. Export allows for insert tails plus four seconds for shared sends. Chains of long delays can extend the tail by several minutes. Stem files stay aligned and include the longest isolated track insert tail. Bypassed inserts add no tail.
 
 # Studio — Play Along
 ## Record
@@ -177,3 +203,31 @@ Export includes the enabled sampler pattern. A pattern-only project exports one 
 Moving clips into a partial overlap on the same track adds matching fades across the overlap. Undo restores the previous fades. Playback capture stops if the first five seconds stay silent; the source may be paused or may prohibit capture.
 
 Long loop recordings reserve the last of the 64 playback tracks for “More takes (in order)”: later passes are kept as separate clips in sequence on that muted track. Move a wanted pass back to the loop position before comping it. No recorded audio is discarded. Loop recording needs one free track.
+
+## Mastering
+Open Mastering at the top of Mixer. Dynamic targets -18 LUFS, Balanced -14 LUFS, and Loud -10 LUFS. Each adds EQ, gain and a -1 dBFS sample-peak limiter after your existing Master effects; leave three slots available. Applying another preset replaces only the mastering effects.
+The app renders and measures a separate copy, then applies the result as one undoable change. Cancel leaves the mix unchanged. Before (A) bypasses the three mastering effects; Mastered (B) enables them. Playback and export use the selected side. Remove mastering preserves your other effects.
+The dialog shows measured integrated loudness and sample peak. Music with strong peaks may not reach the requested target; the actual measured result is shown. This is not a true-peak meter or limiter. Changes to the mix mark readings stale: apply a preset again to remeasure. Measurement needs at least 0.4 seconds of audible material and temporary free storage.
+
+## Piano roll and sampled instruments
+In Arrange, tap Piano roll, then Add instrument track. Choose Killa Pluck or Killa Tines. The app prepares its own original samples once, in your project folder; Cancel stops preparation. Existing instrument tracks appear in the same list. These are designed sounds, not recordings of acoustic instruments.
+- Draw / move: tap an empty grid cell to add a note, or drag a note to move its beat and pitch. Resize mode changes its length; Velocity mode changes its strength by dragging up or down. Edit note also accepts exact beat, length, MIDI pitch and velocity. A completed gesture is one Undo step; cancelled touches are discarded.
+- Defaults: quarter-beat grid, 80% velocity, eight visible beats. Grid cycles through quarter, half, whole and eighth beats; Quantise moves all note starts and ends to that grid. Delete removes the selected note. Beats arrows page the view, Zoom shows four/eight/sixteen beats, and Pitch arrows move the visible range.
+- The two keyboard rows play two octaves at once, initially C3 and C4. Keys arrows shift the range; several fingers and sliding between keys work. The roll and MIDI keyboard support pitches 36–84. Live keys are an audition through Master; draw the arrangement's notes in the roll. MIDI recording and MIDI-file import/export are not included.
+- The two sounds decay naturally over four seconds. Releasing a key or ending a shorter note gives an 80 ms release. Longer notes do not loop the sample. Arrangement notes follow tempo changes, use their track's effects and automation, and appear in mix/stem exports. Each track holds up to 4096 editable notes.
+- MIDI opens USB / connected MIDI ports or a ten-second Bluetooth MIDI scan. Turn the keyboard's Bluetooth MIDI pairing on first. Allow the requested discovery access, then open Find Bluetooth MIDI again. Android's legacy Bluetooth discovery may request location permission; the app does not read or save your location. MIDI note velocity and sustain pedal work; All notes off clears held notes. Disconnecting or leaving the app releases notes and closes MIDI input.
+
+## The Chamber: repeat, levels and pad songs
+Patterns A, B, C and D each hold their own steps, with the same pad sounds, 16/32-step length and swing. A contains your earlier pattern; B/C/D start empty. Tap a letter to edit or play that bank. With Song off, the selected pattern loops. Song order accepts letters separated by spaces (for example A A B A C D), up to 128 entries. Apply enables Song mode; Pattern starts playback. Song mode plays the order once from the project's start. Use the project loop to repeat a song.
+Repeat starts off. Tap it to cycle quarter-, eighth- and sixteenth-note repeats, then off. Hold a pad to repeat it; release stops the repeats. Timing follows the tempo map during playback. Repeat also works while stopped.
+16 levels starts off. Select a sound first, then enable it: all sixteen pads play that sound, from velocity 1/16 on pad 1 to full velocity on pad 16. This is velocity variation; it does not change pitch. Disable it to choose another pad normally.
+Mute pad and Solo pad act on the selected pad, for live hits, patterns and exports. M means muted, S means solo; mute wins. All pads off releases held/repeated sounds even when the input queue is busy.
+Record pads captures native-timed touch, repeat and MIDI hits onto the swung sixteenth grid, including their velocities and pattern bank. One recording pass is one Undo step. A capture overflow stops recording with a message. Leaving the Chamber stops pad recording and releases its live inputs.
+MIDI connects USB or Bluetooth keyboards: notes 36–51 play pads 1–16 on any channel. Disconnecting releases held pads. Gate and Loop pattern hits are held until the next step; One-shot keeps the sample's natural duration. Song exports and Bounce to a track retain the final pad tail. Every pattern, order and playing-control change supports Undo.
+
+## Killa Gold pad artwork
+The Chamber uses gold-framed, dark rubber pads in the Killa Gold skin. A pressed pad glows amber for as long as you hold it; a MIDI note-on flashes it for 120 ms. The selection outline still marks the pad being edited. Pattern playback does not flash this artwork. This is appearance only and has no saved project setting. Other skins keep their existing pads.
+
+## Listen to an unfinished song
+Create > Resume a song lists saved checkpoints. Listen to how far it got makes a playable preview from a saved render without changing the checkpoint. It starts only when you choose Listen. The preview may cover the whole song at unfinished quality, or just the chunks begun so far. It can sound rough. Its progress shows elapsed time, without a full-song countdown or render-step bar.
+When it plays, Keep in library saves a separate copy; Close leaves the checkpoint available; Resume finishes the original render. Previewing does not teach the normal song-time estimator.

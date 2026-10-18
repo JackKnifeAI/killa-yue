@@ -59,14 +59,18 @@ void Host::flushMaster() {
     if (masterPending_ && engine_->post({Msg::Master, -1, masterDb_, 0, nullptr})) masterPending_ = false;
 }
 
-bool Host::load(const std::vector<TrackSpec>& tracks, float masterDb, std::string& err) {
+bool Host::load(const std::vector<TrackSpec>& tracks, float masterDb, std::string& err, const MixerConfig* mixer) {
     reap();
     if ((int)tracks.size() > Engine::kMaxTracks) {
         err = "The Studio plays up to " + std::to_string(Engine::kMaxTracks) + " tracks; this has " + std::to_string(tracks.size()) + ".";
         return false;
     }
+    if (mixer && (!mixer->valid() || mixer->data[0] != (float)tracks.size())) {
+        err = "Invalid mixer configuration."; return false;
+    }
     Generation g;
     std::unique_ptr<Session> session(new Session{rate_, {}});
+    if (mixer) { session->mixer = *mixer; session->hasMixer = true; }
     // one reader per file, shared by every clip of it (a loop opens its file once): only the disk thread reads
     std::map<std::string, WavReader*> open;
     for (const auto& t : tracks) {
@@ -143,7 +147,8 @@ Status Host::status() {
     reap();
     performance().collect();
     flushMaster();
-    return engine_->status();
+    keyboard().collect();
+    Status status = engine_->status(); status.underruns += keyboard().underruns(); return status;
 }
 
 DeviceStats Host::deviceStats() { return device_ ? device_->stats() : DeviceStats(); }
