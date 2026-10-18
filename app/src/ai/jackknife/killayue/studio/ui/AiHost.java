@@ -136,20 +136,46 @@ public class AiHost extends Service {
         pb.environment().put("LD_LIBRARY_PATH", dir.getAbsolutePath());
         final java.lang.Process p = pb.start();
         java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));
-        StringBuilder tail = new StringBuilder();
-        int steps = Math.max(1, job.getInt("steps")), seen = 0;
-        for (String line; (line = r.readLine()) != null;) {
-            if (job.cancelled()) {
-                p.destroy();
-                throw new Exception("Cancelled.");
+        final StringBuilder tail = new StringBuilder();
+        final java.io.BufferedReader lines = r;
+        Thread reader = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    for (String line; (line = lines.readLine()) != null;)
+                        synchronized (tail) {
+                            tail.append(line).append('\n');
+                            if (tail.length() > 2000) tail.delete(0, tail.length() - 2000);
+                        }
+                } catch (java.io.IOException e) {
+                    // the program ended
+                }
             }
-            if (line.toLowerCase(java.util.Locale.ROOT).contains("step")) seen++;
-            job.status("running", Math.min(.95, .1 + .85 * seen / steps), null);
-            tail.append(line).append('\n');
-            if (tail.length() > 2000) tail.delete(0, tail.length() - 2000);
+        }, "ai-beat-log");
+        reader.start();
+        // about four seconds of loading and decoding plus a sixth of a second a step on an S25: a fair estimate
+        double expected = 4 + .17 * Math.max(1, job.getInt("steps")) * (fast ? 1 : 1.6);
+        long t0 = System.currentTimeMillis();
+        while (true) {
+            try {
+                p.exitValue();
+                break;
+            } catch (IllegalThreadStateException running) {
+                if (job.cancelled()) {
+                    p.destroy();
+                    throw new Exception("Cancelled.");
+                }
+                double s = (System.currentTimeMillis() - t0) / 1000.0;
+                job.status("running", Math.min(.95, s / expected * .9), null);
+                Thread.sleep(250);
+            }
         }
-        if (p.waitFor() != 0 || !new File((String) job.get("out")).isFile())
-            throw new Exception("The beat model stopped: " + tail.toString().trim());
+        reader.join(2000);
+        File made = new File((String) job.get("out"));
+        if (p.exitValue() != 0 || !made.isFile())
+            synchronized (tail) {
+                throw new Exception("The beat model stopped: " + tail.toString().trim());
+            }
+        ai.jackknife.killayue.studio.SoundPacks.level(made);
     }
 
     @Override

@@ -179,7 +179,8 @@ final class AiScreen implements Screen {
         help(groove, "groove");
 
         // ---- Beat Lab
-        LinearLayout beat = card(col, "Beat Lab", "A beat as audio from a few words, at your tempo, looped into the project.");
+        LinearLayout beat = card(col, "Beat Lab", "A beat as audio from a few words, at your tempo, looped into the project. "
+            + "Stable Audio Open Small · Powered by Stability AI.");
         beatPrompt = Ui.edit(a, "Describe the beat: genre, drums, bass, mood", 2);
         beat.addView(beatPrompt, Ui.gap(a, 6));
         HorizontalScrollView gs = new HorizontalScrollView(a);
@@ -385,7 +386,7 @@ final class AiScreen implements Screen {
     void refresh() {
         boolean beats = StudioModels.available("beats"), beatsHere = beats && AiJobs.installed(a, "beats");
         beatState.setText(!beats ? "Beats as audio arrive in an update; Groove above makes drum beats now."
-                          : beatsHere ? "Ready." : "First use downloads the beat model.");
+                          : beatsHere ? "Ready." : "First use downloads the beat model (" + VaultScreen.size(StudioModels.bytes("beats")) + ").");
         voiceState.setText(AiJobs.installed(a, "voice") ? "Ready."
                            : "First use downloads the voice (" + VaultScreen.size(StudioModels.bytes("voice")) + ").");
     }

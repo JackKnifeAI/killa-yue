@@ -23,6 +23,7 @@ public final class StudioModels {
 
     static final String HTDEMUCS = "https://huggingface.co/JackKnifeAI/htdemucs-executorch/resolve/main/";
     static final String VOICE = "https://huggingface.co/JackKnifeAI/killa-studio-voice/resolve/main/";
+    static final String BEATS = "https://huggingface.co/JackKnifeAI/killa-studio-beats/resolve/main/";
     static final String STUDIO_AI = "https://github.com/JackKnifeAI/killa-yue/releases/download/studio-ai-v1/";
 
     public static final File[] ALL = {
@@ -34,11 +35,13 @@ public final class StudioModels {
         // Speak: Kokoro-82M v1.0 (Apache-2.0) on sherpa-onnx (Apache-2.0) and ONNX Runtime (MIT), unpacked into voice/
         new File("voice", "killa-voice-v1.zip", 355131969L, "7b3128b89ba5688ce12e41202df396ea8e18513da56d33c0d426502bd81dac98",
                 VOICE + "killa-voice-v1.zip", STUDIO_AI + "killa-voice-v1.zip"),
-        // Beats: Stable Audio Open Small (Stability AI Community License) on LiteRT, unpacked into beats/, joins here
-        // once the converted model is published; until then the Beat Lab says it is coming.
+        // Beat Lab: Stable Audio Open Small (Stability AI Community License; Powered by Stability AI), converted to
+        // LiteRT, with Arm's audiogen runner (Apache-2.0); unpacked into beats/
+        new File("beats", "killa-beats-v1.zip", 1014752650L, "8251b4bc23622f73169e05373f3be3536af494fb03f973949625856b8d577a47",
+                BEATS + "killa-beats-v1.zip", STUDIO_AI + "killa-beats-v1.zip"),
     };
 
-    /** A feature whose files are published (beats waits for its model's licence). */
+    /** A feature whose files are published. */
     public static boolean available(String feature) {
         return forFeature(feature).length > 0;
     }

@@ -309,6 +309,33 @@ public final class SoundPacks {
             throw new IOException("Cancelled.");
     }
 
+    /** Levels a float recording so its peak sits at -1 dBFS (the beat model can overshoot full scale). */
+    public static void level(File f) throws IOException {
+        final float[] all;
+        final int ch, rate;
+        final long frames;
+        try (WavIn w = WavIn.open(f)) {
+            ch = w.channels;
+            rate = w.rate;
+            frames = w.frames;
+            all = new float[(int) frames * ch];
+            w.read(0, all, (int) frames);
+        }
+        float peak = 1e-9f;
+        for (float x : all) peak = Math.max(peak, Math.abs(x));
+        final float gain = .891f / peak;
+        File tmp = new File(f.getPath() + ".level");
+        InstrumentSamples.write(tmp, rate, ch, (int) frames, new InstrumentSamples.Generator() {
+            int i;
+            public void next(float[] out) {
+                for (int c = 0; c < ch; c++) out[c] = all[i * ch + c] * gain;
+                i++;
+            }
+        });
+        if (!tmp.renameTo(f))
+            throw new IOException("Could not level the beat.");
+    }
+
     /** A recording as 44.1 kHz stereo float, up to maxSeconds long: what the beat model restyles. */
     public static void toBeatInput(File in, File out, double maxSeconds) throws IOException {
         try (WavIn w = WavIn.open(in)) {
