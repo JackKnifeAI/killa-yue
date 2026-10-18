@@ -5,7 +5,7 @@ public final class About {
     private About() {}
 
     public static final String TEXT = "Songs made entirely on your phone. Your songs and lyrics stay on it unless you share them. "
-            + "The app uses the network only to download models and adapters you ask for, to share with a phone you choose, "
+            + "The app uses the network only to download models and adapters you ask for, to share with peers you choose through HAMMER (including live release subscriptions), "
             + "and, when Write with AI is set to look things up first, to send the search queries it writes from your request to "
             + "web search sites (DuckDuckGo, Mojeek, Marginalia, Wikipedia, Bing, GDELT, the Internet Archive, and Brave if you "
             + "give it a key) and read the pages they find.\n\n"
@@ -31,6 +31,7 @@ public final class About {
             + "public-domain parts; its web research is built with Rust and 157 open-source crates (MIT, Apache 2.0, MPL 2.0 and others, "
             + "each listed with its licence text). The songwriter model, Gemma 4 E4B abliterated by huihui-ai "
             + "(Apache License 2.0), is downloaded separately.\n"
+            + "HAMMER audio: Opus (BSD 3-Clause) and miniaudio (MIT No Attribution). No central push provider is used.\n"
             + "Studio: Oboe (Apache 2.0); Signalsmith Stretch and Linear (MIT); Demucs (MIT), ExecuTorch (BSD 3-Clause) and executorch_native (MIT).\n"
             + "Adapters you install belong to their makers and carry their own terms.\n\n"
             + "Killa YuE is an independent project and is not affiliated with or endorsed by the YuE2 authors.\n"

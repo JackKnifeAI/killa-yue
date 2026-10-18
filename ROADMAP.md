@@ -67,6 +67,44 @@ Shipped further than planned: Remix (stems, mixer, export), and also Play Along 
 
 Open any song in the new Studio tab, split it into stems, then mute, solo, level and pan them, with an undo and redo tree that keeps every branch, so you can go back, try something else and still return to what you had. Export the mix and the stems. The Studio's engine and project files are already in the code and tested on the S25.
 
+## Next, top priority: the worldwide Killa YuE network
+
+People will not be on the same Wi-Fi, so world reach comes first. Design: `docs/designs/2026-10-18-worldwide-network.md`.
+
+- **Done (phase 1)**: the network node `libkillanet.so` (rust-libp2p, MIT, 3.9 MB) carries HAMMER over encrypted QUIC/TCP streams. Peers are found by their network identity instead of an address; network cards (`hammer://<PeerId>.p2p…`) need no IP address.
+- **Next (phases 2 and 3, together)**:
+  - a decentralised DHT for artists, songs and genres;
+  - the BitTorrent DHT as the meeting point for first contact;
+  - remembered peers;
+  - reachability checks;
+  - router port mapping;
+  - hole punching;
+  - Killa YuE peers relaying for each other when hole punching fails.
+
+  The test: two phones on different carriers, Wi-Fi off on both, streaming a full song.
+- **Then**:
+  - worldwide Discover: search, genres, a "New releases" shelf, Live Follow across the network;
+  - the desktop companion on the network;
+  - hardening.
+
+## Languages
+
+The whole app, in-app guide and messages translated, picked from the phone's language with a choice in Settings:
+- Spanish
+- German
+- Italian
+- French
+- Chinese (Simplified)
+- Hindi (one of India's main languages; Bengali, Tamil or Telugu could follow)
+- Russian
+- Ukrainian
+
+Plan:
+- move every on-screen string into `res/values/strings.xml`;
+- ship a `values-<lang>` folder per language;
+- check the Killa script fonts have the glyphs, with a fallback face for Chinese, Devanagari and Cyrillic;
+- have a native speaker review each language before release.
+
 ## Also planned
 
 - **Showpiece sheet music**: the same notes drawn in your skin's look.
@@ -106,3 +144,16 @@ Today the app downloads models from several different Hugging Face accounts. We 
 - **App translations** and lyrics help for the many languages YuE2 sings.
 - **Full-screen visualiser** with the cover.
 - **Accessibility**: screen-reader labels and large-text layouts.
+
+## HAMMER peer music: implementation preview
+Implemented on the HAMMER branch: opt-in public/private catalogs; pinned encrypted streams; C++ original/Opus audio and bounded buffering; verified download, resume and rehost; signed comments and anonymous-display votes in sidecars; local host selection/failover; an Android artist-follow service with live peer push; and a downloadable desktop server.
+
+The S25 Ultra device pass now covers menus, notification permission handling and taps, screen-off delivery, playback in all three modes, seeking, replica failover, downloading/rehosting, metadata and desktop export. See peer/VALIDATION.md. Longer unplugged battery/Doze testing, other devices/networks and broader listening tests remain before a wide rollout.
+
+Future work: optional self-hosted reachability/relay discovery, broader public search, authenticated incremental metadata synchronization, larger host-capacity benchmarking, WAV-to-FLAC streaming, and validated Windows/macOS companion packages. No centralized provider is required by the current protocol.
+
+### Library / Discover and media isolation preview
+
+Implemented: Library visibility controls and audio import; signed searchable artist profiles and song artwork; reuse of generated covers and image upload; nearby NSD discovery; bounded signed public routing announcements; pre-TLS admission budgets; permissionless Android codec/image workers using read-only descriptors. Downloads retain the original publisher and enter Library directly.
+
+Validation and remaining device checks are tracked in [peer/DISCOVERY-VALIDATION.md](peer/DISCOVERY-VALIDATION.md). Worldwide bootstrap, NAT traversal and end-to-end encrypted relays remain required for automatic internet-wide discovery; this preview does not complete them. Desktop decoder isolation, long-duration battery tests and independent security review also remain.

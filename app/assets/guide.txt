@@ -1,5 +1,5 @@
 # How Killa YuE works
-Everything in the app, what it does and when to touch it. Open this page again from Engine > How everything works.
+Everything in the app, what it does and when to touch it. Open this page again from Settings > How everything works.
 
 # Create
 ## Song title
@@ -16,7 +16,7 @@ The big gold button under the lyrics. A songwriter model on the phone writes the
 ## Save these lyrics / My saved lyrics
 Keeps the lyrics to use again. The name offered is the song's title, or the first sung line when there is no title yet.
 ## Length
-How long the song is. Longer songs take longer to make and need more memory (see Engine > Memory for song length).
+How long the song is. Longer songs take longer to make and need more memory (see Settings > Memory for song length).
 ## Score
 How much of a written score the engine plans before it sings:
 - Full score (melody and chords): the most structured songs.
@@ -30,7 +30,7 @@ Generate song starts making it now. Add to queue saves it to be made later, one 
 
 # Advanced settings (Create)
 Leave them empty for the defaults; every one is optional.
-- Render steps: how many passes turn the plan into sound. More is cleaner and slower.
+- Render steps: how many passes turn the plan into sound. Empty means 3, which sounds practically the same as 32 in a fraction of the time; more is slower.
 - Variations (1-4): how many takes of the same song to make at once. Each extra take costs time and memory.
 - Melody seed: a number that fixes the melody and score. Use the same seed to get the same tune again; "random" picks a new one each time.
 - Sound seed: a number that fixes the sound (the singing and the mix) the same way.
@@ -49,7 +49,7 @@ Previous, rewind, play/pause, fast forward and next. Drag the bar to move throug
 # Lyrics
 Write and keep lyrics apart from songs. Sync matches the words of a song to the music, so they light up in time and can print under sheet music; Share sends them.
 
-# Engine
+# Settings
 ## Start engine
 Loads the song engine. It starts by itself when you make a song; starting it early saves a wait.
 ## Skin
@@ -231,3 +231,32 @@ The Chamber uses gold-framed, dark rubber pads in the Killa Gold skin. A pressed
 ## Listen to an unfinished song
 Create > Resume a song lists saved checkpoints. Listen to how far it got makes a playable preview from a saved render without changing the checkpoint. It starts only when you choose Listen. The preview may cover the whole song at unfinished quality, or just the chunks begun so far. It can sound rough. Its progress shows elapsed time, without a full-song countdown or render-step bar.
 When it plays, Keep in library saves a separate copy; Close leaves the checkpoint available; Resume finishes the original render. Previewing does not teach the normal song-time estimator.
+
+# Discover and Library sharing
+HAMMER connects music hosts through authenticated encrypted connections. Discover is the tab between Lyrics and Studio. Hosting and every sharing setting are on the Settings tab, under Sharing and hosting. Library owns your recordings and their sharing settings. Nothing is published just because you import it, download it or choose an image.
+## Import and publish a song
+Library > Import audio opens Android's file picker. WAV, FLAC and MP3 recordings from other apps and platforms are supported, up to 1 GiB. They are copied into Library and checked by the isolated codec. Imported songs start as Only on this device.
+Open a Library song menu > Song sharing. Choose Only on this device, Public network, or Private circle. Add public tags if wanted and choose whether to allow downloading and hosting by others. Apply publishes that recording and its existing cover and starts hosting. Prompts, saved melody tokens, Studio projects and other files are not sent. A downloaded HAMMER track retains its original publisher and download permission when rehosted.
+Library shows a sharing label beside each song. Settings > Sharing and hosting > Start hosting starts or stops serving the selected publications. Stopping hosting keeps the music and its sharing settings. Only on this device removes the publication. Downloads other people already made cannot be recalled. Hosting cannot start during generation and does not automatically restart at boot.
+The original master is served in place. Compressed Opus streams are generated in memory without a permanent second copy. Editing or moving a published master makes it unavailable until published again.
+## Artist profiles
+Discover > Your artist page (the card on top) lets you set a public artist name, biography, and genre/search tags, and your portrait. Paint with AI paints a new portrait on this phone from words you give it (your tags to start with), with the same NPU or GPU model as the covers; paint again for another. Upload a picture selects a JPEG, PNG or WebP up to 16 MiB. Use a song cover reuses artwork already made for one of your songs. Painting waits while a song is being made.
+Selecting artwork prepares it locally. Publish my page explicitly makes the fields and selected image public and starts hosting. Images are processed in an isolated service, resized to at most 384 pixels per side and re-encoded without original embedded metadata. Withdraw my page removes the profile offered by this host; it does not unpublish its songs or recall copies held elsewhere.
+Artist pages list the songs that artist's host serves: their own songs first, then the copies of other artists' songs it carries (Also hosting), with cover art. Your own page lists everything you host, private circle songs included. A signing key identifies the publisher; names are not verified real-world identities. Artist pages and songs are accessible from discovery results. Follow & get new songs remembers the host and enables direct release notifications if Android allows them. A persistent connection notification remains while Live Follow runs and consumes some battery. If notifications are disabled, Android settings opens; enable Live Follow afterwards in Settings > Sharing and hosting > Peers and artists.
+## Discovery and search
+Public phone hosts advertise through Android network service discovery on the local network. Discover finds these nearby hosts without entering an address or scanning a QR code. Refresh (↻, top right) fetches authenticated song catalogs and signed public artist profiles, and follows bounded batches of signed public directory announcements. Discover shows artists as round portraits and songs as cards with their covers. Typing in the search box filters both as you type; it matches artist names, biographies, tags and song titles locally. Duplicate recording entries are combined for display and their known hosts can provide failover.
+This preview is not automatic worldwide search. A fresh installation needs a nearby host or an existing reachable community entry peer. Internet entry deployment, NAT traversal and encrypted relays are still outstanding. It cannot make a carrier-NAT phone reachable by itself. Discovery stops after a bounded batch or time budget and never claims it has searched every host.
+Settings > Sharing and hosting has five groups: Hosting (start or stop, your hosted songs), Circles and invitations (public card, private invitation, revoke), Peers and artists (add a peer, followed peers and artists, Live Follow), Downloads (downloaded songs, cancel a transfer) and Computer (the desktop companion). Cards can be pasted or scanned; the QR is an optional representation of an address and pinned identity, not the music itself. Private invitations grant circle access and should be shared privately. Revoke private invitations invalidates them and disconnects current peers. Private invitations never enter public directory announcements.
+## Stream, download and host copies
+Tap a song card (or its ▶) to listen at the last quality chosen, Auto at first. The ⋯ on a card has Listen · choose the quality: Auto (adaptive Opus), Original (unchanged source), or Data saver (48 kbps Opus). Original is lossless only when the source is lossless. Compressed playback is stereo 48 kHz. A gold-framed player with play/pause, stop and a seek bar sits under the list while a stream is active.
+Auto uses 48, 96 or 160 kbps based on transfer time. Playback keeps a bounded 3 MiB cache; hosts cache up to 4 MiB of compressed segments per codec worker. Codec, process and transport overhead is additional. Requests select among authenticated known replicas and fail over when a host leaves; this is not global bandwidth coordination.
+Download / resume verifies the complete original audio hash and saves directly into Library. The verified recording has one persistent audio copy. Cover art and public metadata are retained when available. Save to Library in advanced downloaded-song tools remains available for older downloads.
+Comments and votes are signed sidecar metadata, not modifications to audio. Public metadata can travel with copies; private-circle annotations stay within their circle. Votes display no account name, but signing keys do not prove unique humans. Hosts can moderate comments on their own copies.
+## Release notifications
+Follow artists by signing identity. Settings > Sharing and hosting > Peers and artists > Live Follow on / off controls encrypted subscriptions to up to sixteen remembered hosts. Connected publication events trigger notifications without catalog polling. Reconnects catch up with still-available releases and deduplicate previously seen tracks. Old catalogs establish a baseline instead of flooding notifications.
+Instant delivery requires live connections. Android sleep restrictions, force-stop, restarts, offline hosts or lost connectivity can delay events. Restarting the phone requires enabling Live Follow again. Turn it off to close subscriptions and release its wake lock.
+## Desktop companion and security boundaries
+Settings > Sharing and hosting > Computer > Save desktop companion writes hammer-server.zip. The current companion needs a JDK and a terminal; Linux x86-64 has a bundled native library. Windows and macOS remain unvalidated. It can host recordings and signed artist profiles, download and rehost, exchange annotations and watch releases. Its README explains public entry-peer commands. The desktop codec does not yet use Android's isolated service protection.
+Only explicitly published objects can be requested over HAMMER. Knowing a file hash does not grant access. Audio, artwork and metadata requests check their owner and visibility. Android media workers receive selected read-only descriptors or bounded packets, not directory access or signing keys. Connection and resource limits reduce abuse; no software is immune to attacks.
+HAMMER encrypts transport and pins peer identities. It does not hide IP addresses or traffic timing, encrypt existing master files at rest, prevent compatible third-party clients, or stop recipients recording public streams. Public artist metadata is intended to be discoverable.
+The older Nearby browser download action is a separate temporary local HTTP sharing feature. It does not use HAMMER encryption and is not a fallback for encrypted peer connections.

@@ -1,0 +1,3 @@
+# Keep vendored audio sources byte-identical to their pinned upstream checksums.
+peer/native/vendor/* linguist-vendored
+peer/native/vendor/miniaudio.h -text whitespace=-blank-at-eol

@@ -13,6 +13,7 @@ STRIP=${STRIP:-llvm-strip}
 DX=${DX:-dalvik-exchange}
 
 rm -rf out && mkdir -p out/gen out/classes out/apk/lib/arm64-v8a
+HAMMER_DESKTOP_LIB="$HAMMER_DESKTOP_LIB" bash ../peer/build-companion.sh "$PWD/out/hammer-assets"
 MANIFEST=AndroidManifest.xml
 JAVA_DIRS="src out/gen"
 LINK_EXTRA=""
@@ -26,20 +27,26 @@ assert m.count('<application ') == 1 and m.count('</application>') == 1, 'the ma
 if 'android.permission.RECORD_AUDIO' not in m:
     m = m.replace('<application ', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application ', 1)
 m = m.replace('<application ', '<application android:debuggable="true" ', 1)
-m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/>\n    </application>', 1)
+m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/><activity android:name=".HammerTestActivity" android:exported="true"/><activity android:name=".NetworkTestActivity" android:exported="true"/>\n    </application>', 1)
 open('out/AndroidManifest.xml', 'w').write(m)
 PY
     MANIFEST=out/AndroidManifest.xml
-    JAVA_DIRS="$JAVA_DIRS test-src ../studio/native/test/java"
+    JAVA_DIRS="$JAVA_DIRS test-src ../studio/native/test/java ../peer/test"
     LINK_EXTRA="--replace-version --version-name $(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml)-studiotest"
 fi
 aapt2 compile --dir res -o out/res.zip
-aapt2 link -o out/base.apk -I "$ANDROID_JAR" -A assets --manifest $MANIFEST --java out/gen \
+aapt2 link -o out/base.apk -I "$ANDROID_JAR" -A assets -A out/hammer-assets --manifest $MANIFEST --java out/gen \
     --min-sdk-version 28 --target-sdk-version 28 $LINK_EXTRA out/res.zip
 # Java 8 bytecode and no lambdas, so the classic dx tool can convert it
 javac -Xlint:-options --release 8 -cp "$ANDROID_JAR" -d out/classes $(find $JAVA_DIRS -name '*.java')
 [ -f out/classes/ai/jackknife/killayue/MainActivity.class ]
 (cd out && $DX --dex --min-sdk-version=26 --output=apk/classes.dex classes)
+
+: "${HAMMER_LIB:?set HAMMER_LIB to the native HAMMER audio library}"
+cp "$HAMMER_LIB" out/apk/lib/arm64-v8a/libhammer.so
+: "${KILLANET_LIB:?set KILLANET_LIB to the Killa YuE network library (net/build.sh android)}"
+cp "$KILLANET_LIB" out/apk/lib/arm64-v8a/libkillanet.so
+$STRIP out/apk/lib/arm64-v8a/libhammer.so
 
 # The engine is an executable; Android only unpacks files named lib*.so, so it travels under that name.
 cp "$ENGINE_BIN" out/apk/lib/arm64-v8a/libyueserver.so

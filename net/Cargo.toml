@@ -1,0 +1,28 @@
+[package]
+name = "killanet"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The Killa YuE network node: rust-libp2p carrying HAMMER connections, peer to peer"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Exact versions: the network must build from this repository alone (see vendor/ and docs/designs/2026-10-18-worldwide-network.md).
+libp2p = { version = "=0.57.1", default-features = false, features = ["tokio", "tcp", "quic", "noise", "yamux", "mdns", "identify", "ping", "macros", "ed25519", "kad", "autonat", "relay", "dcutr", "upnp"] }
+libp2p-stream = "=0.5.0-alpha"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+futures = "0.3"
+jni = "=0.21.1"
+mainline = { version = "=8.0.1", default-features = false, features = ["node"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+# unwind, so a panic becomes an error in Java instead of ending the app (see catch_unwind in the JNI calls)
+panic = "unwind"

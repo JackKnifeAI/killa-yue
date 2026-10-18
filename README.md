@@ -246,3 +246,10 @@ Alexander, founder of JackKnife AI, and Claudia, his AI partner, who wrote the c
 ### Killa Gold pads
 
 The Chamber’s Killa Gold pads have a dark rubber resting face and an amber struck face. Touch holds and MIDI note-ons light the artwork, while pad labels and the selection outline remain visible. Other skins retain their existing pad appearance.
+
+## HAMMER preview (unreleased)
+The development branch adds opt-in phone and desktop hosting, public catalogs and private circles, original or on-demand Opus streaming, verified downloads/rehosting, signed comments and per-track votes, and direct encrypted Live Follow release notifications. Existing masters are served in place. See [the companion guide](peer/README.md) and the in-app guide for controls and privacy limits.
+
+The Library/Discover preview moves publishing into each Library song, adds private-by-default audio import, signed artist pages and artwork, and discovers nearby public hosts automatically. Android media parsing runs in isolated workers. See [publication and discovery boundaries](peer/DISCOVERY-SECURITY.md) and [this preview’s validation status](peer/DISCOVERY-VALIDATION.md).
+
+Internet peers still need reachable addresses; worldwide bootstrap, automatic NAT traversal and relays are not included. Live delivery requires connected peers and Android background execution. The phone UI, screen-off notifications, streaming and host failover were exercised on the S25 Ultra; see [validation results](peer/VALIDATION.md). Longer battery/Doze and broader device/network testing remain. This is not part of the published v1.5.0 APK.
