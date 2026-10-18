@@ -891,3 +891,11 @@ recording, encoded as 16-bit 48 kHz FLAC). Each pack carries its own LICENSE.txt
   Horn, Trombone, Marimba, Glockenspiel, Xylophone**: Versilian Studios Chamber Orchestra 2 Community Edition
   (https://github.com/sgossner/VSCO-2-CE), CC0 1.0 (public domain); the Upright Piano and Organ were sampled by
   Simon Dalzell of Ivy Audio. Credit to the authors and Versilian Studios is given here gladly.
+
+## Killa Groove (the Studio's drum-groove model, inside the app)
+
+`assets/studio/killa-groove-v1.bin` is a model trained by `tools/groove/train.py` on the Groove MIDI Dataset by Jon
+Gillick, Adam Roberts, Jesse Engel, Mohammad Norouzi and the Magenta team at Google, released under Creative Commons
+Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/; https://magenta.tensorflow.org/datasets/groove). The
+model is our own training on that data; the data itself is not included. Its step representation follows "Learning
+to Groove with Inverse Sequence Transformations" (Gillick et al., ICML 2019).

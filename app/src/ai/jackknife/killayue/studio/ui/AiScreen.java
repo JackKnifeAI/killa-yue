@@ -40,8 +40,9 @@ final class AiScreen implements Screen {
     final ScrollView view;
     final TextView status, beatState, voiceState;
     final EditText beatPrompt, speakText, singWords, singVoice;
-    int bars = 4, voice = 3, quality = 0;
-    float speed = 1f;
+    int bars = 4, voice = 3, quality = 0, grooveStyle = 1, grooveLength = 4;
+    float speed = 1f, busy = 1f, feel = 1f;
+    static ai.jackknife.killayue.studio.GrooveModel grooveModel;
     boolean restyle;
     long lastSeed;
     String watching;
@@ -111,8 +112,74 @@ final class AiScreen implements Screen {
         status = Ui.text(a, "", Skin.DIM, 13);
         col.addView(status);
 
+        // ---- Groove: the drum model that runs on the phone
+        LinearLayout groove = card(col, "Groove", "A drummer in your phone: real-feel grooves in 18 styles, as notes "
+            + "for Killa Drums you can edit and run through the MIDI effects.");
+        HorizontalScrollView ss = new HorizontalScrollView(a);
+        ss.setHorizontalScrollBarEnabled(false);
+        LinearLayout styles = Ui.row(a);
+        ss.addView(styles);
+        final Button[] styleB = new Button[ai.jackknife.killayue.studio.GrooveModel.STYLES.length];
+        for (int i = 0; i < styleB.length; i++) {
+            final int s = i;
+            styleB[i] = Ui.chip(a, ai.jackknife.killayue.studio.GrooveModel.STYLE_NAMES[i]);
+            styleB[i].setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    grooveStyle = s;
+                    for (int k = 0; k < styleB.length; k++) FxDialog.mark(a, styleB[k], k == s);
+                }
+            });
+            FxDialog.mark(a, styleB[i], i == grooveStyle);
+            styles.addView(styleB[i]);
+        }
+        groove.addView(ss, Ui.gap(a, 8));
+        final TextView busyL = Ui.text(a, "Busy: as the drummers played", Skin.TEXT, 13);
+        groove.addView(busyL, Ui.gap(a, 6));
+        SeekBar busyBar = new SeekBar(a);
+        busyBar.setMax(20);
+        busyBar.setProgress(10);
+        busyBar.setContentDescription("How busy the groove is");
+        busyBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int v, boolean u) {
+                busy = .5f + v * .05f;
+                busyL.setText(v == 10 ? "Busy: as the drummers played" : v < 10 ? "Busy: sparser" : "Busy: busier");
+            }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        groove.addView(busyBar);
+        final TextView feelL = Ui.text(a, "Feel: human", Skin.TEXT, 13);
+        groove.addView(feelL, Ui.gap(a, 6));
+        SeekBar feelBar = new SeekBar(a);
+        feelBar.setMax(15);
+        feelBar.setProgress(10);
+        feelBar.setContentDescription("How loose the timing is");
+        feelBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar s, int v, boolean u) {
+                feel = v / 10f;
+                feelL.setText(v == 0 ? "Feel: on the grid" : v < 10 ? "Feel: tight" : v == 10 ? "Feel: human" : "Feel: laid back and loose");
+            }
+            public void onStartTrackingTouch(SeekBar s) {}
+            public void onStopTrackingTouch(SeekBar s) {}
+        });
+        groove.addView(feelBar);
+        final Button grooveBars = Ui.chip(a, "4 bars");
+        grooveBars.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                grooveLength = grooveLength == 4 ? 8 : grooveLength == 8 ? 2 : 4;
+                grooveBars.setText(grooveLength + " bars");
+            }
+        });
+        groove.addView(grooveBars, Ui.gap(a, 6));
+        Button play = Ui.button(a, "Play me a groove", true);
+        groove.addView(play, Ui.gap(a, 8));
+        play.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { makeGroove(); }
+        });
+        help(groove, "groove");
+
         // ---- Beat Lab
-        LinearLayout beat = card(col, "Beat Lab", "A beat from a few words, at your tempo, looped into the project.");
+        LinearLayout beat = card(col, "Beat Lab", "A beat as audio from a few words, at your tempo, looped into the project.");
         beatPrompt = Ui.edit(a, "Describe the beat: genre, drums, bass, mood", 2);
         beat.addView(beatPrompt, Ui.gap(a, 6));
         HorizontalScrollView gs = new HorizontalScrollView(a);
@@ -263,6 +330,18 @@ final class AiScreen implements Screen {
         });
     }
     static String advice(String topic) {
+        if ("groove".equals(topic))
+            return "Groove is a drum model trained on 13.6 hours of real drummers (Magenta's Groove MIDI Dataset), so "
+                + "it plays with a drummer's timing and dynamics, not a drum machine's.\n\n"
+                + "• Pick a style: each one learned from players of that style. Funk, Soul, Hip-hop and Rock have the most "
+                + "playing behind them; Jazz swings; Latin, Afrobeat and Afro-Cuban are full of syncopation.\n"
+                + "• Busy makes the drummer play less or more; in the middle it plays as it learned.\n"
+                + "• Feel sets how far the hits sit off the grid: on the grid for electronic music, human in the middle, "
+                + "loose for a laid-back pocket.\n"
+                + "• Each press plays a new groove; keep the one you like and undo the rest.\n"
+                + "• It lands at the playhead's bar as notes on a Killa Drums track: open Keys to edit a hit, add Note "
+                + "repeat for hat rolls or Swing for more groove, or choose another sound for the track.\n"
+                + "• It plays at the project's tempo, so set the tempo first (Play Along).";
         if ("beats".equals(topic))
             return "The beat model (Stable Audio Open Small) listens to words about sound, not instructions.\n\n"
                 + "• Name the genre first, then the drums, then the bass and the mood: \"boom bap hip hop drum loop, dusty "
@@ -305,7 +384,7 @@ final class AiScreen implements Screen {
 
     void refresh() {
         boolean beats = StudioModels.available("beats"), beatsHere = beats && AiJobs.installed(a, "beats");
-        beatState.setText(!beats ? "The beat model is on its way in an update."
+        beatState.setText(!beats ? "Beats as audio arrive in an update; Groove above makes drum beats now."
                           : beatsHere ? "Ready." : "First use downloads the beat model.");
         voiceState.setText(AiJobs.installed(a, "voice") ? "Ready."
                            : "First use downloads the voice (" + VaultScreen.size(StudioModels.bytes("voice")) + ").");
@@ -338,13 +417,81 @@ final class AiScreen implements Screen {
 
     // ------------------------------------------------------------------ jobs
 
+    /** A groove from the drum model, as Killa Drums notes at the playhead's bar. */
+    void makeGroove() {
+        final Project p = a.session.project();
+        if (p == null)
+            return;
+        if (p.tracks.size() >= 64) {
+            Ui.toast(a, "The project already has 64 tracks.");
+            return;
+        }
+        final int style = grooveStyle, length = grooveLength;
+        final float b = busy, f = feel;
+        NativeEngine.Status s = a.session.status();
+        TempoMap map = new TempoMap(p.rate, p.performance);
+        double perBar = p.performance.beats * 4.0 / p.performance.beatUnit;
+        final double at = s == null ? 0 : Math.floor(map.beatAt(s.position) / perBar + 1e-9) * perBar;
+        status.setText("The drummer is playing…");
+        new Thread(new Runnable() {
+            public void run() {
+                String err = null;
+                java.util.List<ai.jackknife.killayue.studio.MidiNotes.Note> notes = null;
+                try {
+                    synchronized (AiScreen.class) {
+                        if (grooveModel == null) {
+                            java.io.InputStream in = a.getAssets().open("studio/killa-groove-v1.bin");
+                            try {
+                                grooveModel = ai.jackknife.killayue.studio.GrooveModel.read(new java.io.BufferedInputStream(in));
+                            } finally {
+                                in.close();
+                            }
+                        }
+                    }
+                    notes = grooveModel.play(style, length, b, f, System.nanoTime());
+                } catch (Exception e) {
+                    err = e.getMessage();
+                }
+                final String why = err;
+                final java.util.List<ai.jackknife.killayue.studio.MidiNotes.Note> played = notes;
+                a.runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (why != null || a.session.project() != p) {
+                            status.setText(why == null ? "" : "The groove did not play: " + why);
+                            return;
+                        }
+                        Project q = p.copy();
+                        Track t = q.addTrack("Groove · " + ai.jackknife.killayue.studio.GrooveModel.STYLE_NAMES[style]);
+                        t.role = "instrument:7";
+                        t.notes.instrument = 7;
+                        for (ai.jackknife.killayue.studio.MidiNotes.Note n : played) {
+                            if (t.notes.notes.size() >= ai.jackknife.killayue.studio.MidiNotes.MAX)
+                                break;
+                            ai.jackknife.killayue.studio.MidiNotes.Note c = t.notes.add(at + n.beat, n.key);
+                            c.length = n.length;
+                            c.velocity = n.velocity;
+                        }
+                        try {
+                            q.validate();
+                            a.session.run(ClipEdits.change(p, q, "AI groove"));
+                            status.setText(played.size() + " hits of " + ai.jackknife.killayue.studio.GrooveModel.STYLE_NAMES[style]
+                                + " on a new Killa Drums track. Press ▶ to hear it; open Keys to shape it.");
+                        } catch (Exception e) {
+                            status.setText(e.getMessage());
+                        }
+                    }
+                });
+            }
+        }, "studio-groove").start();
+    }
+
     void makeBeat(boolean again) {
         final Project p = a.session.project();
         if (p == null)
             return;
         if (!StudioModels.available("beats")) {
-            new Lux.Builder(a).setTitle("Beat Lab").setMessage("The beat model arrives in an update. Meanwhile, Keys has "
-                + "Killa Drums with the Note repeat and Chance effects, and the Sampler's step sequencer.").setPositiveButton("OK", null).show();
+            new Lux.Builder(a).setTitle("Beat Lab").setMessage("Beats as audio arrive in an update. For beats now, Groove "
+                + "above plays a real-feel drum groove in 18 styles, ready to edit in Keys.").setPositiveButton("OK", null).show();
             return;
         }
         String words = beatPrompt.getText().toString().trim();
