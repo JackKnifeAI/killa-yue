@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Engine tab > Check for updates: installs a new release when the person taps Update -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
@@ -41,7 +42,16 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="killayue" android:host="models"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="hammer"/>
+            </intent-filter>
         </activity>
+        <activity android:name=".HammerActivity" android:exported="false"/>
+        <service android:name=".HammerService" android:exported="false"/>
+        <service android:name=".HammerFollowService" android:exported="false"/>
         <!-- sheet music: view, zoom, print and share the exported PDFs -->
         <!-- the Studio: portrait or landscape; it handles rotation itself, so the sound never restarts -->
         <activity android:name=".studio.ui.StudioActivity" android:exported="false"

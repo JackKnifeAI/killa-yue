@@ -1885,6 +1885,7 @@ public class MainActivity extends Activity {
 
     void showLibrary(LibData d) {
         libraryBox.removeAllViews();
+        libraryBox.addView(chipRow(new String[] {"HAMMER · peer music"}, new Runnable[] {new Runnable() {public void run() {HammerActivity.open(MainActivity.this);}}}));
         ArrayList<File> metas = d.metas;
         if (metas.size() == 0) {
             TextView t = text("No songs yet. Make one on the Create tab.", DIM, 16);
@@ -1988,7 +1989,7 @@ public class MainActivity extends Activity {
         final String[] items = {
             "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
             "Open in Studio", "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
-            "Share with a QR code", "Change the title", "Details", "Delete",
+            "Share with a QR code", "Host with HAMMER", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
@@ -2054,6 +2055,8 @@ public class MainActivity extends Activity {
                     makeCover(m, true);
                 } else if ("Share as a recipe".equals(pick)) {
                     shareRecipe(m);
+                } else if ("Host with HAMMER".equals(pick)) {
+                    HammerActivity.publish(MainActivity.this, m);
                 } else if ("Share with a QR code".equals(pick)) {
                     shareSongQr(m);
                 } else if ("Make a lyric video".equals(pick)) {
@@ -2504,6 +2507,11 @@ public class MainActivity extends Activity {
     void handleLink(Intent in) {
         if (in == null || in.getData() == null) return;
         Uri u = in.getData();
+        if ("hammer".equals(u.getScheme())) {
+            in.setData(null);
+            startActivity(new Intent(this, HammerActivity.class).putExtra("invite", u.toString()));
+            return;
+        }
         if (!"killayue".equals(u.getScheme()) || !"models".equals(u.getHost())) return;
         in.setData(null); // handle it once
         final String from = u.getQueryParameter("from");
