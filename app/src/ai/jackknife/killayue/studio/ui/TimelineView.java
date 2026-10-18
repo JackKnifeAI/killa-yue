@@ -121,11 +121,11 @@ final class TimelineView extends View {
         setMeasuredDimension(MeasureSpec.getSize(w), ruler + Math.max(1, tracks) * lane + Ui.dp(getContext(), 8));
     }
 
-    @Override
     /** Dragging the playhead: grab it anywhere near its line (or its knob on the ruler) and slide. */
     private boolean scrubbing;
     private long lastScrub;
 
+    @Override
     public boolean onTouchEvent(MotionEvent e) {
         if (session.project() != null && e.getPointerCount() == 1) {
             int action = e.getActionMasked();
