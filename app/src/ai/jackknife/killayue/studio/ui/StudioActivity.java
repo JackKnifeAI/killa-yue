@@ -20,7 +20,8 @@ import java.io.File;
 
 /**
  * The Studio: its own screen in the app, in the skin's dress, portrait or landscape. The Vault (projects),
- * Arrange (the timeline), the Mixer and the Splitter (stems), swapped by the bar at the bottom. The session
+ * Arrange (the timeline), Keys (instruments, MIDI effects and the piano), the Mixer and the Splitter (stems),
+ * Play Along and the Sampler, swapped by the bar at the bottom. The session
  * (engine, project, undo tree) outlives the screen, so rotating or leaving and coming back never stops it.
  */
 public class StudioActivity extends Activity implements StudioSession.Listener {
@@ -46,6 +47,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     private VaultScreen vault;
     private PlayAlongScreen playAlong;
     private SamplerScreen sampler;
+    KeysScreen keys;
     private boolean visible;
 
     private final Choreographer.FrameCallback frame = new Choreographer.FrameCallback() {
@@ -100,7 +102,8 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         vault = new VaultScreen(this);
         playAlong = new PlayAlongScreen(this);
         screens = new Screen[] {
-            vault, new ArrangeScreen(this), new MixerScreen(this), new SplitterScreen(this), playAlong, sampler = new SamplerScreen(this)};
+            vault, new ArrangeScreen(this), keys = new KeysScreen(this), new MixerScreen(this), new SplitterScreen(this), playAlong,
+            sampler = new SamplerScreen(this)};
         LinearLayout bar = Ui.row(this);
         bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 8));
         tabs = new Button[screens.length];
@@ -161,6 +164,11 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         }
     }
 
+    /** To Keys, for an instrument track. */
+    void showKeys() {
+        show(2);
+    }
+
     /** A project was opened (from the Vault): to the timeline. */
     void opened() {
         show(1);
@@ -199,5 +207,6 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         vault.result(request, result, data);
         playAlong.result(request, result, data);
         sampler.result(request, result, data);
+        keys.result(request, result, data);
     }
 }

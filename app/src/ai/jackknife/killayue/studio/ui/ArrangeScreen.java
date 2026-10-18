@@ -136,9 +136,9 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
                 HistoryDialog.show(a);
             }
         });
-        Button piano = Ui.button(a, "Piano roll", false);
+        Button piano = Ui.button(a, "Keys", false);
         row.addView(piano);
-        piano.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { PianoDialog.show(a); } });
+        piano.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { a.showKeys(); } });
         Button automation = Ui.button(a, "Automation", false);
         row.addView(automation);
         automation.setOnClickListener(new View.OnClickListener() {

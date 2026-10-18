@@ -46,23 +46,23 @@ public final class SoundPacks {
     }
     static final String SALAMANDER = "Salamander Grand Piano V3 by Alexander Holm, CC BY 3.0";
     static final String VSCO = "VSCO 2 Community Edition by Versilian Studios, CC0";
-    /** Filled by tools/sounds/build.py: the pack's byte size and SHA-256. */
+    /** From tools/sounds/build.py: each pack's byte size and SHA-256. */
     public static final Info[] PACKS = {
-        new Info("grand", 0, "", SALAMANDER),
-        new Info("upright", 0, "", VSCO),
-        new Info("upright-bright", 0, "", VSCO),
-        new Info("organ", 0, "", VSCO),
-        new Info("strings", 0, "", VSCO),
-        new Info("pizzicato", 0, "", VSCO),
-        new Info("harp", 0, "", VSCO),
-        new Info("flute", 0, "", VSCO),
-        new Info("clarinet", 0, "", VSCO),
-        new Info("trumpet", 0, "", VSCO),
-        new Info("horn", 0, "", VSCO),
-        new Info("trombone", 0, "", VSCO),
-        new Info("marimba", 0, "", VSCO),
-        new Info("glockenspiel", 0, "", VSCO),
-        new Info("xylophone", 0, "", VSCO),
+        new Info("grand", 21367354L, "334935e47bc5cd2dea438c9294d8bbe63b11b11480117f88c664787860369351", SALAMANDER),
+        new Info("upright", 10051374L, "367c995014026454a4c8e7f815db15ed5fa97cb9edf4d94017c601bb2073787e", VSCO),
+        new Info("upright-bright", 6051585L, "732e4d32d812f90a3e37b1c0270c9757e2cfa39c340ed94c2042f9f13411e2f8", VSCO),
+        new Info("organ", 12081403L, "3aa994681c57e97d0bd97bf95396ecfc2e7588263e195e3961a3c2c1ae5b8baa", VSCO),
+        new Info("strings", 10573847L, "34d500ff5eae6508fa6c6bbb301978014f9067b43eea163b928a7d90dd99d7b5", VSCO),
+        new Info("pizzicato", 1167066L, "bfcac7be3442d7b98582b5b4facee22edf16b1087e9f260d75a85d674dde6206", VSCO),
+        new Info("harp", 5873680L, "1057c87c344ca3b141237df7199b17d708671cc43452ee87ac86264f3da530bf", VSCO),
+        new Info("flute", 5159659L, "44c38c35eadd0f4721c96d589f50718a9cef676aa572f1ca2e7db0c3512754b7", VSCO),
+        new Info("clarinet", 6439635L, "5018e627325684f12e941b60f14124d122ac14c85609eee2fb2431ce5dd7e92b", VSCO),
+        new Info("trumpet", 5421350L, "06f856af6d5e74d264ac8a1e6f73c94ff19f75301031f6ec20162085f55e863a", VSCO),
+        new Info("horn", 2912892L, "440a988f0c9bc14194415997c6d007700941ebcabc9c8dd299c24b644780d56b", VSCO),
+        new Info("trombone", 5011285L, "7f7345a292c941f5c1fae43d8247a0262799084111bb7d7cebed13d6de34760f", VSCO),
+        new Info("marimba", 970080L, "71e70f62a39466f11dba431c1fd713b2016483fa255ba81673aaf452ec363b3a", VSCO),
+        new Info("glockenspiel", 1584089L, "848440cb1999ae509297502c6e24b8fef22cc9c1801acb17964c620f08b61e56", VSCO),
+        new Info("xylophone", 485070L, "01dd91b6d7852c4bbe86d89bf6ac06be4db228e7537d62f9597673734ba5c1a1", VSCO),
     };
     public static Info info(String pack) {
         for (Info i : PACKS)

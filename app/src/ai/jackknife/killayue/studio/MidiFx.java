@@ -138,7 +138,7 @@ public final class MidiFx {
         void advance(Ctx c) {}
         /** The next moment this effect wants to act by itself, or infinity. */
         double wake() { return Double.POSITIVE_INFINITY; }
-        Map<String, Object> json() {
+        public Map<String, Object> json() {
             LinkedHashMap<String, Object> m = new LinkedHashMap<String, Object>();
             m.put("kind", kind);
             m.put("on", on);

@@ -9,6 +9,11 @@
 #include "studio/spsc.h"
 namespace studio {
 class Keyboard {
+   public:
+    // MIDI 21..108, the 88 keys of a piano; each key has 1 to 4 velocity layers, softest first.
+    static constexpr int LOW = 21, KEYS = 88, MAX_LAYERS = 4;
+
+   private:
     struct Bank;
     struct Event {
         Bank* bank = nullptr;
@@ -32,11 +37,10 @@ class Keyboard {
     std::atomic<bool> panic_{false};
     std::atomic<long> underruns_{0};
     void clear();
-    static float layerGain(float velocity, int layers);
 
    public:
-    // MIDI 21..108, the 88 keys of a piano; each key has 1 to 4 velocity layers, softest first.
-    static constexpr int LOW = 21, KEYS = 88, MAX_LAYERS = 4;
+    // within a velocity layer, the level the note plays at (the Java side mirrors this in Sounds.gainDb)
+    static float layerGain(float velocity, int layers);
     explicit Keyboard(int rate) : rate_(rate) {}
     ~Keyboard();                                                           // after the audio callback has stopped
     // files[key * layers + layer]; release in milliseconds after the key is let go (or the pedal lifts)

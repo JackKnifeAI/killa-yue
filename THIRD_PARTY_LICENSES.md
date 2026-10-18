@@ -878,3 +878,16 @@ https://datatracker.ietf.org/ipr/1526/
 ```
 
 miniaudio 0.11.25 by David Reid, used under MIT No Attribution. The complete dual-license text is included at the end of peer/native/vendor/miniaudio.h; the pinned revision and SHA-256 are in peer/native/vendor/VERSIONS.txt. The source header is included in the desktop companion.
+
+## Studio sound packs (downloaded on request, not inside the app)
+
+The recorded instruments in the Studio's Sounds are downloaded once from the `sounds-v1` release of this
+repository, built by `tools/sounds/build.py` (trimmed, levelled, looped where a note may ring longer than the
+recording, encoded as 16-bit 48 kHz FLAC). Each pack carries its own LICENSE.txt.
+
+- **Grand Piano**: Salamander Grand Piano V3 by Alexander Holm (a Yamaha C5), Creative Commons Attribution 3.0
+  (https://creativecommons.org/licenses/by/3.0/). Source: https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html
+- **Upright Piano, Bright Upright, Organ, String Ensemble, Pizzicato Strings, Harp, Flute, Clarinet, Trumpet, French
+  Horn, Trombone, Marimba, Glockenspiel, Xylophone**: Versilian Studios Chamber Orchestra 2 Community Edition
+  (https://github.com/sgossner/VSCO-2-CE), CC0 1.0 (public domain); the Upright Piano and Organ were sampled by
+  Simon Dalzell of Ivy Audio. Credit to the authors and Versilian Studios is given here gladly.
