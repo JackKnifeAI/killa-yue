@@ -312,6 +312,11 @@ public class MainActivity extends Activity {
         top.addView(title, weight());
         header = text("", DIM, 12);
         top.addView(header);
+        Button discover = chip("Discover");
+        top.addView(discover);
+        discover.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { HammerActivity.open(MainActivity.this); }
+        });
         root.addView(top);
 
         LinearLayout tabRow = row();
@@ -1682,6 +1687,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int code, int result, Intent data) {
+        if (code == HammerLibrary.IMPORT_AUDIO) {
+            if (result == RESULT_OK && data != null && data.getData() != null) HammerLibrary.imported(this, data.getData());
+            return;
+        }
         if (result != RESULT_OK || data == null || data.getData() == null) return;
         if (code == PICK_ADAPTER) {
             importAdapterFile(data.getData());
@@ -1818,6 +1827,7 @@ public class MainActivity extends Activity {
         final ArrayList<JSONObject> loaded = new ArrayList<JSONObject>();
         final java.util.HashMap<String, Integer> familySize = new java.util.HashMap<String, Integer>();
         final ArrayList<android.graphics.Bitmap> thumbs = new ArrayList<android.graphics.Bitmap>();
+        final ArrayList<String> sharing = new ArrayList<String>();
     }
 
     int libraryGen;
@@ -1878,17 +1888,30 @@ public class MainActivity extends Activity {
                 j = null;
             }
             d.loaded.add(j);
-            d.thumbs.add(j == null ? null : Covers.load(Covers.coverFor(c, j), 8));
+            d.thumbs.add(j == null ? null : HammerLibrary.thumbnail(c, j));
+            d.sharing.add(j == null ? "" : HammerLibrary.state(c, j));
         }
         return d;
     }
 
     void showLibrary(LibData d) {
         libraryBox.removeAllViews();
-        libraryBox.addView(chipRow(new String[] {"HAMMER · peer music"}, new Runnable[] {new Runnable() {public void run() {HammerActivity.open(MainActivity.this);}}}));
+        libraryBox.addView(chipRow(new String[] {"Import audio", "Hosting", "Sharing settings"}, new Runnable[] {
+            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } },
+            new Runnable() { public void run() {
+                new Lux.Builder(MainActivity.this).setTitle("Library hosting")
+                    .setMessage(HammerService.status + "\nOnly songs you publish are served. Public songs appear in discovery; private songs require invitations.")
+                    .setPositiveButton("Start", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d, int w) { HammerService.startHost(MainActivity.this); }
+                    }).setNeutralButton("Stop", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface d, int w) { HammerService.stopHost(); }
+                    }).setNegativeButton("Close", null).show();
+            } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this); } }
+        }));
         ArrayList<File> metas = d.metas;
         if (metas.size() == 0) {
-            TextView t = text("No songs yet. Make one on the Create tab.", DIM, 16);
+            TextView t = text("No songs yet. Create a song, import audio, or download one from Discover.", DIM, 16);
             t.setPadding(0, dp(24), 0, 0);
             libraryBox.addView(t);
             return;
@@ -1948,6 +1971,13 @@ public class MainActivity extends Activity {
             String st = m.optString("style");
             if (st.length() > 0) sub += "\n" + (st.length() > 60 ? st.substring(0, 60) + "…" : st);
             info.addView(text(sub, DIM, 12));
+            TextView sharing = text(d.sharing.get(i), ACCENT, 12);
+            sharing.setContentDescription("Sharing options for " + m.optString("_title", "Untitled"));
+            sharing.setPadding(0, dp(6), 0, dp(6));
+            sharing.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                HammerLibrary.sharing(MainActivity.this, m);
+            }});
+            info.addView(sharing);
             r.addView(info, weight());
             Button more = chip("⋯");
             r.addView(more);
@@ -1987,9 +2017,9 @@ public class MainActivity extends Activity {
         final String title = m.optString("_title", "Untitled");
         final String tokens = m.optString("semantic_tokens");
         final String[] items = {
-            "Play", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
+            "Play", "Song sharing", "Show the lyrics", "Other takes of this song", "New sound, same song", "Edit the score and render again",
             "Open in Studio", "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
-            "Share with a QR code", "Host with HAMMER", "Change the title", "Details", "Delete",
+            "Nearby download · unencrypted", "Change the title", "Details", "Delete",
         };
         new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
@@ -2055,9 +2085,9 @@ public class MainActivity extends Activity {
                     makeCover(m, true);
                 } else if ("Share as a recipe".equals(pick)) {
                     shareRecipe(m);
-                } else if ("Host with HAMMER".equals(pick)) {
-                    HammerActivity.publish(MainActivity.this, m);
-                } else if ("Share with a QR code".equals(pick)) {
+                } else if ("Song sharing".equals(pick)) {
+                    HammerLibrary.sharing(MainActivity.this, m);
+                } else if ("Nearby download · unencrypted".equals(pick)) {
                     shareSongQr(m);
                 } else if ("Make a lyric video".equals(pick)) {
                     makeLyricVideo(m);
@@ -3652,7 +3682,7 @@ public class MainActivity extends Activity {
 
     void togglePlay() {
         if (player == null) {
-            if (playlist.size() == 0) toast("No songs yet. Make one on the Create tab.");
+            if (playlist.size() == 0) toast("No songs yet. Create a song, import audio, or download one from Discover.");
             else play(playlist.get(0));
             return;
         }

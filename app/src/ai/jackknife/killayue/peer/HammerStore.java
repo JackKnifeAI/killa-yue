@@ -25,8 +25,8 @@ public final class HammerStore implements Hammer.Source {
         public final String label;
         public final boolean introduce;
         public Peer(Hammer.Card card, String label, boolean introduce) throws IOException {
-            Hammer.require(
-                !introduce || !card.isPrivate(), "Private invitations cannot be introduced publicly");
+            Hammer.require(!introduce || !card.isPrivate(),
+                           "Private invitations cannot be introduced publicly");
             Hammer.require(label.length() <= 80, "Peer name too long");
             this.card = card;
             this.label = label;
@@ -34,6 +34,9 @@ public final class HammerStore implements Hammer.Source {
         }
     }
     public final File root;
+    public final HammerPublic publicObjects;
+    private final HammerDirectory directory = new HammerDirectory();
+    public HammerDirectory directory() { return directory; }
     private final Map<String, Hosted> songs = new LinkedHashMap<String, Hosted>();
     private final Map<String, Peer> peers = new LinkedHashMap<String, Peer>();
     private final Set<String> blocked = new HashSet<String>();
@@ -42,6 +45,7 @@ public final class HammerStore implements Hammer.Source {
     public HammerStore(File root) throws Exception {
         this.root = root;
         Hammer.require(root.isDirectory() || root.mkdirs(), "Cannot create HAMMER storage");
+        publicObjects = new HammerPublic(this);
         File cap = new File(root, "circle.key");
         if (cap.isFile()) {
             token = new String(read(cap, 64), StandardCharsets.US_ASCII);
@@ -70,8 +74,8 @@ public final class HammerStore implements Hammer.Source {
                 int n = in.readInt();
                 Hammer.require(n >= 0 && n <= 32, "Invalid saved peers");
                 for (int i = 0; i < n; i++) {
-                    Peer p = new Peer(
-                        Hammer.Card.parse(Hammer.text(in, 1024)), Hammer.text(in, 320), in.readBoolean());
+                    Peer p = new Peer(Hammer.Card.parse(Hammer.text(in, 1024)), Hammer.text(in, 320),
+                                      in.readBoolean());
                     peers.put(peerId(p.card), p);
                 }
             }
@@ -90,7 +94,7 @@ public final class HammerStore implements Hammer.Source {
     public static byte[] read(File file, int max) throws IOException {
         Hammer.require(file.length() <= max, "File exceeds limit");
         try (InputStream in = new FileInputStream(file);
-            ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] b = new byte[8192];
             int n;
             while ((n = in.read(b)) != -1) {
@@ -108,14 +112,13 @@ public final class HammerStore implements Hammer.Source {
                 out.getFD().sync();
             }
             Files.move(tmp.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
+                       StandardCopyOption.REPLACE_EXISTING);
         } finally {
             tmp.delete();
         }
     }
-    public synchronized String token() {
-        return token;
-    }
+    public HammerPublic publicObjects() { return publicObjects; }
+    public synchronized String token() { return token; }
     public synchronized void revoke() throws Exception {
         String next = Hammer.random();
         atomic(new File(root, "circle.key"), next.getBytes(StandardCharsets.US_ASCII));
@@ -126,13 +129,11 @@ public final class HammerStore implements Hammer.Source {
         if (supplied.isEmpty())
             return false;
         Hammer.require(MessageDigest.isEqual(token.getBytes(StandardCharsets.US_ASCII),
-                           supplied.getBytes(StandardCharsets.US_ASCII)),
-            "Invitation revoked or invalid");
+                                             supplied.getBytes(StandardCharsets.US_ASCII)),
+                       "Invitation revoked or invalid");
         return true;
     }
-    public synchronized List<Hosted> hosted() {
-        return new ArrayList<Hosted>(songs.values());
-    }
+    public synchronized List<Hosted> hosted() { return new ArrayList<Hosted>(songs.values()); }
     public synchronized List<Hammer.Song> catalog(String capability) throws Exception {
         boolean privateAccess = member(capability);
         List<Hammer.Song> out = new ArrayList<Hammer.Song>();
@@ -142,26 +143,28 @@ public final class HammerStore implements Hammer.Source {
         return out;
     }
     public synchronized File audio(String id, String capability) throws Exception {
+        Hammer.require(Hammer.digest(id), "Invalid song identifier");
         boolean privateAccess = member(capability);
         Hosted h = songs.get(id);
         return h != null && (h.publicSong || privateAccess) && available(h) ? h.file : null;
     }
     private boolean available(Hosted h) {
-        return h.file.isFile() && h.file.length() == h.song.size && h.file.lastModified() == h.modified;
+        return !Files.isSymbolicLink(h.file.toPath()) && h.file.isFile() && h.file.length() == h.song.size &&
+            h.file.lastModified() == h.modified;
     }
-    public Hammer.Song publish(
-        File input, String title, String tags, boolean reshare, boolean pub, KeyPair pair) throws Exception {
+    public Hammer.Song publish(File input, String title, String tags, boolean reshare, boolean pub,
+                               KeyPair pair) throws Exception {
         return publish(input, title, tags, reshare, pub, pair, new Hammer.Job());
     }
     public Hammer.Song publish(File input, String title, String tags, boolean reshare, boolean pub,
-        KeyPair pair, Hammer.Job job) throws Exception {
+                               KeyPair pair, Hammer.Job job) throws Exception {
         input = input.getCanonicalFile();
         Hammer.require(input.isFile() && input.length() > 0 && input.length() <= Hammer.MAX_AUDIO,
-            "Choose an audio file up to 1 GiB");
+                       "Choose an audio file up to 1 GiB");
         String name = input.getName().toLowerCase(Locale.ROOT);
-        String type = name.endsWith(".wav") ? "audio/wav"
-            : name.endsWith(".flac")        ? "audio/flac"
-                                            : "audio/mpeg";
+        String type = name.endsWith(".wav")    ? "audio/wav"
+                      : name.endsWith(".flac") ? "audio/flac"
+                                               : "audio/mpeg";
         Hammer.require(name.matches(".*\\.(wav|mp3|flac)"), "Choose WAV, FLAC or MP3 audio");
         long size = input.length(), modified = input.lastModified();
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -174,15 +177,15 @@ public final class HammerStore implements Hammer.Source {
             }
         }
         String id = Hammer.hex(digest.digest());
-        Hammer.require(
-            input.length() == size && input.lastModified() == modified, "Source changed while publishing");
+        Hammer.require(input.length() == size && input.lastModified() == modified,
+                       "Source changed while publishing");
         Hammer.Song song = new Hammer.Song(id, title, tags, type, size, reshare);
         song.sign(pair);
         song.validate();
         synchronized (this) {
             job.check();
             Hammer.require(songs.containsKey(song.id) || songs.size() < Hammer.MAX_SONGS,
-                "This host holds at most 256 songs");
+                           "This host holds at most 256 songs");
             save(song, pub, input, modified);
         }
         return song;
@@ -203,10 +206,10 @@ public final class HammerStore implements Hammer.Source {
         song.validate();
         Hammer.require(song.reshare, "Publisher did not enable rehosting");
         Hammer.require(songs.containsKey(song.id) || songs.size() < Hammer.MAX_SONGS,
-            "This host holds at most 256 songs");
+                       "This host holds at most 256 songs");
         File f = downloadFile(song);
         Hammer.require(f.isFile() && f.length() == song.size && Hammer.hash(f).equals(song.id),
-            "Download must finish and verify before hosting");
+                       "Download must finish and verify before hosting");
         save(song, pub, f, f.lastModified());
     }
     public synchronized void visibility(String id, boolean pub) throws Exception {
@@ -256,7 +259,7 @@ public final class HammerStore implements Hammer.Source {
     }
     public synchronized void relocateDownload(Hammer.Song song, File file) throws Exception {
         Hammer.require(file.length() == song.size && Hammer.hash(file).equals(song.id),
-            "Relocated audio does not match");
+                       "Relocated audio does not match");
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         song.write(out);
@@ -269,9 +272,7 @@ public final class HammerStore implements Hammer.Source {
     public static String peerId(Hammer.Card card) {
         return card.pin + (card.isPrivate() ? ":private" : ":public");
     }
-    public synchronized List<Peer> followed() {
-        return new ArrayList<Peer>(peers.values());
-    }
+    public synchronized List<Peer> followed() { return new ArrayList<Peer>(peers.values()); }
     public synchronized void follow(Peer peer) throws Exception {
         String id = peerId(peer.card);
         Hammer.require(peers.containsKey(id) || peers.size() < 32, "Follow at most 32 peers");
@@ -340,9 +341,9 @@ public final class HammerStore implements Hammer.Source {
         if ("public".equals(c.audience))
             Hammer.require(songs.get(c.song).publicSong, "Public comments require a public publication");
         else
-            Hammer.require(member(capability)
-                    && c.audience.equals(Hammer.hash(token.getBytes(StandardCharsets.US_ASCII))),
-                "Private comments belong to their original circle");
+            Hammer.require(member(capability) &&
+                               c.audience.equals(Hammer.hash(token.getBytes(StandardCharsets.US_ASCII))),
+                           "Private comments belong to their original circle");
         Hammer.require(!blocked.contains(author), "Author blocked on this host");
         List<Hammer.Comment> list = readComments(c.song);
         for (Hammer.Comment old : list)
@@ -360,12 +361,13 @@ public final class HammerStore implements Hammer.Source {
                 it.remove();
         Hammer.require(times.size() < 10, "Comment limit: ten per author per hour on this host");
         Hammer.require(rates.containsKey(author) || rates.size() < 1024,
-            "Comment authors at capacity; host must restart");
+                       "Comment authors at capacity; host must restart");
         list.add(c);
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         out.writeInt(list.size());
-        for (Hammer.Comment v : list) v.write(out);
+        for (Hammer.Comment v : list)
+            v.write(out);
         atomic(new File(root, c.song + ".comments"), b.toByteArray());
         times.add(Long.valueOf(now));
         rates.put(author, times);
@@ -379,7 +381,8 @@ public final class HammerStore implements Hammer.Source {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         out.writeInt(next.size());
-        for (String v : next) Hammer.text(out, v, 64);
+        for (String v : next)
+            Hammer.text(out, v, 64);
         atomic(new File(root, "blocked.bin"), b.toByteArray());
         blocked.add(id);
     }
@@ -415,9 +418,9 @@ public final class HammerStore implements Hammer.Source {
         if ("public".equals(vote.audience))
             Hammer.require(songs.get(vote.song).publicSong, "Public votes require a public publication");
         else
-            Hammer.require(member(capability)
-                    && vote.audience.equals(Hammer.hash(token.getBytes(StandardCharsets.US_ASCII))),
-                "Private votes stay in their original circle");
+            Hammer.require(member(capability) &&
+                               vote.audience.equals(Hammer.hash(token.getBytes(StandardCharsets.US_ASCII))),
+                           "Private votes stay in their original circle");
         List<Hammer.Vote> list = readVotes(vote.song);
         mergeVote(list, vote);
         writeVotes(vote.song, list);
@@ -440,40 +443,43 @@ public final class HammerStore implements Hammer.Source {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         out.writeInt(list.size());
-        for (Hammer.Vote v : list) v.write(out);
+        for (Hammer.Vote v : list)
+            v.write(out);
         atomic(new File(root, id + ".votes"), b.toByteArray());
     }
     /**
      * Public annotations travel with verified downloads. Private-circle records never cross this boundary.
      */
-    public synchronized void importPublicMetadata(
-        Hammer.Song song, List<Hammer.Comment> comments, List<Hammer.Vote> votes) throws Exception {
+    public synchronized void importPublicMetadata(Hammer.Song song, List<Hammer.Comment> comments,
+                                                  List<Hammer.Vote> votes) throws Exception {
         File file = downloadFile(song);
-        Hammer.require(
-            file.isFile() && file.length() == song.size, "Keep the verified recording before metadata");
+        Hammer.require(file.isFile() && file.length() == song.size,
+                       "Keep the verified recording before metadata");
         List<Hammer.Vote> merged = readVotes(song.id);
         for (Hammer.Vote v : votes) {
             v.validate();
-            Hammer.require(
-                v.song.equals(song.id) && "public".equals(v.audience), "Private or unrelated vote refused");
+            Hammer.require(v.song.equals(song.id) && "public".equals(v.audience),
+                           "Private or unrelated vote refused");
             mergeVote(merged, v);
         }
         writeVotes(song.id, merged);
         List<Hammer.Comment> cs = readComments(song.id);
         Set<String> ids = new HashSet<String>();
-        for (Hammer.Comment c : cs) ids.add(c.id);
+        for (Hammer.Comment c : cs)
+            ids.add(c.id);
         for (Hammer.Comment c : comments) {
             c.validate();
             Hammer.require(c.song.equals(song.id) && "public".equals(c.audience),
-                "Private or unrelated comment refused");
-            if (!blocked.contains(Hammer.hash(Base64.getDecoder().decode(c.key))) && ids.add(c.id)
-                && cs.size() < 128)
+                           "Private or unrelated comment refused");
+            if (!blocked.contains(Hammer.hash(Base64.getDecoder().decode(c.key))) && ids.add(c.id) &&
+                cs.size() < 128)
                 cs.add(c);
         }
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         out.writeInt(cs.size());
-        for (Hammer.Comment c : cs) c.write(out);
+        for (Hammer.Comment c : cs)
+            c.write(out);
         atomic(new File(root, song.id + ".comments"), b.toByteArray());
         writeMetadata(song);
     }
@@ -487,13 +493,15 @@ public final class HammerStore implements Hammer.Source {
             if ("public".equals(c.audience))
                 comments.add(c);
         out.writeInt(comments.size());
-        for (Hammer.Comment c : comments) c.write(out);
+        for (Hammer.Comment c : comments)
+            c.write(out);
         List<Hammer.Vote> votes = new ArrayList<Hammer.Vote>();
         for (Hammer.Vote v : readVotes(song.id))
             if ("public".equals(v.audience))
                 votes.add(v);
         out.writeInt(votes.size());
-        for (Hammer.Vote v : votes) v.write(out);
+        for (Hammer.Vote v : votes)
+            v.write(out);
         return b.toByteArray();
     }
     private void writeMetadata(Hammer.Song song) throws Exception {

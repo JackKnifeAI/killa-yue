@@ -113,3 +113,9 @@ Implemented on the HAMMER branch: opt-in public/private catalogs; pinned encrypt
 The S25 Ultra device pass now covers menus, notification permission handling and taps, screen-off delivery, playback in all three modes, seeking, replica failover, downloading/rehosting, metadata and desktop export. See peer/VALIDATION.md. Longer unplugged battery/Doze testing, other devices/networks and broader listening tests remain before a wide rollout.
 
 Future work: optional self-hosted reachability/relay discovery, broader public search, authenticated incremental metadata synchronization, larger host-capacity benchmarking, WAV-to-FLAC streaming, and validated Windows/macOS companion packages. No centralized provider is required by the current protocol.
+
+### Library / Discover and media isolation preview
+
+Implemented: Library visibility controls and audio import; signed searchable artist profiles and song artwork; reuse of generated covers and image upload; nearby NSD discovery; bounded signed public routing announcements; pre-TLS admission budgets; permissionless Android codec/image workers using read-only descriptors. Downloads retain the original publisher and enter Library directly.
+
+Validation and remaining device checks are tracked in [peer/DISCOVERY-VALIDATION.md](peer/DISCOVERY-VALIDATION.md). Worldwide bootstrap, NAT traversal and end-to-end encrypted relays remain required for automatic internet-wide discovery; this preview does not complete them. Desktop decoder isolation, long-duration battery tests and independent security review also remain.

@@ -48,6 +48,8 @@ jobs:
           java-version: '17'
       - name: Build and test native streaming, private catalogs and push
         run: bash peer/test/run.sh
+      - name: Native descriptor and malformed-media sanitizer tests
+        run: bash peer/test/native-safety.sh
       - name: Build downloadable desktop companion
         run: HAMMER_DESKTOP_LIB="$PWD/build-hammer-host/libhammer.so" bash peer/build-companion.sh "$PWD/out"
       - uses: actions/upload-artifact@v4

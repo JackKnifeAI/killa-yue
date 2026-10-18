@@ -49,7 +49,9 @@
                 <data android:scheme="hammer"/>
             </intent-filter>
         </activity>
+        <activity android:name=".HammerArtistActivity" android:exported="false"/>
         <activity android:name=".HammerActivity" android:exported="false"/>
+        <service android:name=".HammerCodecService" android:exported="false" android:isolatedProcess="true" android:process=":hammercodec"/>
         <service android:name=".HammerService" android:exported="false"/>
         <service android:name=".HammerFollowService" android:exported="false"/>
         <!-- sheet music: view, zoom, print and share the exported PDFs -->

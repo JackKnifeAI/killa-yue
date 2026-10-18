@@ -7,9 +7,13 @@
 #define MA_NO_NODE_GRAPH
 #define MA_NO_ENGINE
 #define MA_NO_GENERATION
+#include <cstdio>
 #include <jni.h>
 #include <opus.h>
 #include <sys/stat.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -33,26 +37,62 @@
 namespace {
 constexpr int rate = 48000, segmentFrames = 96000, packetFrames = 960, preroll = 4800;
 using Bytes = std::vector<unsigned char>;
-void need(bool ok, const char* error) {
-    if (!ok) throw std::runtime_error(error);
+void need(bool ok, const char *error) {
+    if (!ok)
+        throw std::runtime_error(error);
 }
-void put32(Bytes& b, uint32_t v) {
-    for (int n = 0; n < 4; n++) b.push_back(static_cast<unsigned char>(v >> (8 * n)));
+void put32(Bytes &b, uint32_t v) {
+    for (int n = 0; n < 4; n++)
+        b.push_back(static_cast<unsigned char>(v >> (8 * n)));
 }
-uint32_t get32(const Bytes& b, size_t& at) {
+uint32_t get32(const Bytes &b, size_t &at) {
     need(at + 4 <= b.size(), "Truncated audio segment");
     uint32_t v = 0;
-    for (int n = 0; n < 4; n++) v |= uint32_t(b[at++]) << (8 * n);
+    for (int n = 0; n < 4; n++)
+        v |= uint32_t(b[at++]) << (8 * n);
     return v;
 }
 struct Decoder {
     ma_decoder decoder{};
     ma_uint64 frames = 0;
     int sampleRate = 0;
-    explicit Decoder(const std::string& path) {
+    std::unique_ptr<FILE, decltype(&fclose)> input{nullptr, fclose};
+    static ma_result read(ma_decoder *decoder, void *out, size_t want, size_t *got) {
+        FILE *file = static_cast<FILE *>(decoder->pUserData);
+        *got = fread(out, 1, want, file);
+        return ferror(file) ? MA_ERROR : *got == 0 ? MA_AT_END : MA_SUCCESS;
+    }
+    static ma_result seek(ma_decoder *decoder, ma_int64 offset, ma_seek_origin origin) {
+        int how = origin == ma_seek_origin_start ? SEEK_SET
+                  : origin == ma_seek_origin_end ? SEEK_END
+                                                 : SEEK_CUR;
+#ifdef _WIN32
+        return _fseeki64(static_cast<FILE *>(decoder->pUserData), offset, how) == 0 ? MA_SUCCESS : MA_ERROR;
+#else
+        return fseeko(static_cast<FILE *>(decoder->pUserData), offset, how) == 0 ? MA_SUCCESS : MA_ERROR;
+#endif
+    }
+    explicit Decoder(const std::string &path, int fd = -1) {
         auto config = ma_decoder_config_init(ma_format_f32, 2, 0);
-        need(ma_decoder_init_file(path.c_str(), &config, &decoder) == MA_SUCCESS,
-             "Unsupported or unreadable master audio");
+        ma_result result;
+        if (fd >= 0) {
+#ifndef _WIN32
+            int copy = dup(fd);
+            need(copy >= 0, "Could not duplicate media descriptor");
+            FILE *file = fdopen(copy, "rb");
+            if (!file) {
+                close(copy);
+                throw std::runtime_error("Could not read media descriptor");
+            }
+            input.reset(file);
+            need(fseeko(file, 0, SEEK_SET) == 0, "Could not seek media descriptor");
+            result = ma_decoder_init(read, seek, file, &config, &decoder);
+#else
+            throw std::runtime_error("Descriptor decoding is used on Android only");
+#endif
+        } else
+            result = ma_decoder_init_file(path.c_str(), &config, &decoder);
+        need(result == MA_SUCCESS, "Unsupported or unreadable master audio");
         sampleRate = static_cast<int>(decoder.outputSampleRate);
         if (sampleRate < 8000 || sampleRate > 192000 ||
             ma_decoder_get_length_in_pcm_frames(&decoder, &frames) != MA_SUCCESS || !frames) {
@@ -107,15 +147,21 @@ struct Decoder {
 std::mutex codecMutex;
 std::string sourceKey;
 std::unique_ptr<Decoder> source;
-std::string fileKey(const std::string& path) {
+std::string fileKey(const std::string &path, int fd = -1) {
     struct stat st{};
-    need(stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode), "Master unavailable");
-    return path + ":" + std::to_string(st.st_size) + ":" + std::to_string(st.st_mtime);
+#ifndef _WIN32
+    int result = fd >= 0 ? fstat(fd, &st) : stat(path.c_str(), &st);
+#else
+    int result = stat(path.c_str(), &st);
+#endif
+    need(result == 0 && S_ISREG(st.st_mode), "Master unavailable");
+    return path + ":" + std::to_string(st.st_dev) + ":" + std::to_string(st.st_ino) + ":" +
+           std::to_string(st.st_size) + ":" + std::to_string(st.st_mtime);
 }
-Decoder& decoderFor(const std::string& path, const std::string& identity = "") {
-    auto key = fileKey(path) + identity;
+Decoder &decoderFor(const std::string &path, const std::string &identity = "", int fd = -1) {
+    auto key = fileKey(path, fd) + identity;
     if (!source || sourceKey != key) {
-        source.reset(new Decoder(path));
+        source.reset(new Decoder(path, fd));
         sourceKey = key;
     }
     return *source;
@@ -123,23 +169,23 @@ Decoder& decoderFor(const std::string& path, const std::string& identity = "") {
 // The host cache shares compressed segments among listeners, not permanent alternate audio files.
 std::list<std::pair<std::string, Bytes>> encoded;
 size_t encodedBytes = 0;
-Bytes encode(const std::string& path, const std::string& identity, int index, int bitrate) {
+Bytes encode(const std::string &path, const std::string &identity, int index, int bitrate, int fd = -1) {
     need(index >= 0 && (bitrate == 48000 || bitrate == 96000 || bitrate == 160000), "Invalid stream quality");
     std::lock_guard<std::mutex> lock(codecMutex);
     std::string cacheKey =
-        fileKey(path) + ":" + identity + ":" + std::to_string(index) + ":" + std::to_string(bitrate);
+        fileKey(path, fd) + ":" + identity + ":" + std::to_string(index) + ":" + std::to_string(bitrate);
     for (auto it = encoded.begin(); it != encoded.end(); ++it)
         if (it->first == cacheKey) {
             Bytes out = it->second;
             encoded.splice(encoded.begin(), encoded, it);
             return out;
         }
-    Decoder& source = decoderFor(path, identity);
+    Decoder &source = decoderFor(path, identity, fd);
     int64_t first = static_cast<int64_t>(index) * segmentFrames;
     need(uint64_t(first) < source.outputFrames(), "Segment outside song");
     int frames = static_cast<int>(std::min<uint64_t>(segmentFrames, source.outputFrames() - first));
     int error = 0;
-    OpusEncoder* raw = opus_encoder_create(rate, 2, OPUS_APPLICATION_AUDIO, &error);
+    OpusEncoder *raw = opus_encoder_create(rate, 2, OPUS_APPLICATION_AUDIO, &error);
     need(raw && error == OPUS_OK, "Opus encoder unavailable");
     std::unique_ptr<OpusEncoder, decltype(&opus_encoder_destroy)> encoder(raw, opus_encoder_destroy);
     need(opus_encoder_ctl(raw, OPUS_SET_BITRATE(bitrate)) == OPUS_OK, "Invalid Opus bitrate");
@@ -171,7 +217,7 @@ Bytes encode(const std::string& path, const std::string& identity, int index, in
     }
     return out;
 }
-Bytes decode(const Bytes& bytes) {
+Bytes decode(const Bytes &bytes) {
     size_t at = 0;
     need(get32(bytes, at) == 0x31504f48, "Invalid Opus segment");
     int frames = get32(bytes, at), skip = get32(bytes, at), packets = get32(bytes, at);
@@ -179,7 +225,7 @@ Bytes decode(const Bytes& bytes) {
              packets <= 120 && (skip + frames) <= packets * packetFrames,
          "Invalid segment dimensions");
     int error = 0;
-    OpusDecoder* raw = opus_decoder_create(rate, 2, &error);
+    OpusDecoder *raw = opus_decoder_create(rate, 2, &error);
     need(raw && error == OPUS_OK, "Opus decoder unavailable");
     std::unique_ptr<OpusDecoder, decltype(&opus_decoder_destroy)> decoder(raw, opus_decoder_destroy);
     std::vector<float> pcm(static_cast<size_t>(packetFrames) * 2);
@@ -219,61 +265,82 @@ std::shared_ptr<Cache> cacheFor(jlong handle) {
     need(it != caches.end(), "Stream closed");
     return it->second;
 }
-std::string string(JNIEnv* e, jstring s) {
+std::string string(JNIEnv *e, jstring s) {
     need(s != nullptr, "Missing file");
-    const char* p = e->GetStringUTFChars(s, nullptr);
+    const char *p = e->GetStringUTFChars(s, nullptr);
     need(p != nullptr, "Cannot read path");
     std::string v(p);
     e->ReleaseStringUTFChars(s, p);
     return v;
 }
-Bytes bytes(JNIEnv* e, jbyteArray b) {
+Bytes bytes(JNIEnv *e, jbyteArray b) {
     need(b != nullptr, "Missing bytes");
     jsize n = e->GetArrayLength(b);
     need(n >= 0 && n <= 524288, "Buffer exceeds limit");
     Bytes out(static_cast<size_t>(n));
-    e->GetByteArrayRegion(b, 0, n, reinterpret_cast<jbyte*>(out.data()));
+    e->GetByteArrayRegion(b, 0, n, reinterpret_cast<jbyte *>(out.data()));
     return out;
 }
-jbyteArray array(JNIEnv* e, const Bytes& bytes) {
+jbyteArray array(JNIEnv *e, const Bytes &bytes) {
     auto a = e->NewByteArray(static_cast<jsize>(bytes.size()));
     if (a)
         e->SetByteArrayRegion(a, 0, static_cast<jsize>(bytes.size()),
-                              reinterpret_cast<const jbyte*>(bytes.data()));
+                              reinterpret_cast<const jbyte *>(bytes.data()));
     return a;
 }
-void failure(JNIEnv* e, const std::exception& ex) {
-    if (!e->ExceptionCheck()) e->ThrowNew(e->FindClass("java/io/IOException"), ex.what());
+void failure(JNIEnv *e, const std::exception &ex) {
+    if (!e->ExceptionCheck())
+        e->ThrowNew(e->FindClass("java/io/IOException"), ex.what());
 }
-}  // namespace
+} // namespace
 #define JNI_METHOD(name) Java_ai_jackknife_killayue_peer_HammerNative_##name
-extern "C" JNIEXPORT jlong JNICALL JNI_METHOD(frames)(JNIEnv* e, jclass, jstring path) {
+extern "C" JNIEXPORT jlong JNICALL JNI_METHOD(frames)(JNIEnv *e, jclass, jstring path) {
     try {
         std::lock_guard<std::mutex> l(codecMutex);
         return static_cast<jlong>(decoderFor(string(e, path)).outputFrames());
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return 0;
     }
 }
-extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(encode)(JNIEnv* e, jclass, jstring path, jstring identity,
+extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(encode)(JNIEnv *e, jclass, jstring path, jstring identity,
                                                            jint segment, jint bitrate) {
     try {
         return array(e, encode(string(e, path), string(e, identity), segment, bitrate));
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return nullptr;
     }
 }
-extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(decode)(JNIEnv* e, jclass, jbyteArray packet) {
+extern "C" JNIEXPORT jlong JNICALL JNI_METHOD(framesFd)(JNIEnv *e, jclass, jint fd) {
+    try {
+        need(fd >= 0, "Invalid media descriptor");
+        std::lock_guard<std::mutex> lock(codecMutex);
+        return static_cast<jlong>(decoderFor("descriptor", "", fd).outputFrames());
+    } catch (const std::exception &x) {
+        failure(e, x);
+        return 0;
+    }
+}
+extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(encodeFd)(JNIEnv *e, jclass, jint fd, jstring identity,
+                                                             jint segment, jint bitrate) {
+    try {
+        need(fd >= 0, "Invalid media descriptor");
+        return array(e, encode("descriptor", string(e, identity), segment, bitrate, fd));
+    } catch (const std::exception &x) {
+        failure(e, x);
+        return nullptr;
+    }
+}
+extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(decode)(JNIEnv *e, jclass, jbyteArray packet) {
     try {
         return array(e, decode(bytes(e, packet)));
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return nullptr;
     }
 }
-extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(range)(JNIEnv* e, jclass, jstring path, jlong at,
+extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(range)(JNIEnv *e, jclass, jstring path, jlong at,
                                                           jint length) {
     try {
         need(at >= 0 && length > 0 && length <= 262144, "Invalid source range");
@@ -281,27 +348,27 @@ extern "C" JNIEXPORT jbyteArray JNICALL JNI_METHOD(range)(JNIEnv* e, jclass, jst
         need(bool(file), "Source unavailable");
         file.seekg(at);
         Bytes b(static_cast<size_t>(length));
-        file.read(reinterpret_cast<char*>(b.data()), length);
+        file.read(reinterpret_cast<char *>(b.data()), length);
         need(file.gcount() == length, "Source changed");
         return array(e, b);
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return nullptr;
     }
 }
-extern "C" JNIEXPORT jlong JNICALL JNI_METHOD(cacheCreate)(JNIEnv* e, jclass) {
+extern "C" JNIEXPORT jlong JNICALL JNI_METHOD(cacheCreate)(JNIEnv *e, jclass) {
     try {
         std::lock_guard<std::mutex> l(cachesMutex);
         need(caches.size() < 8, "Too many native streams");
         jlong id = nextCache++;
         caches[id] = std::make_shared<Cache>();
         return id;
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return 0;
     }
 }
-extern "C" JNIEXPORT void JNICALL JNI_METHOD(cachePut)(JNIEnv* e, jclass, jlong id, jlong key,
+extern "C" JNIEXPORT void JNICALL JNI_METHOD(cachePut)(JNIEnv *e, jclass, jlong id, jlong key,
                                                        jbyteArray input) {
     try {
         auto c = cacheFor(id);
@@ -319,11 +386,11 @@ extern "C" JNIEXPORT void JNICALL JNI_METHOD(cachePut)(JNIEnv* e, jclass, jlong 
             c->bytes -= c->blocks.back().second.size();
             c->blocks.pop_back();
         }
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
     }
 }
-extern "C" JNIEXPORT jint JNICALL JNI_METHOD(cacheRead)(JNIEnv* e, jclass, jlong id, jlong key,
+extern "C" JNIEXPORT jint JNICALL JNI_METHOD(cacheRead)(JNIEnv *e, jclass, jlong id, jlong key,
                                                         jbyteArray output, jint offset, jint start,
                                                         jint count) {
     try {
@@ -336,45 +403,49 @@ extern "C" JNIEXPORT jint JNICALL JNI_METHOD(cacheRead)(JNIEnv* e, jclass, jlong
                 need(static_cast<size_t>(start) <= it->second.size(), "Read beyond block");
                 int n = std::min(count, static_cast<int>(it->second.size()) - start);
                 e->SetByteArrayRegion(output, offset, n,
-                                      reinterpret_cast<const jbyte*>(it->second.data() + start));
+                                      reinterpret_cast<const jbyte *>(it->second.data() + start));
                 c->blocks.splice(c->blocks.begin(), c->blocks, it);
                 return n;
             }
         return -1;
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return -1;
     }
 }
-extern "C" JNIEXPORT jint JNICALL JNI_METHOD(cacheBytes)(JNIEnv* e, jclass, jlong id) {
+extern "C" JNIEXPORT jint JNICALL JNI_METHOD(cacheBytes)(JNIEnv *e, jclass, jlong id) {
     try {
         auto c = cacheFor(id);
         std::lock_guard<std::mutex> l(c->mutex);
         return static_cast<jint>(c->bytes);
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return 0;
     }
 }
-extern "C" JNIEXPORT jboolean JNICALL JNI_METHOD(cacheHas)(JNIEnv* e, jclass, jlong id, jlong key) {
+extern "C" JNIEXPORT jboolean JNICALL JNI_METHOD(cacheHas)(JNIEnv *e, jclass, jlong id, jlong key) {
     try {
         auto c = cacheFor(id);
         std::lock_guard<std::mutex> l(c->mutex);
-        for (auto& b : c->blocks)
-            if (b.first == key) return JNI_TRUE;
+        for (auto &b : c->blocks)
+            if (b.first == key)
+                return JNI_TRUE;
         return JNI_FALSE;
-    } catch (const std::exception& x) {
+    } catch (const std::exception &x) {
         failure(e, x);
         return JNI_FALSE;
     }
 }
-extern "C" JNIEXPORT void JNICALL JNI_METHOD(cacheClose)(JNIEnv*, jclass, jlong id) {
+extern "C" JNIEXPORT void JNICALL JNI_METHOD(cacheClose)(JNIEnv *, jclass, jlong id) {
     std::lock_guard<std::mutex> l(cachesMutex);
     caches.erase(id);
 }
-extern "C" JNIEXPORT jint JNICALL JNI_METHOD(autoBitrate)(JNIEnv*, jclass, jlong elapsed, jint previous) {
-    if (elapsed > 1200) return 48000;
-    if (elapsed > 600) return 96000;
-    if (elapsed < 300) return 160000;
+extern "C" JNIEXPORT jint JNICALL JNI_METHOD(autoBitrate)(JNIEnv *, jclass, jlong elapsed, jint previous) {
+    if (elapsed > 1200)
+        return 48000;
+    if (elapsed > 600)
+        return 96000;
+    if (elapsed < 300)
+        return 160000;
     return previous;
 }
