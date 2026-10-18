@@ -21,7 +21,7 @@ public final class HammerActivity extends Activity {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile Hammer.Job job;
     private boolean busy, closed;
-    private boolean settingsMode;
+    private boolean settingsMode, discoveryPending;
     private String artistFilter;
     private final Map<String, ProfileHit> profiles = new LinkedHashMap<String, ProfileHit>();
     private final Map<String, HammerStore.Peer> discovered =
@@ -225,6 +225,7 @@ public final class HammerActivity extends Activity {
                                                 discovered.put(
                                                     HammerStore.peerId(card),
                                                     new HammerStore.Peer(card, "Nearby artist", false));
+                                                discoveryPending = true;
                                                 if (!busy)
                                                     refresh();
                                             } catch (Exception ignored) {
@@ -306,6 +307,8 @@ public final class HammerActivity extends Activity {
                         if (message == null && title.equals("Opening HAMMER") &&
                             getIntent().getBooleanExtra("refresh", false)) {
                             getIntent().removeExtra("refresh");
+                            refresh();
+                        } else if (discoveryPending && !settingsMode) {
                             refresh();
                         }
                     }
@@ -550,6 +553,11 @@ public final class HammerActivity extends Activity {
             .show();
     }
     private void refresh() {
+        if (busy) {
+            discoveryPending = true;
+            return;
+        }
+        discoveryPending = false;
         work("Refreshing catalogs", new Work() {
             public void run() throws Exception {
                 final List<Hit> fresh = new ArrayList<Hit>();
