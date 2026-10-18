@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 [ -f local.env ] && . ./local.env
 : "${ANDROID_JAR:?set ANDROID_JAR to an android.jar (API 35 or later)}"
 : "${ENGINE_BIN:?set ENGINE_BIN to the yue-server binary built for Android}"
+: "${PORTABLE_ENGINE_DIR:?set PORTABLE_ENGINE_DIR to the portable Android engine build (CPU variants and system Vulkan)}"
 : "${DRIVER_DIR:?set DRIVER_DIR to the folder with libvkloader.so, libturnip.so, libz.so.1, libzstd.so.1, libexpat.so.1}"
 : "${LIBCXX:?set LIBCXX to libc++_shared.so for arm64 Android}"
 : "${KEYSTORE:?set KEYSTORE, KS_ALIAS and KS_PASS for signing}"
@@ -52,6 +53,14 @@ $STRIP out/apk/lib/arm64-v8a/libhammer.so
 cp "$ENGINE_BIN" out/apk/lib/arm64-v8a/libyueserver.so
 $STRIP out/apk/lib/arm64-v8a/libyueserver.so 2>/dev/null || true
 cp "$LIBCXX" out/apk/lib/arm64-v8a/libc++_shared.so
+# Distinct names keep the legacy static engine from discovering these backends.
+cp "$PORTABLE_ENGINE_DIR/yue-server" out/apk/lib/arm64-v8a/libyueserver_portable.so
+cp "$PORTABLE_ENGINE_DIR/libyueengine_portable.so" out/apk/lib/arm64-v8a/
+cp "$PORTABLE_ENGINE_DIR/libkyggml.so" "$PORTABLE_ENGINE_DIR/libkyggml-base.so" out/apk/lib/arm64-v8a/
+cp "$PORTABLE_ENGINE_DIR"/libkycpu-*.so "$PORTABLE_ENGINE_DIR/libkyvulkan.so" out/apk/lib/arm64-v8a/
+for portable in out/apk/lib/arm64-v8a/libyueserver_portable.so out/apk/lib/arm64-v8a/libyueengine_portable.so out/apk/lib/arm64-v8a/libky*.so; do
+    "$STRIP" "$portable"
+done
 # Our own GPU driver stack (see EngineService.prepareDriver for how the names are mapped back).
 cp "$DRIVER_DIR/libvkloader.so" "$DRIVER_DIR/libturnip.so" out/apk/lib/arm64-v8a/
 cp "$DRIVER_DIR/libz.so.1" out/apk/lib/arm64-v8a/libkz.so

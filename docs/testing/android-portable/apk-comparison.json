@@ -1,0 +1,10 @@
+{
+  "existing_native_files": 20,
+  "changed_existing_native_files": [],
+  "old_size": 103574475,
+  "new_size": 137654209,
+  "cpp_runtime_matches_ndk": false,
+  "permissions_unchanged": true,
+  "cpp_runtime_same_build_id": true,
+  "cpp_runtime_loaded_section_differences": []
+}

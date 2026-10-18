@@ -1,0 +1,64 @@
+# Android reach: hardware priorities and implementation plan
+
+Research date: 18 October 2026. This is a development target list, **not a claim that these phones run Killa YuE successfully**. S20 results are recorded separately in [s20-validation.md](s20-validation.md). The S25 evidence belongs to the existing release; no new S25 tests were performed in this work.
+
+## Where the users are
+
+There is no complete, free, current worldwide ranking of individual models in active use in the sources reviewed. Use installed base by manufacturer to choose coverage, then recent and older model sales to choose representative devices. Do not label shipment or sales rankings as installed-base rankings.
+
+Samsung represents roughly one fifth of active smartphones globally. Xiaomi, OPPO (including OnePlus), vivo, HONOR and Transsion also have large installed populations; Motorola and realme are approaching 200 million each. Phones are being kept for almost four years, making older hardware important. [Counterpoint installed-base research, February 2026](https://counterpointresearch.com/en/insights/Active-Installed-Base-8-Smartphone-OEMs-Top-200-mn-Nearly-1-in-4-is-an-iPhone).
+
+The Galaxy A16 5G was the best-selling Android model in 2025. [Counterpoint annual model report](https://counterpointresearch.com/default.htm/insights/iphone-16-worlds-best-selling-smartphone-in-2025-apple-takes-7-spots-in-top-10-models). Across recent quarterly rankings, the A06/A07, A16, A36, A56, Redmi 14C and Redmi A5 recur; the S26 Ultra led Android in Q2 2026. That supports testing both inexpensive phones and flagships. [Counterpoint quarterly model rankings](https://counterpointresearch.com/en/insights/global-smartphone-sales-top-10-best-sellers).
+
+Pixels are included deliberately for the requested audience and hardware diversity, without claiming they lead worldwide installed base.
+
+## First device pool
+
+The priorities below are engineering recommendations inferred from the market and hardware evidence. Regional SKU, RAM, Android version and driver version must be recorded separately. A marketing name alone is insufficient.
+
+| Priority | Representative models | What they cover | Initial expectation, to be tested |
+|---|---|---|---|
+| 1 | Galaxy A16 5G, both chip variants; A15/A16 4G | High-volume affordable Samsung, small RAM budgets, different CPU/GPU variants | Portable CPU first; system Vulkan candidate |
+| 1 | Galaxy A06/A07; Redmi A5 | Entry tier; include a physical 3/4 GB configuration | Current 3B model may be impractical; launch/editor/player still deserve support |
+| 1 | Galaxy A36, A56, A26 | Mainstream Snapdragon, newer Exynos/Xclipse, and Exynos/Mali | Separate per-driver GPU validation |
+| 1 | Redmi 14C; Redmi Note 13/14 family, specifying 4G or 5G | Xiaomi budget and midrange; different regional hardware | Portable CPU and system Vulkan; low-memory work |
+| 1 | Pixel 6a/7a, 8a/9a/10a; one Pixel 9/10/11 Pro | Older and newer Tensor generations, 8 GB and larger configurations | CPU baseline; query actual GPU and validate system Vulkan |
+| 1 | Moto G Power 2023 and 2025; Moto G Stylus 2025 | Imagination, Mali and Snapdragon in one brand | Three distinct GPU paths, not one “Motorola” switch |
+| 1 | Snapdragon S20 Ultra; release-tested S25 Ultra | Existing old/new flagship baselines | Preserve validated behavior; S20 CPU currently faster |
+| 2 | Galaxy S23/S24/S26, including Exynos variants where sold | Several flagship GPU/driver generations | Test actual variant; never inherit Snapdragon results onto Exynos |
+| 2 | OnePlus 12/13; Xiaomi 14/15; Motorola Edge family | Other OEMs around common flagship chips | Verify firmware, memory pressure, background behavior and sustained thermals |
+| 2 | OPPO A/Reno, vivo Y/V, realme C/number, HONOR X, TECNO Spark/Camon, Infinix Hot/Note | Wider regional reach and lower-cost hardware | Select physical devices from each vendor and GPU/RAM family; these are family-level candidates, not ranked individual models |
+
+Concrete hardware differences explain the scope:
+
+- Galaxy A16 5G ships with Exynos 1330 or Dimensity 6300. [Samsung's hardware report](https://images.samsung.com/is/content/samsung/assets/global/ir/docs/2025_4Q_Interim_Report.pdf). Exynos 1330 uses Mali-G68. [Samsung chip specifications](https://semiconductor.samsung.com/processor/mobile-processor/exynos-1330/).
+- A36 uses Snapdragon 6 Gen 3; A56 uses Exynos 1580; A26 uses Exynos 1380. [Samsung model announcement](https://news.samsung.com/de/einfach-awesome-die-neue-samsung-galaxy-a-serie-ist-ab-sofort-erhaeltlich). A36 configurations include 6/8/12 GB, A56 8/12 GB, and A26 6/8 GB. [Samsung specifications](https://news.samsung.com/global/samsung-marks-a-step-forward-with-ai-for-everyone-by-introducing-new-galaxy-a56-5g-galaxy-a36-5g-and-galaxy-a26-5g). Exynos 1580's Xclipse GPU needs its own testing. [Samsung chip specifications](https://semiconductor.samsung.com/processor/mobile-processor/exynos-1580/).
+- Redmi A5 lists UNISOC T7250 and 3/4 GB physical RAM; the advertised expansion uses storage. [Xiaomi specifications](https://www.mi.com/global/product/redmi-a5/specs/). Redmi 14C uses Helio G81-Ultra/Mali-G52; the Malaysian page lists 6/8 GB configurations. [Xiaomi specifications](https://www.mi.com/my/product/redmi-14-c/specs/).
+- Moto G Power 2023: Dimensity 930, IMG BXM-8-256, 6 GB. [Motorola specifications](https://en-us.support.motorola.com/app/answers/detail/a_id/174789/~/specifications--moto-g-power-5g-%282023%29). G Power 2025: Dimensity 6300, Mali-G57, 8 GB physical RAM. [Motorola specifications](https://en-us.support.motorola.com/app/answers/detail/a_id/184283/p/30). G Stylus 2025 uses Snapdragon 6 Gen 3. [Motorola specifications](https://en-us.support.motorola.com/app/answers/detail/a_id/185268/~/specifications---moto-g-stylus---2025).
+- Pixel 9a lists Tensor G4 and 8 GB RAM; the current family includes later Tensor generations. Probe each generation rather than assuming the same GPU across Pixels. [Google's model specifications](https://support.google.com/pixelphone/answer/7158570?hl=en).
+- OnePlus 13 and Xiaomi 15 provide Snapdragon 8 Elite examples outside Samsung. [OnePlus specifications](https://www.oneplus.com/global/13/specs), [Xiaomi specifications](https://www.mi.com/global/product/xiaomi-15/specs/).
+
+## Changes that unlock real compatibility
+
+1. **Portable CPU execution.** Current build commands use `armv8.2-a+dotprod+fp16`, so “any arm64 Android 9 phone” is too broad. Build a baseline ARMv8-A path and optional optimized variants, selected using runtime CPU features. The vendored GGML already provides Android CPU variants via `GGML_CPU_ALL_VARIANTS`, but requires dynamic backend loading; our static engine packaging must change or we must package separately selected engines. Apply the same audit to lyric generation, transcription, covers and other native helpers. Android documents `getauxval` and Google's `cpu_features` library for detection. [Android CPU guidance](https://developer.android.com/ndk/guides/cpu-features).
+2. **Separate Vulkan loaders.** Keep bundled Turnip for verified Adreno configurations. Add an explicitly isolated system-Vulkan engine path for Mali, Xclipse, Imagination and other devices. The existing JNI engine links a private loader and always installs Turnip environment variables; changing a GPU whitelist is insufficient. Probe in a disposable process with a timeout, then test matrix math, quantization, attention and a short song before offering acceleration. A successful Vulkan enumeration alone is not a pass.
+3. **Select a backend per stage.** Benchmark score/token composition, acoustic rendering and VAE decoding separately. The S20 already demonstrates why: CPU wins composition and current NAR rendering; GPU VAE is faster. Cache validated choices by hardware, OS/driver and app/model version. Revalidate after relevant updates and retain a visible manual override.
+4. **Plan memory from available RAM and prompt size.** Include model residency, KV cache, working buffers, audio decoding and OS headroom. On the S20 model, context 4096 costs 448 MiB of KV; 8192/16384 cost approximately 896/1792 MiB. Long lyrics and score tokens consume context too. The duration field alone does not guarantee that duration. Keep one variation and unload stages by default; bound acoustic chunks and later stream/chunk VAE output. Test smaller quantizations for both sound and memory before promising 3/4 GB support. Storage-backed “RAM Boost” is not equivalent to physical RAM.
+5. **Thermal pacing and reliable resumption.** Integrate Android thermal status/headroom into the app and native cancellation/pause boundaries, including JNI mode. Use hysteresis, save checkpoints, expose cooling status, and keep OS thermal controls intact. Test screen-off, DeX detach, backgrounding, low battery and actual process death. Android notes that thermal readings can be unavailable or lag, so handle missing data explicitly. [Android thermal guidance](https://developer.android.com/games/optimize/adpf/thermal).
+6. **Modern Android packaging.** Validate all native libraries and APK packaging for 16 KB page sizes, and run the actual application on a 16 KB environment. The S20 APK's 19 ARM64 ELF files passed a load-segment alignment inspection (a separate Hexagon DSP payload is not loaded by the ARM CPU); the S20 itself uses 4 KB pages, so this is not a 16 KB runtime pass. [Android page-size guidance](https://developer.android.com/guide/practices/page-sizes).
+7. **A useful app at every tier.** Upstream 1.6.0 already provides Discover, imported recordings, HAMMER hosting/rehosting and peer networking without requiring generation models. This PR preserves those paths. Separate their device validation from local music-generation support. For devices that cannot fit the model, offer a smaller validated local model when available. An optional user-controlled LAN engine could extend reach without a vendor cloud; it must be explicit because it sends prompts and lyrics to that selected computer. This is a proposed feature, not an existing privacy guarantee.
+
+## Concrete work added in this branch
+
+- `feat/android-device-support-1.6` now includes a portable CPU song engine, seven runtime-selected CPU variants, a separate experimental system-Vulkan path, conservative first-install settings on lower-memory phones, and explicit driver selection. The current kernel/loader checks pass on the S20; this is not yet a Pixel/Motorola or budget-phone song-generation pass. See [the runtime record](android-runtime.md) for exact evidence and outstanding tests. Items above remain the broader roadmap.
+- `tools/android-device-probe.cpp`: a baseline-ISA, read-only JSON probe for CPU extensions, RAM, page size, Vulkan devices/features/limits. It has no network code and reads no serial, account, installed-app list or UUID. Tested on this S20 against both system and bundled loaders, plus a missing-loader case. GPU correctness is deliberately not inferred.
+- `tools/android-length-test/`: original five-song setlist, a sequential ops runner and an on-phone CPU thermal guard. It records requested versus measured duration, timings, memory and thermal history; saves completed songs into the phone library and evidence under the existing Buffalo S20 backup tree.
+- The test guard pauses at Android severe status, battery/skin 42°C or AP 75°C, and stops at critical status or higher test thresholds. These are conservative experiment settings, not manufacturer-rated limits. It survives loss of the ADB client, but cannot guarantee survival if Android kills the guard or engine.
+
+The current duration experiment uses the same patched native engine under an ADB-shell harness, two threads, Q5, eight render steps, one variation and chunks of up to 30 seconds. Contexts are 4096 for 30 seconds, 8192 for 60/120, and 16384 for 180/210. It suppresses semantic end-of-song until the requested frame budget to measure capacity. Full composition and rendering run on the phone. This does not yet validate multi-hour Android foreground-service survival or prove the music sounds good; listen to completed tracks and inspect chunk transitions.
+
+## Release acceptance
+
+Publish a support matrix with distinct states: discovered, math-tested, short-song-tested, sustained-song-tested. Include exact model/SKU, physical RAM, Android and driver versions, backend per stage, model hash, settings, actual duration, wall time, peak memory, cooling pauses and audio review. Do not translate a single Snapdragon or Tensor result into a whole-brand claim.
+
+Start with portable launch/CPU tests on older hardware, then add one verified system-Vulkan family at a time. Keep optional device reports local until the user reviews and exports them. No automatic reporting or public upload is introduced by this work.

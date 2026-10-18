@@ -1,0 +1,72 @@
+diff --git a/src/generate.h b/src/generate.h
+index b4d6154..5d19050 100644
+--- a/src/generate.h
++++ b/src/generate.h
+@@ -13,6 +13,7 @@
+ #pragma once
+ 
+ #include "gentle.h"
++#include "context-budget.h"
+ #include "qwen3-lm.h"
+ #include "sampling.h"
+ #include "timer.h"
+@@ -62,7 +63,7 @@ static bool yue2_generate(Qwen3LM *                             lm,
+                           const std::vector<std::vector<int>> & prefixes,
+                           const std::vector<std::vector<int>> & negatives,
+                           float                                 cfg_scale,
+-                          const Yue2Sampling &                  s,
++                          const Yue2Sampling &                  requested_sampling,
+                           int64_t                               seed,
+                           Yue2Phase                             phase,
+                           std::vector<Yue2Generation> *         out,
+@@ -75,14 +76,24 @@ static bool yue2_generate(Qwen3LM *                             lm,
+         fprintf(stderr, "[AR] FATAL: guidance %.3f needs an unconditional prefix per sequence\n", (double) cfg_scale);
+         return false;
+     }
+-    // Every set holds its prefix, the budget and the end token
++    // Fit the sampling ceiling to the actual prompt and selected KV capacity.
++    // A 4096-token preset must not reserve all 4096 slots for output alone.
++    size_t longest = 0;
+     for (int i = 0; i < B; i++) {
+-        size_t longest = guided && negatives[i].size() > prefixes[i].size() ? negatives[i].size() : prefixes[i].size();
+-        if ((int) longest + s.max_tokens + 1 > context) {
+-            fprintf(stderr, "[AR] FATAL: prefix %zu + budget %d + end exceeds context %d\n", longest, s.max_tokens,
+-                    context);
+-            return false;
+-        }
++        longest = std::max(longest, prefixes[i].size());
++        if (guided) longest = std::max(longest, negatives[i].size());
++    }
++    Yue2Sampling s = requested_sampling;
++    const int budget = yue2_context_token_budget(longest, s.max_tokens, context);
++    if (budget == 0) {
++        fprintf(stderr, "[AR] FATAL: prefix %zu leaves no generation room in context %d\n", longest, context);
++        return false;
++    }
++    if (budget < s.max_tokens) {
++        fprintf(stderr, "[AR] Token budget clamped from %d to %d for prefix %zu in context %d\n",
++                s.max_tokens, budget, longest, context);
++        s.max_tokens = budget;
++        s.min_tokens = std::min(s.min_tokens, budget);
+     }
+ 
+     const int N = guided ? 2 * B : B;
+diff --git a/src/context-budget.h b/src/context-budget.h
+new file mode 100644
+index 0000000..d864caf
+--- /dev/null
++++ b/src/context-budget.h
+@@ -0,0 +1,13 @@
++#pragma once
++#include <cstddef>
++
++// Reserve one slot for the end token. Validate before narrowing size_t, so
++// oversized or malformed prefixes cannot wrap into an apparently valid budget.
++static int yue2_context_token_budget(size_t prefix_tokens, int requested_tokens, int context_tokens) {
++    if (requested_tokens < 1 || context_tokens < 2 ||
++        prefix_tokens >= static_cast<size_t>(context_tokens - 1)) {
++        return 0;
++    }
++    const int available = context_tokens - 1 - static_cast<int>(prefix_tokens);
++    return requested_tokens < available ? requested_tokens : available;
++}

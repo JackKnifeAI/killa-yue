@@ -1,0 +1,14 @@
+PASS JNI library dependencies and exported entry point
+PASS f32 columns=1 max_error=0
+PASS f32 columns=8 max_error=0
+PASS f16 columns=1 max_error=0
+PASS f16 columns=8 max_error=0
+PASS q5_K columns=1 max_error=1.192093e-07
+PASS q5_K columns=8 max_error=9.536743e-07
+PASS q6_K columns=1 max_error=1.490116e-08
+PASS q6_K columns=8 max_error=9.536743e-07
+PASS q8_0 columns=1 max_error=2.732873e-05
+PASS q8_0 columns=8 max_error=0.0002186298
+CPU module: libkycpu-android_armv8.2_2.so
+PASS CPU runtime and GPU isolation
+load_backend: loaded CPU backend from /data/local/tmp/killa-portable-20261018/system/libggml-cpu-android_armv8.2_2.so

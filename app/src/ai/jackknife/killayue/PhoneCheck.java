@@ -12,7 +12,8 @@ import java.util.Locale;
  * What this phone can do, worked out without running anything heavy.
  *
  * The bundled GPU driver (Mesa Turnip) drives Qualcomm Adreno GPUs from the 600 series on,
- * through the kgsl kernel driver; on any other GPU the engine has to use the processor.
+ * through the kgsl kernel driver. Adreno 650 and GPUs outside that range default to the portable CPU engine;
+ * their system Vulkan driver is an experimental option that needs device testing.
  * The cover painter needs the Hexagon NPU of the Snapdragon 8 Elite (SM8750).
  */
 public class PhoneCheck {
@@ -39,10 +40,9 @@ public class PhoneCheck {
         return x.find() ? Integer.parseInt(x.group(1)) : 0;
     }
 
-    /** True when our GPU driver can be expected to work (Adreno 600 series or later, or an Adreno we cannot number). */
+    /** Whether to recommend bundled GPU mode, excluding the known Adreno 650 failure. */
     static boolean gpuSupported() {
-        int n = adrenoNumber();
-        return n == 0 || n >= 600;
+        return "Vulkan0".equals(EngineChoice.defaultDevice(adrenoNumber()));
     }
 
     static String socModel() {
@@ -83,17 +83,26 @@ public class PhoneCheck {
         StringBuilder b = new StringBuilder();
         if (!gpuSupported()) {
             cfg.edit().putString("device", "CPU").apply();
-            String g = gpuModel();
-            b.append("This phone's GPU (").append(g.length() > 0 ? g : "not a Qualcomm Adreno")
-                    .append(") is not one Killa YuE's GPU driver can run yet, so songs will be made on the processor. ")
-                    .append("That works, but it is very slow: expect hours for a short song.\n\n");
+            if (adrenoNumber() == 650) {
+                b.append("Songs are set to CPU on this Adreno 650 phone. GPU generation has known failures in this build. ")
+                        .append("Keep CPU selected until a validated GPU update is available. ");
+            } else {
+                String g = gpuModel();
+                b.append("Songs are set to CPU on this phone. The bundled GPU driver does not support its GPU (")
+                        .append(g.length() > 0 ? g : "not a Qualcomm Adreno")
+                        .append("). You can test the experimental system driver under Settings. ");
+            }
+            b.append("CPU generation may take hours and still needs enough free memory.\n\n");
         }
         long gb = memoryGb(c);
         if (gb > 0 && gb < 8) {
-            b.append("This phone has about ").append(gb).append(" GB of memory. Short songs should work; full-length songs need about 6 GB free ")
-                    .append("and may stop. The Settings tab's memory setting can help.\n\n");
+            cfg.edit().putString("quant", "Q5_K_M").putInt("maxseq", 4096)
+                    .putBoolean("keep", false).putBoolean("gentle", true).apply();
+            b.append("This phone has about ").append(gb).append(" GB of memory. Small model and short context are selected. ")
+                    .append("Available memory may still be insufficient for generation.\n\n");
         }
         if (b.length() > 0) {
+            b.append("You can also listen in Discover, import audio, and host or rehost songs without downloading generation models.\n\n");
             b.append("A device report (Settings tab) posted to the project's GitHub helps add support for more phones.");
         }
         return b.toString();
@@ -125,6 +134,8 @@ public class PhoneCheck {
         b.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         b.append("Chip: ").append(socModel()).append('\n');
         b.append("GPU: ").append(gpuModel().length() > 0 ? gpuModel() : "not Adreno").append('\n');
+        b.append("Selected GPU driver: ").append(EngineRuntime.driver(c)).append('\n');
+        b.append("Song engine: ").append(EngineRuntime.library(c)).append('\n');
         b.append("GPU clock now: ").append(read("/sys/class/kgsl/kgsl-3d0/max_gpuclk")).append('\n');
         b.append("Memory: about ").append(memoryGb(c)).append(" GB\n");
         b.append("Engine device: ").append(cfg.getString("device", "Vulkan0")).append(", gentle mode: ")

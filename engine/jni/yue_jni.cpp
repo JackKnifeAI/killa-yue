@@ -27,6 +27,9 @@ static std::string str(JNIEnv * env, jstring s) {
 extern "C" JNIEXPORT jint JNICALL
 Java_ai_jackknife_killayue_EngineHost_runEngine(JNIEnv * env, jclass, jobjectArray args, jobjectArray vars,
                                                    jstring logPath, jint nice) {
+    // An app process may inherit environment variables. Only this launch picks a driver.
+    for (const char * name : {"VK_DRIVER_FILES", "VK_ICD_FILENAMES", "GGML_DISABLE_VULKAN",
+                             "GGML_BACKEND_PATH", "YUE_BACKEND_DIR", "TU_KGSL_PRIORITY"}) unsetenv(name);
     // environment: "NAME=value" pairs, set before the Vulkan loader reads them
     for (jsize i = 0; i < env->GetArrayLength(vars); i++) {
         std::string kv = str(env, (jstring) env->GetObjectArrayElement(vars, i));

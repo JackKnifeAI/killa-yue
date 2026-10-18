@@ -1,0 +1,17 @@
+[
+  {
+    "case": "baseline",
+    "returncode": 0,
+    "elapsed_seconds": 0.08875846862792969
+  },
+  {
+    "case": "auto",
+    "returncode": 0,
+    "elapsed_seconds": 0.08597087860107422
+  },
+  {
+    "case": "system",
+    "returncode": 0,
+    "elapsed_seconds": 0.09543299674987793
+  }
+]
