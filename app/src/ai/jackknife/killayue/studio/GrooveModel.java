@@ -122,7 +122,9 @@ public final class GrooveModel {
             }
             java.util.Arrays.fill(step, 0);
             for (int v = 0; v < V; v++) {
-                float p = sigmoid(out[v] + (busy - 1) * 2.5f);  // busier: more ready to hit
+                // a little more decisive than the drummers (temperature 0.65): fewer stray ghost notes, a clearer pocket;
+                // busier is more ready to hit
+                float p = sigmoid((out[v] + (busy - 1) * 2.5f) / .65f);
                 if (random.nextFloat() >= p)
                     continue;
                 float vel = sigmoid(out[V + v]), off = (float) Math.tanh(out[2 * V + v]) * .5f;

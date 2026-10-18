@@ -251,6 +251,12 @@ final class ArrangeScreen implements Screen, StudioSession.Listener {
                 return;
             p.setColor(Skin.ACCENT);
             c.drawLine(x, 0, x, getHeight(), p);
+            // a gold knob on the ruler: the playhead can be grabbed and dragged
+            p.setStyle(Paint.Style.FILL);
+            float r = Ui.dp(getContext(), 7);
+            c.drawCircle(x, r + Ui.dp(getContext(), 2), r, p);
+            p.setColor(Skin.HI);
+            c.drawCircle(x, r + Ui.dp(getContext(), 2), r * .45f, p);
         }
     }
 }

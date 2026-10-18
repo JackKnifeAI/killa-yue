@@ -75,11 +75,12 @@ class Groove(nn.Module):
     def __init__(self, hidden=256):
         super().__init__()
         self.inp = F + len(STYLES) + 16
-        self.gru = nn.GRU(self.inp, hidden, num_layers=2, batch_first=True)
+        self.gru = nn.GRU(self.inp, hidden, num_layers=2, batch_first=True, dropout=0.3)
+        self.drop = nn.Dropout(0.2)
         self.out = nn.Linear(hidden, F)
     def forward(self, x, h=None):
         y, h = self.gru(x, h)
-        return self.out(y), h
+        return self.out(self.drop(y)), h
 
 def inputs(st, seg):
     """Step t's input: step t-1 (zeros first), the style, and t's place in the bar."""
@@ -110,19 +111,29 @@ def main():
     valid = [d for d in data if d[2] != "train"]
     print(f"{len(train)} training sequences, {len(valid)} held out", flush=True)
     model = Groove()
-    opt = torch.optim.Adam(model.parameters(), 2e-3)
-    def batch(items):
-        x = torch.tensor(np.stack([inputs(st, seg) for st, seg, _ in items]))
-        y = torch.tensor(np.stack([seg for _, seg, _ in items]))
+    opt = torch.optim.AdamW(model.parameters(), 1.5e-3, weight_decay=1e-4)
+    def augment(seg):
+        """Another take of the same phrase: a little louder or softer, a little earlier or later per hit."""
+        s = seg.copy()
+        hit = s[:, :V] > 0
+        s[:, V:2 * V] = np.where(hit, np.clip(s[:, V:2 * V] * np.random.uniform(.85, 1.15) +
+                                              np.random.normal(0, .04, hit.shape), .05, 1), 0)
+        s[:, 2 * V:] = np.where(hit, np.clip(s[:, 2 * V:] + np.random.normal(0, .03, hit.shape), -.5, .5), 0)
+        return s
+    def batch(items, train=False):
+        segs = [augment(seg) if train else seg for _, seg, _ in items]
+        x = torch.tensor(np.stack([inputs(st, seg) for (st, _, _), seg in zip(items, segs)]))
+        y = torch.tensor(np.stack(segs))
         return x, y
     vx, vy = batch(valid)
     best, best_state = 1e9, None
     torch.set_num_threads(6)
-    for epoch in range(16):
+    epochs, patience, waited = int(os.environ.get("EPOCHS", "60")), 8, 0
+    for epoch in range(epochs):
         random.shuffle(train)
         model.train()
         for i in range(0, len(train), 64):
-            x, y = batch(train[i:i + 64])
+            x, y = batch(train[i:i + 64], True)
             p, _ = model(x)
             l, _ = loss(p, y)
             opt.zero_grad()
@@ -134,9 +145,14 @@ def main():
             vl, vh = loss(model(vx)[0], vy)
         print(f"epoch {epoch + 1}: held-out loss {vl.item():.4f} (hits {vh.item():.4f})", flush=True)
         if vl.item() < best:
-            best, best_state = vl.item(), {k: v.clone() for k, v in model.state_dict().items()}
+            best, best_state, waited = vl.item(), {k: v.clone() for k, v in model.state_dict().items()}, 0
+        else:
+            waited += 1
+            if waited >= patience:
+                print(f"no better for {patience} epochs: stopping", flush=True)
+                break
         for g in opt.param_groups:
-            g["lr"] *= .86
+            g["lr"] *= .95
     model.load_state_dict(best_state)
     # format: magic, version, input, hidden, layers, outputs, then for each layer W_ih, W_hh, b_ih, b_hh
     # (PyTorch order: reset, update, new), then the output layer's weight and bias

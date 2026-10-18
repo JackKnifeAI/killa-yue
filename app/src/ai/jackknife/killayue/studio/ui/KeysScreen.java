@@ -1063,7 +1063,7 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
         double downBeat, oldBeat, oldLength;
         int downKey, oldKey;
         float downY, downX, oldVelocity;
-        boolean dragged, panning;
+        boolean dragged, panning, scrubbing;
         float panX, panY;
         Roll() {
             super(a);
@@ -1124,10 +1124,11 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
             if (status != null && p != null) {
                 double b = new TempoMap(p.rate, p.performance).beatAt(status.position);
                 if (b >= first && b <= first + span) {
-                    paint.setColor(recorder.on ? 0xffff5070 : Skin.TEXT);
+                    paint.setColor(recorder.on ? 0xffff5070 : Skin.ACCENT);
                     paint.setStrokeWidth(Ui.dp(a, 2));
                     c.drawLine(x(b), 0, x(b), getHeight(), paint);
                     paint.setStrokeWidth(0);
+                    c.drawCircle(x(b), head() / 2, Ui.dp(a, 6), paint);  // the knob to drag it by
                 } else if (status.playing && b > first + span)
                     first = Math.floor(b / span) * span;  // follow the playhead page by page
             }
@@ -1192,12 +1193,28 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
                 cancel();
                 return true;
             }
+            if (scrubbing) {
+                // the ruler or the playhead's line: drag to move the playhead
+                Project p = project();
+                if (p != null && (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP))
+                    a.session.seek(new TempoMap(p.rate, p.performance).frameAt(Math.max(0, beat(e.getX()))));
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)
+                    scrubbing = false;
+                return true;
+            }
             if (action == MotionEvent.ACTION_DOWN) {
-                if (e.getY() < head()) {
-                    // the ruler: move the playhead there
-                    Project p = project();
+                NativeEngine.Status st = a.session.status();
+                Project p = project();
+                boolean onLine = false;
+                if (st != null && p != null) {
+                    float px = x(new TempoMap(p.rate, p.performance).beatAt(st.position));
+                    onLine = Math.abs(e.getX() - px) < Ui.dp(a, 12) && mode != 3;
+                }
+                if (e.getY() < head() || onLine) {
+                    scrubbing = true;
+                    getParent().requestDisallowInterceptTouchEvent(true);
                     if (p != null)
-                        a.session.seek(new TempoMap(p.rate, p.performance).frameAt(snap(beat(e.getX()))));
+                        a.session.seek(new TempoMap(p.rate, p.performance).frameAt(snap(Math.max(0, beat(e.getX())))));
                     return true;
                 }
                 getParent().requestDisallowInterceptTouchEvent(true);
@@ -1207,18 +1224,9 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
                 downY = e.getY();
                 downX = e.getX();
                 dragged = false;
-                moving = null;
-                for (int i = preview.notes.size() - 1; i >= 0; i--) {
-                    MidiNotes.Note n = preview.notes.get(i);
-                    if (n.key == downKey && downBeat >= n.beat && downBeat <= n.beat + n.length) {
-                        moving = n;
-                        break;
-                    }
-                }
+                moving = under(preview, e.getX(), e.getY());
                 if (mode == 3) {
-                    if (moving != null)
-                        preview.notes.remove(moving);
-                    moving = null;
+                    eraseAt(e.getX(), e.getY());
                     invalidate();
                     return true;
                 }
@@ -1243,13 +1251,8 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
                 return true;
             }
             if (mode == 3 && preview != null && action == MotionEvent.ACTION_MOVE) {
-                double b = beat(e.getX());
-                int k = pitch(e.getY());
-                for (int i = preview.notes.size() - 1; i >= 0; i--) {
-                    MidiNotes.Note n = preview.notes.get(i);
-                    if (n.key == k && b >= n.beat && b <= n.beat + n.length)
-                        preview.notes.remove(i);
-                }
+                for (int h = 0; h < e.getHistorySize(); h++) eraseAt(e.getHistoricalX(h), e.getHistoricalY(h));
+                eraseAt(e.getX(), e.getY());
                 invalidate();
                 return true;
             }
@@ -1278,6 +1281,34 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
                 return true;
             }
             return true;
+        }
+        /**
+         * The note under a finger: a fingertip's reach in time (short notes are only a sliver wide) and, when rows are
+         * thin, in pitch too; the nearest one wins.
+         */
+        MidiNotes.Note under(MidiNotes notes, float x, float y) {
+            float reach = Ui.dp(a, 14), rowReach = Math.max(0, Ui.dp(a, 10) - row() / 2);
+            MidiNotes.Note best = null;
+            float bestD = Float.MAX_VALUE;
+            for (MidiNotes.Note n : notes.notes) {
+                float top = y(n.key), bottom = top + row();
+                if (y < top - rowReach || y > bottom + rowReach)
+                    continue;
+                float l = x(n.beat), r = Math.max(l + Ui.dp(a, 3), x(n.beat + n.length));
+                float dx = x < l ? l - x : x > r ? x - r : 0, dy = y < top ? top - y : y > bottom ? y - bottom : 0;
+                if (dx > reach)
+                    continue;
+                float d = dx + dy;
+                if (d < bestD) {
+                    bestD = d;
+                    best = n;
+                }
+            }
+            return best;
+        }
+        void eraseAt(float x, float y) {
+            MidiNotes.Note n;
+            while (preview != null && (n = under(preview, x, y)) != null) preview.notes.remove(n);
         }
         void audition(final int key) {
             NativeEngine e = a.session.engine();
