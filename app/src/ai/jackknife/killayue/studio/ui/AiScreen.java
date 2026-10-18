@@ -394,8 +394,9 @@ final class AiScreen implements Screen {
     public void frame(NativeEngine.Status s) {
         AiJob j = watchedJob();
         if (j == null) {
-            status.setText(AiJobs.busy() ? "An AI job is running." : "");
-            return;
+            if (AiJobs.busy())
+                status.setText("An AI job is running.");
+            return;  // otherwise the last message stays
         }
         String state = j.state();
         if ("running".equals(state) || "waiting".equals(state))
