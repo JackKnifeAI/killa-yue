@@ -894,7 +894,7 @@ recording, encoded as 16-bit 48 kHz FLAC). Each pack carries its own LICENSE.txt
 
 ## Killa Groove (the Studio's drum-groove model, inside the app)
 
-`assets/studio/killa-groove-v1.bin` is a model trained by `tools/groove/train.py` on the Groove MIDI Dataset by Jon
+`assets/studio/killa-groove-v2.bin` is a model trained by `tools/groove/train.py` on the Groove MIDI Dataset by Jon
 Gillick, Adam Roberts, Jesse Engel, Mohammad Norouzi and the Magenta team at Google, released under Creative Commons
 Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/; https://magenta.tensorflow.org/datasets/groove). The
 model is our own training on that data; the data itself is not included. Its step representation follows "Learning

@@ -18,7 +18,7 @@ public final class GrooveModelTest {
     }
     public static void main(String[] args) throws Exception {
         GrooveModel m;
-        try (FileInputStream in = new FileInputStream(new File("assets/studio/killa-groove-v1.bin"))) {
+        try (FileInputStream in = new FileInputStream(new File("assets/studio/killa-groove-v2.bin"))) {
             m = GrooveModel.read(in);
         }
         List<MidiNotes.Note> a = m.play(0, 4, 1, 1, 42), b = m.play(0, 4, 1, 1, 42);

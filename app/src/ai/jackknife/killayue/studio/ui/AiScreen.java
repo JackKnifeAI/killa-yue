@@ -442,7 +442,7 @@ final class AiScreen implements Screen {
                 try {
                     synchronized (AiScreen.class) {
                         if (grooveModel == null) {
-                            java.io.InputStream in = a.getAssets().open("studio/killa-groove-v1.bin");
+                            java.io.InputStream in = a.getAssets().open("studio/killa-groove-v2.bin");
                             try {
                                 grooveModel = ai.jackknife.killayue.studio.GrooveModel.read(new java.io.BufferedInputStream(in));
                             } finally {
