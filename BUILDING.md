@@ -194,8 +194,11 @@ cmake -S peer/native -B build-hammer-android -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-hammer-android -j2
 HAMMER_DESKTOP_LIB="$PWD/build-hammer-host/libhammer.so" bash peer/build-companion.sh "$PWD/out"
 bash peer/test/run.sh
+bash peer/test/native-safety.sh # Linux: ASan/UBSan descriptor and malformed-packet harness
 ```
 
 Add the two library paths to `app/local.env`, then run the ordinary app build. The companion ZIP is rebuilt and included as an app asset. Its Java source shares the phone protocol; its native source includes the same pinned miniaudio and resampler. Opus downloads are pinned by SHA-256 in `peer/fetch-opus.sh`; miniaudio's pinned commit and hash are in `peer/native/vendor/VERSIONS.txt`.
 
 `STUDIO_TEST=1` additionally includes `HammerTestActivity`, which runs the TLS/native integration suite in isolated fixture directories, dispatching cancellation, disconnect and host shutdown on Android's UI thread to catch TLS-close lifecycle regressions and writes `hammer-test-result.txt` to the app's external files directory. Test activities must not be shipped in a release. Desktop native portability beyond Linux x86-64 remains unvalidated.
+
+The Library/Discover preview requires rebuilding `libhammer.so`: Android now calls the `framesFd` and `encodeFd` JNI entry points from a non-exported isolated service. Do not pair the new Java sources with an older native library. The main process supplies read-only descriptors; artwork decoding and normalization use the same isolated-service boundary. See `peer/DISCOVERY-SECURITY.md` for the remaining desktop isolation and internet discovery work.

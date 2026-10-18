@@ -5,7 +5,7 @@ the existing master file, encodes compressed streams in memory, and exchanges
 catalogs, audio, comments and votes through pinned TLS connections. No account,
 tracker, analytics service or company-operated server is required.
 
-From Killa YuE: Library → HAMMER → Save desktop companion. Transfer the ZIP to
+From Killa YuE: Library → Sharing settings → Save desktop companion. Transfer the ZIP to
 your computer, extract it, and open a terminal in `hammer-server`.
 
 ## Start
@@ -101,3 +101,13 @@ the build into `native/windows-x86_64/`. Start `run.bat`.
 Killa YuE is Apache-2.0. miniaudio is used under its MIT option (license in the
 header). Opus is BSD-3-Clause; its license is included in its source archive and
 the native package. These are audio implementations, not network services.
+
+## Public artist profiles and entry peers
+
+`profile "Artist name" "Public biography" "genres and tags"` publishes signed text metadata. `withdraw-profile` stops offering it on this host. Profiles downloaded alongside recordings preserve their original signing identity. A name is not a verified real-world identity.
+
+`join "hammer://ENTRY:PORT/#PIN"` verifies and remembers a public entry peer. If this host has a numeric public `--address` and published music/profile, it sends signed announcements to remembered public peers, renewed every ten minutes and expiring after thirty. The entry accepts only the address observed on the announcing connection. Directory entries contain no private invitation tokens.
+
+Android Discover searches reachable catalogs and profiles and can follow bounded batches of those announcements. The public directory is not a complete worldwide index. Reachable entry peers must exist; this preview does not configure NAT traversal or deploy relays. LAN-only desktop hosts still need their card supplied or an operating-system mDNS announcement. Android public hosts advertise through NSD automatically.
+
+See [Discovery and security](DISCOVERY-SECURITY.md) for the publication boundary, Android codec isolation, implemented limits and unfinished internet connectivity work. The desktop codec is not sandboxed by the Android service implementation.

@@ -16,13 +16,13 @@ import javax.security.auth.x500.X500Principal;
 final class HammerAndroid {
     private static HammerStore store;
     static synchronized HammerStore store(Context c) throws Exception {
-        if (store == null)
+        if (store == null) {
             store = new HammerStore(new File(c.getFilesDir(), "hammer"));
+            HammerMedia.codec = new HammerCodec(c);
+        }
         return store;
     }
-    static synchronized KeyStore keys() throws Exception {
-        return keys("hammer-identity-v1");
-    }
+    static synchronized KeyStore keys() throws Exception { return keys("hammer-identity-v1"); }
     static synchronized KeyStore keys(String alias) throws Exception {
         KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
         ks.load(null);
@@ -30,11 +30,12 @@ final class HammerAndroid {
             KeyPairGenerator g =
                 KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore");
             long now = System.currentTimeMillis();
-            g.initialize(new KeyGenParameterSpec
+            g.initialize(
+                new KeyGenParameterSpec
                     .Builder(alias, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                     .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
-                    .setDigests(
-                        KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA384)
+                    .setDigests(KeyProperties.DIGEST_NONE, KeyProperties.DIGEST_SHA256,
+                                KeyProperties.DIGEST_SHA384)
                     .setCertificateSubject(new X500Principal("CN=HAMMER peer"))
                     .setCertificateSerialNumber(new BigInteger(120, new SecureRandom()).add(BigInteger.ONE))
                     .setCertificateNotBefore(new Date(now - 86400000L))
@@ -48,17 +49,15 @@ final class HammerAndroid {
     static KeyPair identity() throws Exception {
         KeyStore k = keys();
         return new KeyPair(k.getCertificate("hammer-identity-v1").getPublicKey(),
-            (PrivateKey) k.getKey("hammer-identity-v1", null));
+                           (PrivateKey)k.getKey("hammer-identity-v1", null));
     }
     static X509Certificate certificate() throws Exception {
-        return (X509Certificate) keys().getCertificate("hammer-identity-v1");
+        return (X509Certificate)keys().getCertificate("hammer-identity-v1");
     }
     static KeyPair voteIdentity(String song, String audience) throws Exception {
         String alias = "hammer-vote-" + Hammer.hash((song + audience).getBytes("UTF-8"));
         KeyStore k = keys(alias);
-        return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey) k.getKey(alias, null));
+        return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey)k.getKey(alias, null));
     }
-    static String pin() throws Exception {
-        return Hammer.hash(certificate().getPublicKey().getEncoded());
-    }
+    static String pin() throws Exception { return Hammer.hash(certificate().getPublicKey().getEncoded()); }
 }

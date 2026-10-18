@@ -18,6 +18,7 @@ public final class HammerTestActivity extends Activity {
             public void run() {
                 String result;
                 try {
+                    HammerAndroid.store(HammerTestActivity.this);
                     result = HammerIntegration.run(HammerAndroid.identity(), HammerAndroid.certificate(),
                         new File(getFilesDir(), "hammer-test-" + System.currentTimeMillis()),
                         new HammerIntegration.Controls() {

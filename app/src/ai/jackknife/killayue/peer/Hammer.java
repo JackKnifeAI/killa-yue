@@ -16,10 +16,12 @@ public final class Hammer {
     public static final int MAGIC = 0x484d5231, PORT = 8784, CHUNK = 262144, MAX_SONGS = 256;
     public static final long MAX_AUDIO = 1024L * 1024 * 1024;
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
-                            SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10;
+                            SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
+                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15;
     public static String hex(byte[] bytes) {
         StringBuilder b = new StringBuilder();
-        for (byte v : bytes) b.append(String.format(Locale.US, "%02x", v & 255));
+        for (byte v : bytes)
+            b.append(String.format(Locale.US, "%02x", v & 255));
         return b.toString();
     }
     public static String hash(byte[] bytes) throws Exception {
@@ -30,7 +32,8 @@ public final class Hammer {
         try (InputStream in = new FileInputStream(file)) {
             byte[] b = new byte[65536];
             int n;
-            while ((n = in.read(b)) != -1) d.update(b, 0, n);
+            while ((n = in.read(b)) != -1)
+                d.update(b, 0, n);
         }
         return hex(d.digest());
     }
@@ -47,9 +50,7 @@ public final class Hammer {
         }
         return true;
     }
-    public static boolean digest(String s) {
-        return s != null && s.matches("[0-9a-f]{64}");
-    }
+    public static boolean digest(String s) { return s != null && s.matches("[0-9a-f]{64}"); }
     public static void require(boolean ok, String why) throws IOException {
         if (!ok)
             throw new IOException(why);
@@ -78,9 +79,8 @@ public final class Hammer {
     static boolean verify(String key, String sig, byte[] bytes) throws Exception {
         PublicKey k = KeyFactory.getInstance("EC").generatePublic(
             new X509EncodedKeySpec(Base64.getDecoder().decode(key)));
-        if (!(k instanceof java.security.interfaces.ECPublicKey)
-            || ((java.security.interfaces.ECPublicKey) k).getParams().getCurve().getField().getFieldSize()
-                != 256)
+        if (!(k instanceof java.security.interfaces.ECPublicKey) ||
+            ((java.security.interfaces.ECPublicKey)k).getParams().getCurve().getField().getFieldSize() != 256)
             return false;
         Signature s = Signature.getInstance("SHA256withECDSA");
         s.initVerify(k);
@@ -96,29 +96,27 @@ public final class Hammer {
         public final String host, pin, token;
         public final int port;
         public Card(String host, int port, String pin, String token) throws IOException {
-            require(host != null && host.length() > 0 && host.length() <= 253
-                    && host.matches("[a-zA-Z0-9.:%_-]+"),
-                "Invalid host");
+            require(host != null && host.length() > 0 && host.length() <= 253 &&
+                        host.matches("[a-zA-Z0-9.:%_-]+"),
+                    "Invalid host");
             require(port > 0 && port <= 65535 && digest(pin) && (token.isEmpty() || digest(token)),
-                "Invalid peer card");
+                    "Invalid peer card");
             this.host = host;
             this.port = port;
             this.pin = pin;
             this.token = token;
         }
-        public boolean isPrivate() {
-            return !token.isEmpty();
-        }
+        public boolean isPrivate() { return !token.isEmpty(); }
         public String encode() {
-            return "hammer://" + (host.contains(":") ? "[" + host + "]" : host) + ":" + port + "/#" + pin
-                + (isPrivate() ? "." + token : "");
+            return "hammer://" + (host.contains(":") ? "[" + host + "]" : host) + ":" + port + "/#" + pin +
+                (isPrivate() ? "." + token : "");
         }
         public static Card parse(String value) throws Exception {
             require(value.length() <= 1024, "Peer card too long");
             URI u = new URI(value.trim());
-            require("hammer".equals(u.getScheme()) && u.getRawUserInfo() == null && u.getRawQuery() == null
-                    && "/".equals(u.getRawPath()) && u.getHost() != null,
-                "Use a HAMMER peer card");
+            require("hammer".equals(u.getScheme()) && u.getRawUserInfo() == null &&
+                        u.getRawQuery() == null && "/".equals(u.getRawPath()) && u.getHost() != null,
+                    "Use a HAMMER peer card");
             String[] f = String.valueOf(u.getRawFragment()).split("\\.", -1);
             require(f.length == 1 || f.length == 2, "Invalid peer identity");
             String host = u.getHost();
@@ -159,8 +157,9 @@ public final class Hammer {
         }
         public void validate() throws Exception {
             require(displayText(title) && displayText(tags), "Invalid display text");
-            require(digest(id) && size > 0 && size <= MAX_AUDIO
-                    && ("audio/wav".equals(type) || "audio/mpeg".equals(type) || "audio/flac".equals(type)),
+            require(
+                digest(id) && size > 0 && size <= MAX_AUDIO &&
+                    ("audio/wav".equals(type) || "audio/mpeg".equals(type) || "audio/flac".equals(type)),
                 "Invalid song");
             require(verify(key, sig, payload()), "Song signature does not match");
         }
@@ -185,8 +184,8 @@ public final class Hammer {
             text(o, sig, 256);
         }
         public static Song read(DataInputStream i) throws Exception {
-            Song s = new Song(
-                text(i, 64), text(i, 512), text(i, 1024), text(i, 16), i.readLong(), i.readBoolean());
+            Song s = new Song(text(i, 64), text(i, 512), text(i, 1024), text(i, 16), i.readLong(),
+                              i.readBoolean());
             s.key = text(i, 256);
             s.sig = text(i, 256);
             s.validate();
@@ -215,9 +214,9 @@ public final class Hammer {
         }
         public void validate() throws Exception {
             require(displayText(name) && displayText(body), "Invalid comment text");
-            require(digest(song) && digest(id) && ("public".equals(audience) || digest(audience)) && time > 0
-                    && !body.trim().isEmpty(),
-                "Invalid comment");
+            require(digest(song) && digest(id) && ("public".equals(audience) || digest(audience)) &&
+                        time > 0 && !body.trim().isEmpty(),
+                    "Invalid comment");
             require(verify(key, sig, payload()), "Comment signature does not match");
         }
         public void write(DataOutputStream o) throws IOException {
@@ -254,6 +253,8 @@ public final class Hammer {
         List<Vote> votes(String id, String capability) throws Exception;
         void vote(Vote vote, String capability) throws Exception;
         List<Song> changed(String capability, String cursor, long waitMillis) throws Exception;
+        default HammerPublic publicObjects() { return null; }
+        default HammerDirectory directory() { return null; }
     }
     public static final class Vote {
         public String song, key, sig, audience = "public";
@@ -274,9 +275,9 @@ public final class Hammer {
             sig = Base64.getEncoder().encodeToString(signature(pair.getPrivate(), payload()));
         }
         public void validate() throws Exception {
-            require(digest(song) && ("public".equals(audience) || digest(audience)) && value >= -1
-                    && value <= 1 && sequence > 0 && sequence <= 1000000000,
-                "Invalid vote");
+            require(digest(song) && ("public".equals(audience) || digest(audience)) && value >= -1 &&
+                        value <= 1 && sequence > 0 && sequence <= 1000000000,
+                    "Invalid vote");
             require(verify(key, sig, payload()), "Vote signature does not match");
         }
         public void write(DataOutputStream o) throws IOException {
@@ -314,10 +315,10 @@ public final class Hammer {
             if (p.equals("TLSv1.3") || p.equals("TLSv1.2"))
                 protocols.add(p);
         for (String c : s.getSupportedCipherSuites())
-            if (c.equals("TLS_AES_128_GCM_SHA256") || c.equals("TLS_AES_256_GCM_SHA384")
-                || c.equals("TLS_CHACHA20_POLY1305_SHA256")
-                || c.equals("TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256")
-                || c.equals("TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"))
+            if (c.equals("TLS_AES_128_GCM_SHA256") || c.equals("TLS_AES_256_GCM_SHA384") ||
+                c.equals("TLS_CHACHA20_POLY1305_SHA256") ||
+                c.equals("TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256") ||
+                c.equals("TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"))
                 suites.add(c);
         require(!protocols.isEmpty() && !suites.isEmpty(), "Secure TLS unavailable");
         s.setEnabledProtocols(protocols.toArray(new String[0]));
@@ -328,24 +329,16 @@ public final class Hammer {
     }
     public static SSLContext serverContext(final KeyPair pair, final X509Certificate cert) throws Exception {
         X509ExtendedKeyManager keys = new X509ExtendedKeyManager() {
-            public String[] getClientAliases(String t, Principal[] p) {
-                return null;
-            }
-            public String chooseClientAlias(String[] t, Principal[] p, Socket s) {
-                return null;
-            }
+            public String[] getClientAliases(String t, Principal[] p) { return null; }
+            public String chooseClientAlias(String[] t, Principal[] p, Socket s) { return null; }
             public String[] getServerAliases(String t, Principal[] p) {
                 return "EC".equals(t) ? new String[] {"hammer"} : null;
             }
             public String chooseServerAlias(String t, Principal[] p, Socket s) {
                 return "EC".equals(t) ? "hammer" : null;
             }
-            public X509Certificate[] getCertificateChain(String a) {
-                return new X509Certificate[] {cert};
-            }
-            public PrivateKey getPrivateKey(String a) {
-                return pair.getPrivate();
-            }
+            public X509Certificate[] getCertificateChain(String a) { return new X509Certificate[] {cert}; }
+            public PrivateKey getPrivateKey(String a) { return pair.getPrivate(); }
         };
         SSLContext c = SSLContext.getInstance("TLS");
         c.init(new KeyManager[] {keys}, null, new SecureRandom());
@@ -354,9 +347,7 @@ public final class Hammer {
     public static SSLContext clientContext(final String pin) throws Exception {
         require(digest(pin), "Invalid pinned identity");
         X509TrustManager trust = new X509TrustManager() {
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-            }
+            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
             public void checkClientTrusted(X509Certificate[] chain, String auth)
                 throws java.security.cert.CertificateException {
                 throw new java.security.cert.CertificateException("No client CA");
@@ -367,7 +358,8 @@ public final class Hammer {
                     require(chain != null && chain.length > 0, "Missing identity");
                     chain[0].checkValidity();
                     require(
-                        MessageDigest.isEqual(pin.getBytes(StandardCharsets.US_ASCII),
+                        MessageDigest.isEqual(
+                            pin.getBytes(StandardCharsets.US_ASCII),
                             hash(chain[0].getPublicKey().getEncoded()).getBytes(StandardCharsets.US_ASCII)),
                         "Peer identity changed");
                 } catch (Exception e) {
@@ -394,9 +386,7 @@ public final class Hammer {
             }
             socket = s;
         }
-        public void check() throws IOException {
-            require(!cancelled, "Cancelled");
-        }
+        public void check() throws IOException { require(!cancelled, "Cancelled"); }
     }
     static void close(Socket s) {
         if (s != null)
@@ -413,14 +403,10 @@ public final class Hammer {
                 return t;
             }
         });
-    static {
-        DEADLINES.setRemoveOnCancelPolicy(true);
-    }
+    static { DEADLINES.setRemoveOnCancelPolicy(true); }
     static ScheduledFuture<?> deadline(final Socket s) {
         return DEADLINES.schedule(new Runnable() {
-            public void run() {
-                close(s);
-            }
+            public void run() { close(s); }
         }, 60, TimeUnit.SECONDS);
     }
 
@@ -428,6 +414,7 @@ public final class Hammer {
         private final ServerSocket listener;
         private final SSLSocketFactory tls;
         private final Source source;
+        private final HammerGuard guard = new HammerGuard();
         private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<Socket>());
         private final ThreadPoolExecutor workers =
             new ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(4));
@@ -440,21 +427,23 @@ public final class Hammer {
             listener.setReuseAddress(true);
             listener.bind(address, 8);
             Thread t = new Thread(new Runnable() {
-                public void run() {
-                    accept();
-                }
+                public void run() { accept(); }
             }, "hammer-host");
             t.setDaemon(true);
             t.start();
         }
-        public int port() {
-            return listener.getLocalPort();
-        }
+        public int port() { return listener.getLocalPort(); }
         private void accept() {
-            while (!listener.isClosed()) try {
+            while (!listener.isClosed())
+                try {
                     final Socket s = listener.accept();
+                    if (!guard.enter(s.getInetAddress().getHostAddress())) {
+                        Hammer.close(s);
+                        continue;
+                    }
                     synchronized (clients) {
                         if (listener.isClosed()) {
+                            guard.leave(s.getInetAddress().getHostAddress());
                             Hammer.close(s);
                             continue;
                         }
@@ -462,12 +451,11 @@ public final class Hammer {
                     }
                     try {
                         workers.execute(new Runnable() {
-                            public void run() {
-                                handle(s);
-                            }
+                            public void run() { handle(s); }
                         });
                     } catch (RejectedExecutionException e) {
                         clients.remove(s);
+                        guard.leave(s.getInetAddress().getHostAddress());
                         Hammer.close(s);
                     }
                 } catch (IOException e) {
@@ -479,8 +467,8 @@ public final class Hammer {
             SSLSocket s = null;
             boolean handedOff = false;
             try {
-                s = (SSLSocket) tls.createSocket(
-                    transport, transport.getInetAddress().getHostAddress(), transport.getPort(), true);
+                s = (SSLSocket)tls.createSocket(transport, transport.getInetAddress().getHostAddress(),
+                                                transport.getPort(), true);
                 s.setUseClientMode(false);
                 secure(s);
                 s.startHandshake();
@@ -494,7 +482,8 @@ public final class Hammer {
                     require(songs.size() <= MAX_SONGS, "Catalog full");
                     out.writeInt(MAGIC);
                     out.writeInt(songs.size());
-                    for (Song song : songs) song.write(out);
+                    for (Song song : songs)
+                        song.write(out);
                 } else if (op == AUDIO) {
                     String id = text(in, 64);
                     require(digest(id), "Invalid song");
@@ -503,8 +492,8 @@ public final class Hammer {
                     File f = source.audio(id, token);
                     require(f != null && f.isFile(), "Song unavailable");
                     require(offset >= 0 && offset < f.length() && count > 0 && count <= CHUNK,
-                        "Invalid audio range");
-                    int length = (int) Math.min(count, f.length() - offset);
+                            "Invalid audio range");
+                    int length = (int)Math.min(count, f.length() - offset);
                     byte[] bytes = HammerNative.range(f.getPath(), offset, length);
                     // Recheck visibility after disk I/O, so revocation cannot start a new response.
                     require(source.audio(id, token) != null, "Song withdrawn");
@@ -518,7 +507,8 @@ public final class Hammer {
                     require(cs.size() <= 128, "Too many comments");
                     out.writeInt(MAGIC);
                     out.writeInt(cs.size());
-                    for (Comment c : cs) c.write(out);
+                    for (Comment c : cs)
+                        c.write(out);
                 } else if (op == COMMENT) {
                     source.comment(Comment.read(in), token);
                     out.writeInt(MAGIC);
@@ -535,7 +525,7 @@ public final class Hammer {
                 } else if (op == INFO) {
                     File f = source.audio(text(in, 64), token);
                     require(f != null, "Song unavailable");
-                    long frames = HammerNative.frames(f.getPath());
+                    long frames = HammerMedia.codec.frames(f);
                     out.writeInt(MAGIC);
                     out.writeLong(frames);
                 } else if (op == SEGMENT) {
@@ -543,7 +533,7 @@ public final class Hammer {
                     int segment = in.readInt(), bitrate = in.readInt();
                     File f = source.audio(id, token);
                     require(f != null, "Song unavailable");
-                    byte[] bytes = HammerNative.encode(f.getPath(), id, segment, bitrate);
+                    byte[] bytes = HammerMedia.codec.encode(f, id, segment, bitrate);
                     require(source.audio(id, token) != null, "Song withdrawn");
                     out.writeInt(MAGIC);
                     out.writeInt(bytes.length);
@@ -553,19 +543,62 @@ public final class Hammer {
                     List<Vote> votes = source.votes(text(in, 64), token);
                     out.writeInt(MAGIC);
                     out.writeInt(votes.size());
-                    for (Vote v : votes) v.write(out);
+                    for (Vote v : votes)
+                        v.write(out);
                 } else if (op == VOTE) {
                     source.vote(Vote.read(in), token);
                     out.writeInt(MAGIC);
+                } else if (op == DIRECTORY) {
+                    source.catalog(token);
+                    require(source.directory() != null, "Directory unavailable");
+                    List<HammerPresence> nodes = source.directory().list();
+                    out.writeInt(MAGIC);
+                    out.writeInt(nodes.size());
+                    for (HammerPresence node : nodes)
+                        node.write(out);
+                } else if (op == ANNOUNCE) {
+                    require(token.isEmpty() && source.directory() != null, "Public announcements only");
+                    HammerPresence p = HammerPresence.read(in);
+                    require(java.net.InetAddress.getByName(p.card.host).equals(transport.getInetAddress()),
+                            "Announce only your own reachable address");
+                    source.directory().announce(p);
+                    out.writeInt(MAGIC);
+                } else if (op == PROFILES) {
+                    source.catalog(token);
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Artist profiles unavailable");
+                    List<HammerProfile> profiles = objects.profiles();
+                    require(profiles.size() <= 64, "Artist list full");
+                    out.writeInt(MAGIC);
+                    out.writeInt(profiles.size());
+                    for (HammerProfile p : profiles)
+                        p.write(out);
+                } else if (op == COVER) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Artwork unavailable");
+                    HammerArt art = objects.cover(text(in, 64), token);
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(art != null);
+                    if (art != null)
+                        art.write(out);
+                } else if (op == IMAGE) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Artwork unavailable");
+                    String owner = text(in, 64), image = text(in, 64);
+                    boolean profile = in.readBoolean();
+                    byte[] bytes = objects.image(owner, image, profile, token);
+                    // Recheck the owner after reading: an unreferenced cached image is never public.
+                    objects.image(owner, image, profile, token);
+                    out.writeInt(MAGIC);
+                    out.writeInt(bytes.length);
+                    out.write(bytes);
                 } else if (op == SUBSCRIBE) {
                     source.catalog(token);
                     final String capability = token;
                     final SSLSocket channel = s;
                     final DataOutputStream output = out;
                     subscribers.execute(new Runnable() {
-                        public void run() {
-                            subscription(transport, channel, output, capability);
-                        }
+                        public void run() { subscription(transport, channel, output, capability); }
                     });
                     handedOff = true;
                     return;
@@ -577,6 +610,7 @@ public final class Hammer {
                 end.cancel(false);
                 if (!handedOff) {
                     clients.remove(transport);
+                    guard.leave(transport.getInetAddress().getHostAddress());
                     Hammer.close(transport);
                     Hammer.close(s);
                 }
@@ -592,7 +626,8 @@ public final class Hammer {
                         out.writeInt(MAGIC);
                         out.writeInt(changed == null ? -1 : changed.size());
                         if (changed != null) {
-                            for (Song song : changed) song.write(out);
+                            for (Song song : changed)
+                                song.write(out);
                             last = cursor(changed);
                         }
                         out.flush();
@@ -603,13 +638,15 @@ public final class Hammer {
             } catch (Exception ignored) {
             } finally {
                 clients.remove(transport);
+                guard.leave(transport.getInetAddress().getHostAddress());
                 Hammer.close(transport);
                 Hammer.close(s);
             }
         }
         public void disconnect() {
             synchronized (clients) {
-                for (Socket s : clients) Hammer.close(s);
+                for (Socket s : clients)
+                    Hammer.close(s);
             }
         }
         public void close() {
@@ -635,7 +672,7 @@ public final class Hammer {
             try {
                 job.attach(transport);
                 transport.connect(new InetSocketAddress(card.host, card.port), 8000);
-                socket = (SSLSocket) clientContext(card.pin).getSocketFactory().createSocket(
+                socket = (SSLSocket)clientContext(card.pin).getSocketFactory().createSocket(
                     transport, card.host, card.port, true);
                 secure(socket);
                 socket.startHandshake();
@@ -659,6 +696,62 @@ public final class Hammer {
             Hammer.close(socket);
         }
     }
+    public static List<HammerPresence> directory(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, DIRECTORY, job)) {
+            c.reply();
+            int count = c.in.readInt();
+            require(count >= 0 && count <= 128, "Invalid directory count");
+            List<HammerPresence> out = new ArrayList<HammerPresence>();
+            for (int n = 0; n < count; n++)
+                out.add(HammerPresence.read(c.in));
+            return out;
+        }
+    }
+    public static void announce(Card p, HammerPresence presence, Job job) throws Exception {
+        presence.validate();
+        require(!p.isPrivate(), "Do not announce through private circles");
+        try (Connection c = new Connection(p, ANNOUNCE, job)) {
+            presence.write(c.out);
+            c.reply();
+        }
+    }
+    public static List<HammerProfile> profiles(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, PROFILES, job)) {
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= 64, "Invalid profile count");
+            List<HammerProfile> out = new ArrayList<HammerProfile>();
+            for (int i = 0; i < n; i++)
+                out.add(HammerProfile.read(c.in));
+            return out;
+        }
+    }
+    public static HammerArt cover(Card p, Song song, Job job) throws Exception {
+        try (Connection c = new Connection(p, COVER, job)) {
+            text(c.out, song.id, 64);
+            c.reply();
+            if (!c.in.readBoolean())
+                return null;
+            HammerArt a = HammerArt.read(c.in);
+            require(a.song.equals(song.id) && a.key.equals(song.key), "Cover publisher differs");
+            return a;
+        }
+    }
+    public static byte[] image(Card p, String owner, String hash, boolean profile, Job job) throws Exception {
+        require(digest(owner) && digest(hash), "Invalid artwork identifier");
+        try (Connection c = new Connection(p, IMAGE, job)) {
+            text(c.out, owner, 64);
+            text(c.out, hash, 64);
+            c.out.writeBoolean(profile);
+            c.reply();
+            int n = c.in.readInt();
+            require(n > 0 && n <= HammerPublic.IMAGE_LIMIT, "Artwork too large");
+            byte[] bytes = new byte[n];
+            c.in.readFully(bytes);
+            require(hash(bytes).equals(hash), "Artwork checksum differs");
+            return bytes;
+        }
+    }
     public static List<Song> catalog(Card p, Job job) throws Exception {
         try (Connection c = new Connection(p, CATALOG, job)) {
             c.reply();
@@ -676,7 +769,7 @@ public final class Hammer {
     }
     public static byte[] chunk(Card p, Song s, long offset, Job job) throws Exception {
         require(offset >= 0 && offset < s.size, "Invalid audio offset");
-        int count = (int) Math.min(CHUNK, s.size - offset);
+        int count = (int)Math.min(CHUNK, s.size - offset);
         try (Connection c = new Connection(p, AUDIO, job)) {
             text(c.out, s.id, 64);
             c.out.writeLong(offset);

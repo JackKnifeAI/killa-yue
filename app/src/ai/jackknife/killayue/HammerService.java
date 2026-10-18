@@ -15,6 +15,7 @@ public final class HammerService extends Service {
     static volatile String status = "Hosting off", playback = "Stopped";
     static volatile boolean starting;
     private volatile Hammer.Server host;
+    private HammerNearby.Announcement announcement;
     private MediaPlayer player;
     private HammerBuffer buffer;
     private int playerGeneration, hostGeneration;
@@ -34,6 +35,10 @@ public final class HammerService extends Service {
             if (s.host != null)
                 s.host.close();
             s.host = null;
+            if (s.announcement != null) {
+                s.announcement.close();
+                s.announcement = null;
+            }
             status = "Hosting off";
             s.update();
         }
@@ -86,7 +91,8 @@ public final class HammerService extends Service {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         song.write(new DataOutputStream(b));
         ArrayList<String> cards = new ArrayList<String>();
-        for (Hammer.Card p : peers) cards.add(p.encode());
+        for (Hammer.Card p : peers)
+            cards.add(p.encode());
         Intent i = new Intent(c, HammerService.class)
                        .setAction("play")
                        .putExtra("song", b.toByteArray())
@@ -98,9 +104,9 @@ public final class HammerService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
-        NotificationManager n = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        n.createNotificationChannel(new NotificationChannel(
-            "hammer", "HAMMER hosting and playback", NotificationManager.IMPORTANCE_LOW));
+        NotificationManager n = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+        n.createNotificationChannel(new NotificationChannel("hammer", "HAMMER hosting and playback",
+                                                            NotificationManager.IMPORTANCE_LOW));
     }
     @Override
     public int onStartCommand(final Intent intent, int flags, int id) {
@@ -144,7 +150,8 @@ public final class HammerService extends Service {
                             }
                             starting = false;
                             host = ready;
-                            status = ready == null ? message : "Hosting on port " + ready.port();
+                            status = ready == null ? message : "Hosting published music";
+                            advertise();
                             update();
                         }
                     });
@@ -210,7 +217,22 @@ public final class HammerService extends Service {
                 }
             }, "hammer-prepare").start();
         }
+        if (host != null)
+            advertise();
         return START_NOT_STICKY;
+    }
+    private void advertise() {
+        try {
+            HammerStore store = HammerAndroid.store(this);
+            boolean publicHost = !store.catalog("").isEmpty() || store.publicObjects.own() != null;
+            if (publicHost && announcement == null && host != null)
+                announcement = new HammerNearby.Announcement(this, HammerAndroid.pin(), host.port());
+            else if (!publicHost && announcement != null) {
+                announcement.close();
+                announcement = null;
+            }
+        } catch (Exception ignored) {
+        }
     }
     private void begin(List<Hammer.Card> peers, final Hammer.Song song, int mode, long frames)
         throws Exception {
@@ -222,19 +244,15 @@ public final class HammerService extends Service {
         player = p;
         playback = "Buffering: " + song.title;
         p.setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build());
+                                 .setUsage(AudioAttributes.USAGE_MEDIA)
+                                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                 .build());
         p.setDataSource(new MediaDataSource() {
             public int readAt(long position, byte[] b, int offset, int size) throws IOException {
                 return stream.readAt(position, b, offset, size);
             }
-            public long getSize() {
-                return stream.size();
-            }
-            public void close() {
-                stream.close();
-            }
+            public long getSize() { return stream.size(); }
+            public void close() { stream.close(); }
         });
         p.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
             public void onPrepared(MediaPlayer mp) {
@@ -285,9 +303,9 @@ public final class HammerService extends Service {
         if (focus == null)
             focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                         .setAudioAttributes(new AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                .build())
+                                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                                .build())
                         .setOnAudioFocusChangeListener(new AudioManager.OnAudioFocusChangeListener() {
                             public void onAudioFocusChange(int change) {
                                 if (change < 0 && player != null) {
@@ -301,8 +319,8 @@ public final class HammerService extends Service {
                             }
                         })
                         .build();
-        return ((AudioManager) getSystemService(AUDIO_SERVICE)).requestAudioFocus(focus)
-            == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        return ((AudioManager)getSystemService(AUDIO_SERVICE)).requestAudioFocus(focus) ==
+            AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
     }
     private void releasePlayer() {
         ++playerGeneration;
@@ -319,17 +337,18 @@ public final class HammerService extends Service {
             player = null;
         }
         if (focus != null) {
-            ((AudioManager) getSystemService(AUDIO_SERVICE)).abandonAudioFocusRequest(focus);
+            ((AudioManager)getSystemService(AUDIO_SERVICE)).abandonAudioFocusRequest(focus);
             focus = null;
         }
         playback = "Stopped";
     }
     private Notification notification() {
-        PendingIntent open = PendingIntent.getActivity(this, 84, new Intent(this, HammerActivity.class),
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent open =
+            PendingIntent.getActivity(this, 84, new Intent(this, HammerActivity.class),
+                                      PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop =
             PendingIntent.getService(this, 85, new Intent(this, HammerService.class).setAction("stop"),
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                                     PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, "hammer")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("HAMMER")
@@ -346,7 +365,7 @@ public final class HammerService extends Service {
             stopSelf();
             return;
         }
-        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(84, notification());
+        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(84, notification());
     }
     static String bufferStatus() {
         HammerService s = instance;
@@ -354,16 +373,25 @@ public final class HammerService extends Service {
             ? s.buffer.state + " · " + s.buffer.bufferedBytes / 1024 + " KiB buffered"
             : "";
     }
-    static boolean hosting() {
-        return instance != null && instance.host != null;
-    }
+    static boolean hosting() { return instance != null && instance.host != null; }
     static void disconnect() {
         HammerService s = instance;
-        if (s != null && s.host != null)
+        if (s != null && s.host != null) {
             s.host.disconnect();
+            s.main.post(new Runnable() {
+                public void run() {
+                    if (!s.destroyed)
+                        s.advertise();
+                }
+            });
+        }
     }
     @Override
     public void onDestroy() {
+        if (announcement != null) {
+            announcement.close();
+            announcement = null;
+        }
         destroyed = true;
         if (host != null)
             host.close();
