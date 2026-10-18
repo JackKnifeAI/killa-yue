@@ -66,6 +66,14 @@ public final class HammerArtistActivity extends Activity {
         bio = Ui.edit(this, "About your music", 5);
         tags = Ui.edit(this, "Genres and search tags", 2);
         if (own) {
+            // the name under the portrait follows the field as it is typed
+            name.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+                public void onTextChanged(CharSequence t, int a, int b, int c) {}
+                public void afterTextChanged(android.text.Editable t) {
+                    shownName.setText(t.length() == 0 ? "Unnamed artist" : t.toString());
+                }
+            });
             LinearLayout pics = Ui.row(this);
             pics.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
             pics.addView(chip("✦ Paint with AI", new Runnable() {

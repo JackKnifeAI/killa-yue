@@ -495,6 +495,8 @@ public final class HammerActivity extends Activity {
                         if (closed)
                             return;
                         status.setText(message == null ? title + " — done" : title + ": " + message);
+                        if (!settingsMode)
+                            render(); // the empty list stops saying it is still looking
                         if (message == null && title.equals("Opening HAMMER") &&
                             getIntent().getBooleanExtra("refresh", false)) {
                             getIntent().removeExtra("refresh");
