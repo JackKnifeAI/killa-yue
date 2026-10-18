@@ -176,3 +176,26 @@ The APK is written to `app/out/killa-yue.apk`.
 - **No Gradle, Java 8, no lambdas**: so the app builds with the tools that run on a phone.
 - **Target SDK 28**: lets the app keep its files in a visible `KillaYuE` folder and run the engine as a plain child process. The cost is that it cannot go on the Play Store as is.
 - **The engine as `lib*.so`**: Android only unpacks native files with that name pattern, and only from there may an app execute a binary.
+
+## HAMMER native streaming and desktop companion
+The app build requires `HAMMER_LIB`, the Android arm64 `libhammer.so`. `HAMMER_DESKTOP_LIB` adds a Linux x86-64 library to the downloadable companion; without it that bundle requires a native source build. Neither binary belongs in Git. Java uses the platform TLS implementation; native code handles master decoding, resampling, Opus and bounded caches.
+
+With a JDK, CMake, C/C++ compiler, Python 3 and curl installed:
+
+```sh
+bash peer/fetch-opus.sh "$PWD/build-hammer-vendor"
+cmake -S peer/native -B build-hammer-host -DCMAKE_BUILD_TYPE=Release \
+  -DOPUS_DIR="$PWD/build-hammer-vendor/opus-1.6.1"
+cmake --build build-hammer-host -j2
+cmake -S peer/native -B build-hammer-android -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+  -DANDROID_STL=c++_shared -DOPUS_DIR="$PWD/build-hammer-vendor/opus-1.6.1"
+cmake --build build-hammer-android -j2
+HAMMER_DESKTOP_LIB="$PWD/build-hammer-host/libhammer.so" bash peer/build-companion.sh "$PWD/out"
+bash peer/test/run.sh
+```
+
+Add the two library paths to `app/local.env`, then run the ordinary app build. The companion ZIP is rebuilt and included as an app asset. Its Java source shares the phone protocol; its native source includes the same pinned miniaudio and resampler. Opus downloads are pinned by SHA-256 in `peer/fetch-opus.sh`; miniaudio's pinned commit and hash are in `peer/native/vendor/VERSIONS.txt`.
+
+`STUDIO_TEST=1` additionally includes `HammerTestActivity`, which runs the TLS/native integration suite in isolated fixture directories and writes `hammer-test-result.txt` to the app's external files directory. Test activities must not be shipped in a release. Desktop native portability beyond Linux x86-64 remains unvalidated.

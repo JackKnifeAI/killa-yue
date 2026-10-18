@@ -246,3 +246,8 @@ Alexander, founder of JackKnife AI, and Claudia, his AI partner, who wrote the c
 ### Killa Gold pads
 
 The Chamber’s Killa Gold pads have a dark rubber resting face and an amber struck face. Touch holds and MIDI note-ons light the artwork, while pad labels and the selection outline remain visible. Other skins retain their existing pad appearance.
+
+## HAMMER preview (unreleased)
+The development branch adds opt-in phone and desktop hosting, public catalogs and private circles, original or on-demand Opus streaming, verified downloads/rehosting, signed comments and per-track votes, and direct encrypted Live Follow release notifications. Existing masters are served in place. See [the companion guide](peer/README.md) and the in-app guide for controls and privacy limits.
+
+Peers need reachable addresses; global discovery, automatic NAT traversal and relays are not included. Live delivery requires connected peers and Android background execution. This is pending full phone UI/background validation and is not part of the published v1.5.0 APK.

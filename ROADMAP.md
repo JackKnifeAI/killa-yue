@@ -106,3 +106,10 @@ Today the app downloads models from several different Hugging Face accounts. We 
 - **App translations** and lyrics help for the many languages YuE2 sings.
 - **Full-screen visualiser** with the cover.
 - **Accessibility**: screen-reader labels and large-text layouts.
+
+## HAMMER peer music: implementation preview
+Implemented on the HAMMER branch: opt-in public/private catalogs; pinned encrypted streams; C++ original/Opus audio and bounded buffering; verified download, resume and rehost; signed comments and anonymous-display votes in sidecars; local host selection/failover; an Android artist-follow service with live peer push; and a downloadable desktop server.
+
+Before release: exercise the complete phone UI, notification permission flow, background delivery/battery use, real phone-to-desktop playback and failover. Protocol and native tests do not substitute for that device pass.
+
+Future work: optional self-hosted reachability/relay discovery, broader public search, authenticated incremental metadata synchronization, larger host-capacity benchmarking, WAV-to-FLAC streaming, and validated Windows/macOS companion packages. No centralized provider is required by the current protocol.
