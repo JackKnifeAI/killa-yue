@@ -28,11 +28,12 @@ JNIEXPORT jint JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPadHits(J
 }
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nPadsOff(JNIEnv*,jclass,jlong h){H(h)->performance().allOff();}
 
-JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nKeyboard(JNIEnv* e,jclass,jlong h,jobjectArray paths) {
-    if(e->GetArrayLength(paths)!=49){io(e,"Invalid keyboard bank.");return;}
+JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nKeyboard(JNIEnv* e,jclass,jlong h,jobjectArray paths,jint layers,jint releaseMs) {
+    const jsize n=e->GetArrayLength(paths);
+    if(layers<1||layers>studio::Keyboard::MAX_LAYERS||n!=studio::Keyboard::KEYS*layers){io(e,"Invalid keyboard bank.");return;}
     std::vector<std::string> files;
-    for(int i=0;i<49;i++){auto bytes=(jbyteArray)e->GetObjectArrayElement(paths,i);if(!bytes){io(e,"Missing keyboard sample.");return;}files.push_back(path(e,bytes));e->DeleteLocalRef(bytes);}
-    std::string error;if(!H(h)->keyboard().load(files,error))io(e,error);
+    for(int i=0;i<n;i++){auto bytes=(jbyteArray)e->GetObjectArrayElement(paths,i);if(!bytes){io(e,"Missing keyboard sample.");return;}files.push_back(path(e,bytes));e->DeleteLocalRef(bytes);}
+    std::string error;if(!H(h)->keyboard().load(files,layers,releaseMs,error))io(e,error);
 }
 JNIEXPORT jboolean JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nNote(JNIEnv*,jclass,jlong h,jint key,jfloat velocity,jboolean on) {return H(h)->keyboard().note(key,velocity,on);}
 JNIEXPORT void JNICALL Java_ai_jackknife_killayue_studio_NativeEngine_nNotesOff(JNIEnv*,jclass,jlong h) {H(h)->keyboard().allOff();}

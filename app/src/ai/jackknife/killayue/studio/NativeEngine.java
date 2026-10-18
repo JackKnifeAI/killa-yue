@@ -91,7 +91,10 @@ public final class NativeEngine implements AutoCloseable {
         ArrayList<ArrayList<Clip>> material = new ArrayList<ArrayList<Clip>>();
         for (Track track : p.tracks) {
             ArrayList<Clip> list = new ArrayList<Clip>(track.clips);
-            for (MidiNotes.Note note : track.notes.notes) InstrumentSamples.ensure(folder,p.rate,track.notes.instrument,note.key);
+            Sounds.Sound sound = Sounds.get(track.notes.instrument);
+            if (sound != null)
+                for (MidiNotes.Note note : track.notes.played(p))
+                    Sounds.ensure(folder, p.rate, sound.id, note.key, Sounds.layer(sound, note.velocity));
             list.addAll(track.notes.clips(p)); material.add(list);
         }
         for (ArrayList<Clip> list : material) clips += list.size();
@@ -360,15 +363,18 @@ public final class NativeEngine implements AutoCloseable {
         nTempos(handle(), tf, tb);
         nChamber(handle(),f.chamber.nativeData());
     }
-    /** Call after InstrumentSamples.bank has prepared the files on a worker. Live notes feed Master. */
+    /** Call after Sounds.bank has prepared the files on a worker. Live notes feed Master. */
     public void keyboard(File dir,int instrument) throws IOException {
-        byte[][] paths = new byte[MidiNotes.HIGH-MidiNotes.LOW+1][];
-        for(int key=MidiNotes.LOW;key<=MidiNotes.HIGH;key++) paths[key-MidiNotes.LOW]=new File(dir,InstrumentSamples.path(instrument,rate(),key)).getPath().getBytes(UTF8);
-        nKeyboard(handle(),paths);
+        Sounds.Sound sound = Sounds.get(instrument);
+        if (sound == null) throw new IOException("Unknown sound.");
+        File[] files = Sounds.files(dir, rate(), instrument);
+        byte[][] paths = new byte[files.length][];
+        for (int i = 0; i < files.length; i++) paths[i] = files[i].getPath().getBytes(UTF8);
+        nKeyboard(handle(), paths, sound.layers, sound.releaseMs);
     }
     public boolean note(int key,float velocity,boolean on){return nNote(handle(),key,velocity,on);}
     public void notesOff(){nNotesOff(handle());}
-    private static native void nKeyboard(long h,byte[][] paths) throws IOException;
+    private static native void nKeyboard(long h,byte[][] paths,int layers,int releaseMs) throws IOException;
     private static native boolean nNote(long h,int key,float velocity,boolean on);
     private static native void nNotesOff(long h);
     /** Captured live pad hits: out[0] dropped count, then frame/pad/velocity/bank groups. UI thread only. */

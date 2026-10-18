@@ -7,9 +7,12 @@ import java.util.Map;
 
 /** Editable beat-based notes; audio is streamed through the same tracks and effects as clips. */
 public final class MidiNotes {
-    public static final int LOW = 36, HIGH = 84, MAX = 4096;
+    /** The 88 keys of a piano. Projects made with the old 49-key range (36 to 84) still read unchanged. */
+    public static final int LOW = 21, HIGH = 108, KEYS = HIGH - LOW + 1, MAX = 4096;
     public int instrument = -1, nextId = 1;
     public final ArrayList<Note> notes = new ArrayList<Note>();
+    /** The track's MIDI effects, applied as the notes play; the notes themselves stay as written. */
+    public MidiFx.Chain fx = new MidiFx.Chain();
     public static final class Note {
         public int id, key = 60;
         public double beat, length = 1;
@@ -42,7 +45,7 @@ public final class MidiNotes {
         return read(json());
     }
     public void validate() {
-        if (instrument < -1 || instrument > 1 || nextId < 1 || nextId > 999999999 || notes.size() > MAX
+        if ((instrument != -1 && !Sounds.valid(instrument)) || nextId < 1 || nextId > 999999999 || notes.size() > MAX
             || (instrument < 0 && !notes.isEmpty()))
             throw new IllegalArgumentException("Invalid instrument or too many notes (maximum 4096 per track).");
         HashSet<Integer> ids = new HashSet<Integer>();
@@ -69,6 +72,8 @@ public final class MidiNotes {
         ArrayList<Object> ns = new ArrayList<Object>();
         for (Note n : notes) ns.add(n.json());
         m.put("notes", ns);
+        if (!fx.empty())
+            m.put("fx", fx.json());
         return m;
     }
     public static MidiNotes read(Object value) {
@@ -91,6 +96,8 @@ public final class MidiNotes {
             note.velocity = (float) number(n.get(4));
             out.notes.add(note);
         }
+        if (m.get("fx") != null)
+            out.fx = MidiFx.Chain.read(m.get("fx"));
         out.validate();
         return out;
     }
@@ -106,25 +113,34 @@ public final class MidiNotes {
         return (int) d;
     }
     /**
-     * Natural samples decay for four seconds; releases are 80 ms. Notes remain editable, never baked into the project
-     * model.
+     * The notes as clips of their keys' samples, after the track's MIDI effects. A note rings for as long as it is
+     * held plus the sound's release, up to the length of its sample. Notes stay editable, never baked in.
      */
     public ArrayList<Clip> clips(Project p) {
         ArrayList<Clip> clips = new ArrayList<Clip>();
+        Sounds.Sound sound = Sounds.get(instrument);
+        if (sound == null)
+            return clips;
         TempoMap tempo = new TempoMap(p.rate, p.performance);
-        for (Note n : notes) {
+        long release = (long) p.rate * sound.releaseMs / 1000, longest = (long) (sound.seconds * p.rate);
+        for (Note n : played(p)) {
             Clip c = new Clip();
+            int layer = Sounds.layer(sound, n.velocity);
             c.id = "note" + n.id;
-            c.file = InstrumentSamples.path(instrument, p.rate, n.key);
+            c.file = Sounds.path(instrument, p.rate, n.key, layer);
             c.start = tempo.frameAt(n.beat);
             long held = tempo.frameAt(n.beat + n.length) - c.start;
-            c.length = Math.min(4L * p.rate, held + p.rate * 8L / 100);
+            c.length = Math.max(1, Math.min(longest, held + release));
             c.fadeIn = Math.min(c.length, p.rate / 500);
-            c.fadeOut = Math.min(c.length, p.rate * 8L / 100);
-            c.gainDb = (float) (20 * Math.log10(n.velocity));
+            c.fadeOut = Math.min(c.length, Math.max(p.rate / 500, release));
+            c.gainDb = Sounds.gainDb(sound, n.velocity);
             clips.add(c);
         }
         return clips;
+    }
+    /** The notes as heard: after the MIDI effects (each effect's randomness is seeded, so playback repeats). */
+    public List<Note> played(Project p) {
+        return fx.empty() ? notes : fx.process(notes, p == null ? 120 : p.performance.tempo);
     }
     public long end(Project p) {
         long end = 0;
