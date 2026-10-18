@@ -73,6 +73,7 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
         LinearLayout head = Ui.row(a);
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setBackground(new LuxFrame(14, 6));
+        head.setPadding(Ui.dp(a, 18), Ui.dp(a, 10), Ui.dp(a, 12), Ui.dp(a, 10));
         LinearLayout names = Ui.column(a);
         trackName = Ui.text(a, "", Skin.DIM, 12);
         soundName = Ui.text(a, "Choose a sound", Skin.HI, 22);
@@ -509,6 +510,7 @@ final class KeysScreen implements Screen, StudioSession.Listener, MidiDevices.Ta
         LinearLayout c = Ui.column(a);
         c.setBackground(new LuxFrame(12, 6));
         c.setGravity(Gravity.CENTER_VERTICAL);
+        c.setPadding(Ui.dp(a, 16), Ui.dp(a, 8), Ui.dp(a, 12), Ui.dp(a, 8));
         TextView l = Ui.text(a, led + "  " + title, on ? Skin.HI : Skin.DIM, 14);
         l.setTypeface(Skin.text(), Typeface.BOLD);
         l.setSingleLine(true);

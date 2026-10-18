@@ -29,7 +29,7 @@ final class GrandKeysView extends View {
     private final boolean[] lit = new boolean[128];  // sounding from elsewhere: MIDI in, effects, playback
     private final Target target;
     /** The lowest white key on screen, the number of white keys across, rows (1 or 2). */
-    int first = 39, across = 15, rows = 1;
+    int first = 16, across = 15, rows = 1;  // from C3
     /** Scale highlighting: root 0-11 and pitch classes, or null for none. */
     int root = -1;
     boolean[] inScale;
@@ -202,6 +202,7 @@ final class GrandKeysView extends View {
                 boolean down = pressed(k);
                 int topColor = down ? 0xfff6dc9a : dim(k) ? 0xffcfc6b3 : 0xfffdf9ef;
                 int bottomColor = down ? Skin.ACCENT : dim(k) ? 0xffaea590 : 0xffe6dbc2;
+                paint.setColor(0xff000000);  // a shader takes the paint's alpha: keep it opaque
                 paint.setShader(new LinearGradient(0, top, 0, top + rh, topColor, bottomColor, Shader.TileMode.CLAMP));
                 c.drawRoundRect(key, r, r, paint);
                 c.drawRect(key.left, key.top, key.right, key.top + r, paint);
@@ -231,6 +232,7 @@ final class GrandKeysView extends View {
                 float cx = (i + 1) * ww, bw = ww * .6f, bh = rh * .62f;
                 RectF key = new RectF(cx - bw / 2, top, cx + bw / 2, top + bh);
                 boolean down = pressed(k);
+                paint.setColor(0xff000000);
                 paint.setShader(new LinearGradient(0, top, 0, top + bh, down ? 0xff5a4320 : dim(k) ? 0xff2a2725 : 0xff34302c,
                                                    down ? 0xff1a1206 : 0xff050505, Shader.TileMode.CLAMP));
                 c.drawRoundRect(key, r * .8f, r * .8f, paint);

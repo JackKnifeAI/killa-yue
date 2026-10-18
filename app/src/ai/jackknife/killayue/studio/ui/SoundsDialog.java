@@ -58,6 +58,7 @@ final class SoundsDialog {
             LinearLayout card = Ui.row(a);
             card.setGravity(Gravity.CENTER_VERTICAL);
             card.setBackground(new LuxFrame(12, 6));
+            card.setPadding(Ui.dp(a, 18), Ui.dp(a, 12), Ui.dp(a, 16), Ui.dp(a, 12));
             LinearLayout words = Ui.column(a);
             TextView name = Ui.text(a, s.name, s.id == current && !newTrack ? Skin.HI : Skin.TEXT, 20);
             name.setTypeface(Skin.script());
