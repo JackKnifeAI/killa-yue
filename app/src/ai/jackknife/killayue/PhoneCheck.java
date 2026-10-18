@@ -103,7 +103,7 @@ public class PhoneCheck {
         }
         if (b.length() > 0) {
             b.append("You can also listen in Discover, import audio, and host or rehost songs without downloading generation models.\n\n");
-            b.append("A device report (Settings tab) posted to the project's GitHub helps add support for more phones.");
+            b.append("Compatibility checks on the Settings tab can prepare a report for GitHub to help add support for more phones.");
         }
         return b.toString();
     }

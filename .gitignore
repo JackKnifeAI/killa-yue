@@ -7,3 +7,7 @@ __pycache__/
 /build-studio-ai/
 
 /build-hammer-*/
+/out-compatlab/
+/compatibility-report.json
+/compatibility-proposal.patch
+/compatibility-proposal.md

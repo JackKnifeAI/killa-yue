@@ -11,14 +11,19 @@ import tempfile
 import zipfile
 
 
-def audit(apk, readelf):
+def audit(apk, readelf, compatlab=False):
     variants = ["armv8.0_1", "armv8.2_1", "armv8.2_2", "armv8.6_1", "armv9.0_1", "armv9.2_1", "armv9.2_2"]
     required = {"libyueserver_portable.so", "libyueengine_portable.so", "libkyggml.so", "libkyggml-base.so", "libkyvulkan.so"}
     required.update("libkycpu-android_" + v + ".so" for v in variants)
+    if compatlab:
+        required.difference_update({"libyueserver_portable.so", "libyueengine_portable.so"})
+        required.update({"libcompatprobe.so", "libcompatmath.so"})
     system = {"libc.so", "libm.so", "libdl.so", "liblog.so", "libvulkan.so"}
     results, failures = [], []
     with zipfile.ZipFile(apk) as archive, tempfile.TemporaryDirectory() as temp:
         libraries = {pathlib.PurePosixPath(n).name: n for n in archive.namelist() if n.startswith("lib/arm64-v8a/") and n.endswith(".so")}
+        if "libcompatprobe.so" in libraries or "libcompatmath.so" in libraries:
+            required.update({"libcompatprobe.so", "libcompatmath.so"})
         for name in sorted(required - libraries.keys()):
             failures.append("Missing " + name)
         for name in libraries:
@@ -69,7 +74,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=pathlib.Path)
     parser.add_argument("--readelf", default="readelf")
+    parser.add_argument("--compatlab", action="store_true", help="Audit the standalone diagnostic APK without song engine payloads")
     args = parser.parse_args()
-    result = audit(args.apk, args.readelf)
+    result = audit(args.apk, args.readelf, args.compatlab)
     print(json.dumps(result, indent=2))
     raise SystemExit(0 if result["passed"] else 1)
