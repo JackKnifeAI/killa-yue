@@ -178,6 +178,8 @@ The APK is written to `app/out/killa-yue.apk`.
 - **The engine as `lib*.so`**: Android only unpacks native files with that name pattern, and only from there may an app execute a binary.
 
 ## HAMMER native streaming and desktop companion
+The app build also requires `KILLANET_LIB`, the Killa YuE network library: `NDK=/path/to/ndk net/build.sh android` (Rust with the `aarch64-linux-android` target). `Cargo.lock` pins every crate; `net/VENDOR.txt` names the vendored-source archive for offline builds. `peer/test/network.sh` runs two network nodes against each other on one computer.
+
 The app build requires `HAMMER_LIB`, the Android arm64 `libhammer.so`. `HAMMER_DESKTOP_LIB` adds a Linux x86-64 library to the downloadable companion; without it that bundle requires a native source build. Neither binary belongs in Git. Java uses the platform TLS implementation; native code handles master decoding, resampling, Opus and bounded caches.
 
 With a JDK, CMake, C/C++ compiler, Python 3 and curl installed:

@@ -93,8 +93,14 @@ public final class HammerActivity extends Activity {
             public void run() throws Exception {
                 store = HammerAndroid.store(HammerActivity.this);
                 HammerAndroid.identity();
-                if (!settingsMode)
+                if (!settingsMode) {
                     loadOwn();
+                    try {
+                        HammerAndroid.network(HammerActivity.this);
+                    } catch (Exception e) {
+                        EngineService.addLog("[Network] " + e.getMessage());
+                    }
+                }
                 ui.post(new Runnable() {
                     public void run() {
                         if (closed)
@@ -121,6 +127,9 @@ public final class HammerActivity extends Activity {
                                             if (closed || discovered.size() >= 64)
                                                 return;
                                             try {
+                                                HammerStore.Peer had = discovered.get(HammerStore.peerId(card));
+                                                if (had != null && had.card.isP2p())
+                                                    return; // already reached through the network
                                                 discovered.put(
                                                     HammerStore.peerId(card),
                                                     new HammerStore.Peer(card, "Nearby artist", false));
@@ -373,6 +382,8 @@ public final class HammerActivity extends Activity {
                 return;
             if (hostToggle != null)
                 hostToggle.setText(HammerService.hosting() ? "Stop hosting" : "Start hosting");
+            if (!settingsMode && ++ticks % 6 == 0)
+                networkPeers();
             if (playerPanel != null) {
                 boolean stopped = "Stopped".equals(HammerService.playback);
                 playerPanel.setVisibility(stopped ? View.GONE : View.VISIBLE);
@@ -392,6 +403,30 @@ public final class HammerActivity extends Activity {
             ui.postDelayed(this, 500);
         }
     };
+    private int ticks;
+    /** Killa YuE peers the network node found nearby join Discover as PeerId cards, replacing address cards. */
+    private void networkPeers() {
+        boolean added = false;
+        for (KillaNet.Peer p : KillaNet.peers()) {
+            if (discovered.size() >= 64)
+                break;
+            try {
+                Hammer.Card card = Hammer.Card.p2p(p.id, p.pin, "");
+                String key = HammerStore.peerId(card);
+                HammerStore.Peer had = discovered.get(key);
+                if (had == null || !had.card.isP2p()) {
+                    discovered.put(key, new HammerStore.Peer(card, "Nearby artist", false));
+                    added = true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (added) {
+            discoveryPending = true;
+            if (!busy)
+                refresh();
+        }
+    }
     /** Your published profile, for the card on top of Discover. Runs on the worker. */
     private void loadOwn() {
         try {
@@ -557,35 +592,42 @@ public final class HammerActivity extends Activity {
         }
     }
     private void invite(final boolean privateCircle) {
-        final EditText address = Ui.edit(this, "Address other peers can reach", 1);
+        final EditText address = Ui.edit(this, "Address other peers can reach (computers only)", 1);
         String local = ShareServer.localAddress();
         address.setText(local == null ? "" : local);
         new Lux.Builder(this)
             .setTitle(privateCircle ? "Private circle invitation" : "Public peer card")
-            .setMessage("Choose this phone's reachable address. Port 8784 must reach this phone. Start "
-                        + "hosting before someone connects.")
+            .setMessage("A network card finds this phone by its Killa YuE network identity, on any Wi-Fi. Start "
+                        + "hosting before someone connects. An address card is for the desktop companion, which "
+                        + "is not on the network yet: then port 8784 must reach this phone.")
             .setView(address)
-            .setPositiveButton("Create card",
-                               new DialogInterface.OnClickListener() {
-                                   public void onClick(DialogInterface d, int w) {
-                                       final String host = address.getText().toString().trim();
-                                       work("Creating peer card", new Work() {
-                                           public void run() throws Exception {
-                                               final Hammer.Card card =
-                                                   new Hammer.Card(host, Hammer.PORT, HammerAndroid.pin(),
-                                                                   privateCircle ? store.token() : "");
-                                               ui.post(new Runnable() {
-                                                   public void run() {
-                                                       if (!closed)
-                                                           showCard(card);
-                                                   }
-                                               });
-                                           }
-                                       });
-                                   }
-                               })
+            .setPositiveButton("Network card", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) { makeCard(null, privateCircle); }
+            })
+            .setNeutralButton("Address card", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    makeCard(address.getText().toString().trim(), privateCircle);
+                }
+            })
             .setNegativeButton("Cancel", null)
             .show();
+    }
+    /** host null: a card naming this phone's PeerId on the Killa YuE network. */
+    private void makeCard(final String host, final boolean privateCircle) {
+        work("Creating peer card", new Work() {
+            public void run() throws Exception {
+                String token = privateCircle ? store.token() : "";
+                final Hammer.Card card =
+                    host == null ? Hammer.Card.p2p(HammerAndroid.network(HammerActivity.this), HammerAndroid.pin(), token)
+                                 : new Hammer.Card(host, Hammer.PORT, HammerAndroid.pin(), token);
+                ui.post(new Runnable() {
+                    public void run() {
+                        if (!closed)
+                            showCard(card);
+                    }
+                });
+            }
+        });
     }
     private void showCard(final Hammer.Card card) {
         LinearLayout v = new LinearLayout(this);

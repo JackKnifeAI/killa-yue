@@ -27,7 +27,7 @@ assert m.count('<application ') == 1 and m.count('</application>') == 1, 'the ma
 if 'android.permission.RECORD_AUDIO' not in m:
     m = m.replace('<application ', '<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application ', 1)
 m = m.replace('<application ', '<application android:debuggable="true" ', 1)
-m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/><activity android:name=".HammerTestActivity" android:exported="true"/>\n    </application>', 1)
+m = m.replace('</application>', '    <activity android:name=".studio.StudioTestActivity" android:exported="true"/><activity android:name=".HammerTestActivity" android:exported="true"/><activity android:name=".NetworkTestActivity" android:exported="true"/>\n    </application>', 1)
 open('out/AndroidManifest.xml', 'w').write(m)
 PY
     MANIFEST=out/AndroidManifest.xml
@@ -44,6 +44,8 @@ javac -Xlint:-options --release 8 -cp "$ANDROID_JAR" -d out/classes $(find $JAVA
 
 : "${HAMMER_LIB:?set HAMMER_LIB to the native HAMMER audio library}"
 cp "$HAMMER_LIB" out/apk/lib/arm64-v8a/libhammer.so
+: "${KILLANET_LIB:?set KILLANET_LIB to the Killa YuE network library (net/build.sh android)}"
+cp "$KILLANET_LIB" out/apk/lib/arm64-v8a/libkillanet.so
 $STRIP out/apk/lib/arm64-v8a/libhammer.so
 
 # The engine is an executable; Android only unpacks files named lib*.so, so it travels under that name.

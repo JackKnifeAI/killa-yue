@@ -3768,7 +3768,7 @@ public class MainActivity extends Activity {
     void refreshSharing() {
         if (hostStatus == null) return;
         boolean on = HammerService.hosting();
-        hostStatus.setText(HammerService.status + " · " + HammerFollowService.status);
+        hostStatus.setText(HammerService.status + " · " + ai.jackknife.killayue.peer.KillaNet.status() + " · " + HammerFollowService.status);
         hostBtn.setText(on ? "Stop hosting" : "Start hosting");
     }
 

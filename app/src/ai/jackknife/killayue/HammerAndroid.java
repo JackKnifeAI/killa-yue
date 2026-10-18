@@ -59,5 +59,20 @@ final class HammerAndroid {
         KeyStore k = keys(alias);
         return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey)k.getKey(alias, null));
     }
+    private static android.net.wifi.WifiManager.MulticastLock multicast;
+    /**
+     * Starts the Killa YuE network node once (libkillanet.so), with the multicast lock Android needs before peers on
+     * the same Wi-Fi can be seen. Returns the PeerId. Call off the main thread.
+     */
+    static synchronized String network(Context c) throws Exception {
+        if (multicast == null) {
+            android.net.wifi.WifiManager w =
+                (android.net.wifi.WifiManager)c.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            multicast = w.createMulticastLock("killa-yue-network");
+            multicast.setReferenceCounted(false);
+            multicast.acquire();
+        }
+        return KillaNet.start(new File(c.getFilesDir(), "network"), pin());
+    }
     static String pin() throws Exception { return Hammer.hash(certificate().getPublicKey().getEncoded()); }
 }

@@ -34,6 +34,7 @@ public final class HammerService extends Service {
         if (s != null) {
             s.hostGeneration++;
             starting = false;
+            KillaNet.serve(null);
             if (s.host != null)
                 s.host.close();
             s.host = null;
@@ -141,6 +142,14 @@ public final class HammerService extends Service {
                     } catch (Exception e) {
                         error = "Could not start host: " + e.getMessage();
                     }
+                    if (opened != null)
+                        try {
+                            // the same host answers on the Killa YuE network, found by PeerId instead of address
+                            HammerAndroid.network(HammerService.this);
+                            KillaNet.serve(opened);
+                        } catch (Exception e) {
+                            EngineService.addLog("[Network] " + e.getMessage());
+                        }
                     final Hammer.Server ready = opened;
                     final String message = error;
                     main.post(new Runnable() {

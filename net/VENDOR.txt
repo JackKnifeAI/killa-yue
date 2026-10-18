@@ -1,0 +1,8 @@
+Vendored sources for the Killa YuE network library, so it builds even if crates.io or upstream repositories disappear.
+
+Archive:  killanet-vendor.tar.xz (41,386,880 bytes; every crate in Cargo.lock, made with: net/build.sh vendor)
+SHA-256:  1d6db2fabf004a336893ff9afc36fcb525948bb9b43bfec50ff1c88c9f495642
+Licences: rust-libp2p MIT; the other crates are MIT, Apache-2.0 or BSD (cargo vendor keeps each licence file).
+
+Unpack it in net/ (tar -xJf killanet-vendor.tar.xz) and net/build.sh builds offline from it.
+Where the archive is published is recorded here once decided.

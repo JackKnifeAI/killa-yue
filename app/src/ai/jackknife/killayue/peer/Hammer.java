@@ -92,6 +92,8 @@ public final class Hammer {
     }
 
     /** The fragment contains the pinned identity and optional private capability; never an HTTP URL. */
+    static final String P2P = ".p2p";
+    static final int P2P_PORT = 4001;
     public static final class Card {
         public final String host, pin, token;
         public final int port;
@@ -107,6 +109,13 @@ public final class Hammer {
             this.token = token;
         }
         public boolean isPrivate() { return !token.isEmpty(); }
+        /** A card on the Killa YuE network names a PeerId instead of an address: host "<PeerId>.p2p". */
+        public boolean isP2p() { return host.endsWith(P2P); }
+        public String p2pId() { return host.substring(0, host.length() - P2P.length()); }
+        public static Card p2p(String peerId, String pin, String token) throws IOException {
+            require(peerId != null && peerId.matches("[1-9A-HJ-NP-Za-km-z]{32,64}"), "Invalid network identity");
+            return new Card(peerId + P2P, P2P_PORT, pin, token);
+        }
         public String encode() {
             return "hammer://" + (host.contains(":") ? "[" + host + "]" : host) + ":" + port + "/#" + pin +
                 (isPrivate() ? "." + token : "");
@@ -416,6 +425,7 @@ public final class Hammer {
         private final Source source;
         private final HammerGuard guard = new HammerGuard();
         private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<Socket>());
+        private final Map<Socket, String> whoOf = new HashMap<Socket, String>();
         private final ThreadPoolExecutor workers =
             new ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(4));
         private final ThreadPoolExecutor subscribers =
@@ -436,31 +446,47 @@ public final class Hammer {
         private void accept() {
             while (!listener.isClosed())
                 try {
-                    final Socket s = listener.accept();
-                    if (!guard.enter(s.getInetAddress().getHostAddress())) {
-                        Hammer.close(s);
-                        continue;
-                    }
-                    synchronized (clients) {
-                        if (listener.isClosed()) {
-                            guard.leave(s.getInetAddress().getHostAddress());
-                            Hammer.close(s);
-                            continue;
-                        }
-                        clients.add(s);
-                    }
-                    try {
-                        workers.execute(new Runnable() {
-                            public void run() { handle(s); }
-                        });
-                    } catch (RejectedExecutionException e) {
-                        clients.remove(s);
-                        guard.leave(s.getInetAddress().getHostAddress());
-                        Hammer.close(s);
-                    }
+                    Socket s = listener.accept();
+                    admit(s, s.getInetAddress().getHostAddress());
                 } catch (IOException e) {
                     break;
                 }
+        }
+        /**
+         * Takes one connection through admission: by address for direct connections, by "p2p:PeerId" for
+         * streams from the Killa YuE network (which all arrive from the loopback bridge).
+         */
+        public void admit(final Socket s, String who) {
+            if (!guard.enter(who)) {
+                Hammer.close(s);
+                return;
+            }
+            synchronized (clients) {
+                if (listener.isClosed()) {
+                    guard.leave(who);
+                    Hammer.close(s);
+                    return;
+                }
+                clients.add(s);
+                whoOf.put(s, who);
+            }
+            try {
+                workers.execute(new Runnable() {
+                    public void run() { handle(s); }
+                });
+            } catch (RejectedExecutionException e) {
+                release(s);
+            }
+        }
+        private void release(Socket s) {
+            String who;
+            synchronized (clients) {
+                clients.remove(s);
+                who = whoOf.remove(s);
+            }
+            if (who != null)
+                guard.leave(who);
+            Hammer.close(s);
         }
         private void handle(final Socket transport) {
             ScheduledFuture<?> end = deadline(transport);
@@ -609,9 +635,7 @@ public final class Hammer {
             } finally {
                 end.cancel(false);
                 if (!handedOff) {
-                    clients.remove(transport);
-                    guard.leave(transport.getInetAddress().getHostAddress());
-                    Hammer.close(transport);
+                    release(transport);
                     Hammer.close(s);
                 }
             }
@@ -637,9 +661,7 @@ public final class Hammer {
                 }
             } catch (Exception ignored) {
             } finally {
-                clients.remove(transport);
-                guard.leave(transport.getInetAddress().getHostAddress());
-                Hammer.close(transport);
+                release(transport);
                 Hammer.close(s);
             }
         }
@@ -671,7 +693,10 @@ public final class Hammer {
             end = deadline(transport);
             try {
                 job.attach(transport);
-                transport.connect(new InetSocketAddress(card.host, card.port), 8000);
+                if (card.isP2p())
+                    KillaNet.connect(transport, card.p2pId(), 8000);
+                else
+                    transport.connect(new InetSocketAddress(card.host, card.port), 8000);
                 socket = (SSLSocket)clientContext(card.pin).getSocketFactory().createSocket(
                     transport, card.host, card.port, true);
                 secure(socket);
