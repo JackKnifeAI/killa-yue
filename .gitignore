@@ -5,3 +5,5 @@ local.env
 __pycache__/
 /build-studio/
 /build-studio-ai/
+
+/build-hammer-*/
