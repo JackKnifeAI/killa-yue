@@ -65,6 +65,13 @@ final class FxDialog {
             }
         });
     }
+    /** A chosen chip is filled with gold; the others are outlined. */
+    static void mark(StudioActivity a, Button b, boolean on) {
+        android.graphics.drawable.GradientDrawable pill = Ui.box(a, on ? Skin.accent(90) : Skin.PILL, 18);
+        pill.setStroke(Ui.dp(a, on ? 2 : 1), on ? Skin.ACCENT : Skin.EDGE);
+        b.setBackground(pill);
+        b.setTextColor(on ? Skin.HI : Skin.LO);
+    }
     static View control(final StudioActivity a, final KeysScreen keys, final MidiNotes working, final MidiFx.Effect e,
                         final MidiFx.Param p, final int i) {
         LinearLayout box = Ui.column(a);
@@ -86,11 +93,11 @@ final class FxDialog {
             for (int k = 0; k < p.labels.length; k++) {
                 final int v = k;
                 bs[k] = Ui.chip(a, p.labels[k]);
-                bs[k].setTextColor(Math.round(e.p[i]) == k ? Skin.HI : Skin.LO);
+                mark(a, bs[k], Math.round(e.p[i]) == k);
                 bs[k].setOnClickListener(new View.OnClickListener() {
                     public void onClick(View view) {
                         e.p[i] = v;
-                        for (int j = 0; j < bs.length; j++) bs[j].setTextColor(j == v ? Skin.HI : Skin.LO);
+                        for (int j = 0; j < bs.length; j++) mark(a, bs[j], j == v);
                         relabel.run();
                         keys.player.setChain(working.fx);
                     }
