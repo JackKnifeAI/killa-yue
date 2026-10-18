@@ -72,7 +72,23 @@ final class HammerAndroid {
             multicast.setReferenceCounted(false);
             multicast.acquire();
         }
-        return KillaNet.start(new File(c.getFilesDir(), "network"), pin());
+        // a phone helps the network (relays for others, answers DHT queries) only on Wi-Fi while charging
+        int flags = helper(c) ? KillaNet.HELP : 0;
+        return KillaNet.start(new File(c.getFilesDir(), "network"), pin(), flags, KillaNet.PORT, "");
+    }
+    static boolean helper(Context c) {
+        try {
+            android.net.ConnectivityManager cm =
+                (android.net.ConnectivityManager)c.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm.isActiveNetworkMetered())
+                return false;
+            android.content.Intent b = c.registerReceiver(
+                null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            return b != null && b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0 &&
+                !MainActivity.jobBusy;
+        } catch (Exception e) {
+            return false;
+        }
     }
     static String pin() throws Exception { return Hammer.hash(certificate().getPublicKey().getEncoded()); }
 }

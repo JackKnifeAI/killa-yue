@@ -29,6 +29,12 @@ public final class NetworkTest {
         System.out.println("ok " + passed + " " + name);
     }
 
+    /**
+     * relay  ID.p12 DATA ENTRY_OUT                 a helper node (relays, answers the DHT); writes its address
+     * host   ID.p12 DATA CARD_OUT [FLAGS [ENTRY]]  publishes test tones and offers itself in the public host list
+     * listen ID.p12 DATA CARD [FLAGS [ENTRY [relayed]]]
+     * FLAGS as in KillaNet (2 no mDNS, 4 no Mainline, 8 relay only, 16 no UPnP); ENTRY a file of multiaddrs.
+     */
     public static void main(String[] args) throws Exception {
         KeyStore keys = KeyStore.getInstance("PKCS12");
         try (InputStream in = new FileInputStream(args[1])) {
@@ -38,15 +44,39 @@ public final class NetworkTest {
         KeyPair pair = new KeyPair(cert.getPublicKey(), (PrivateKey)keys.getKey("test", "hammer-test-only".toCharArray()));
         File root = new File(args[2]);
         root.mkdirs();
-        if ("host".equals(args[0])) {
-            String id = KillaNet.start(new File(root, "network"), Hammer.hash(cert.getPublicKey().getEncoded()));
-            System.out.println("ready " + id + " " + KillaNet.addresses());
-            host(pair, cert, root, new File(args[3]));
+        String pin = Hammer.hash(cert.getPublicKey().getEncoded());
+        int flags = args.length > 4 ? Integer.parseInt(args[4]) : 0;
+        String entry = args.length > 5 ? new String(Files.readAllBytes(new File(args[5]).toPath()), "UTF-8") : "";
+        File out = new File(args[3]);
+        if ("relay".equals(args[0])) {
+            String id = KillaNet.start(new File(root, "network"), pin, KillaNet.HELP | KillaNet.NO_MDNS | KillaNet.NO_MAINLINE |
+                                       KillaNet.NO_UPNP | KillaNet.TEST_REACHABLE, 0, "");
+            String quic = null;
+            for (String a : KillaNet.addresses().split(" "))
+                if (a.startsWith("/ip4/127.0.0.1/udp/") && a.endsWith("/quic-v1"))
+                    quic = a;
+            for (int i = 0; quic == null && i < 50; i++) {
+                Thread.sleep(100);
+                for (String a : KillaNet.addresses().split(" "))
+                    if (a.startsWith("/ip4/127.0.0.1/udp/") && a.endsWith("/quic-v1"))
+                        quic = a;
+            }
+            Files.write(out.toPath(), (quic + "/p2p/" + id + "\n").getBytes("UTF-8"));
+            System.out.println("ready relay " + id);
             Thread.sleep(600000);
             return;
         }
-        KillaNet.start(new File(root, "network"), Hammer.hash(cert.getPublicKey().getEncoded()));
-        System.out.println(listen(root, new File(args[3]), 30000));
+        if ("host".equals(args[0])) {
+            String id = KillaNet.start(new File(root, "network"), pin, flags, 0, entry);
+            host(pair, cert, root, out);
+            KillaNet.announce(true);
+            System.out.println("ready " + id);
+            Thread.sleep(600000);
+            return;
+        }
+        KillaNet.start(new File(root, "network"), pin, flags, 0, entry);
+        boolean relayed = args.length > 6 && "relayed".equals(args[6]);
+        System.out.println(listen(root, out, 60000, relayed));
         System.exit(0);
     }
 
@@ -74,22 +104,30 @@ public final class NetworkTest {
 
     /** Everything a listener does, knowing only the host's network card. The node must be running. */
     public static String listen(File root, File cardFile, long findMillis) throws Exception {
+        return listen(root, cardFile, findMillis, false);
+    }
+
+    /** relayed: the host is reachable only through a relay, and the test checks the connection went that way. */
+    public static String listen(File root, File cardFile, long findMillis, boolean relayed) throws Exception {
         passed = 0;
         List<String> lines = Files.readAllLines(cardFile.toPath());
         Hammer.Card card = Hammer.Card.parse(lines.get(0)), circle = Hammer.Card.parse(lines.get(1));
         String masterHash = lines.get(2).trim();
         check(card.isP2p() && Hammer.Card.parse(card.encode()).p2pId().equals(card.p2pId()), "network card round trip");
+        // nearby hosts arrive by mDNS; others from the worldwide public host list in the DHT
         long t0 = System.nanoTime(), until = System.currentTimeMillis() + findMillis;
-        boolean found = false;
-        while (!found && System.currentTimeMillis() < until) {
+        KillaNet.Peer found = null;
+        for (int round = 0; found == null && System.currentTimeMillis() < until; round++) {
+            if (round % 10 == 0)
+                KillaNet.lookup();
             for (KillaNet.Peer p : KillaNet.peers())
                 if (p.id.equals(card.p2pId()) && p.pin.equals(card.pin))
-                    found = true;
-            if (!found)
+                    found = p;
+            if (found == null)
                 Thread.sleep(300);
         }
         long findMs = (System.nanoTime() - t0) / 1000000;
-        check(found, "host found on the local network with its pin");
+        check(found != null, "host found with its pin" + (found == null ? "" : found.local ? " (same network)" : " (public host list)"));
         Hammer.Job job = new Hammer.Job();
         t0 = System.nanoTime();
         List<Hammer.Song> songs = Hammer.catalog(card, job);
@@ -116,8 +154,20 @@ public final class NetworkTest {
             refused = true;
         }
         check(refused, "forged pin refused inside the network stream");
+        String path = "";
+        if (relayed) {
+            boolean viaRelay = false, punched = false;
+            for (KillaNet.Peer p : KillaNet.peers())
+                if (p.id.equals(card.p2pId())) {
+                    viaRelay |= p.relayed;
+                    punched |= p.punched;
+                }
+            check(viaRelay, "the host was reached through a relay");
+            path = punched ? "; reached through the relay, then hole-punched to a direct connection"
+                           : "; stayed on the relay (hole punching did not upgrade it)";
+        }
         return passed + " network checks passed; found in " + findMs + " ms, catalogue " + catalogMs + " ms, 2 s Opus segment " +
                segment.length + " bytes in " + segmentMs + " ms, " + target.length() + "-byte master downloaded and verified in " +
-               downloadMs + " ms";
+               downloadMs + " ms" + path;
     }
 }

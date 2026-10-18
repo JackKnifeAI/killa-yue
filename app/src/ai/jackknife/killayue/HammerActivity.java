@@ -97,6 +97,7 @@ public final class HammerActivity extends Activity {
                     loadOwn();
                     try {
                         HammerAndroid.network(HammerActivity.this);
+                        KillaNet.lookup(); // ask the world for public hosts now
                     } catch (Exception e) {
                         EngineService.addLog("[Network] " + e.getMessage());
                     }
@@ -164,7 +165,7 @@ public final class HammerActivity extends Activity {
             }
         });
         body.addView(top);
-        TextView intro = Ui.text(this, "Songs and artists shared by people nearby and in your circles. Tap a song to hear it.",
+        TextView intro = Ui.text(this, "Songs and artists shared on the Killa YuE network, around the world. Tap a song to hear it.",
                                  Skin.DIM, 13);
         intro.setPadding(0, Ui.dp(this, 2), 0, Ui.dp(this, 10));
         body.addView(intro);
@@ -404,7 +405,10 @@ public final class HammerActivity extends Activity {
         }
     };
     private int ticks;
-    /** Killa YuE peers the network node found nearby join Discover as PeerId cards, replacing address cards. */
+    /**
+     * Killa YuE peers the network node found, on this Wi-Fi or in the worldwide public host list, join Discover as
+     * PeerId cards, replacing address cards.
+     */
     private void networkPeers() {
         boolean added = false;
         for (KillaNet.Peer p : KillaNet.peers()) {
@@ -414,8 +418,8 @@ public final class HammerActivity extends Activity {
                 Hammer.Card card = Hammer.Card.p2p(p.id, p.pin, "");
                 String key = HammerStore.peerId(card);
                 HammerStore.Peer had = discovered.get(key);
-                if (had == null || !had.card.isP2p()) {
-                    discovered.put(key, new HammerStore.Peer(card, "Nearby artist", false));
+                if ((p.local || p.host) && (had == null || !had.card.isP2p())) {
+                    discovered.put(key, new HammerStore.Peer(card, p.local ? "Nearby artist" : "Network artist", false));
                     added = true;
                 }
             } catch (Exception ignored) {
@@ -915,10 +919,10 @@ public final class HammerActivity extends Activity {
         if (hits.isEmpty() && profiles.isEmpty()) {
             TextView empty = Ui.text(
                 this,
-                busy ? "Looking for artists nearby…"
-                     : "No one is sharing yet. Artists on the same Wi-Fi appear here by themselves. To reach people "
-                       + "further away, add their peer card or invitation: Settings tab → Sharing and hosting → "
-                       + "Peers and artists.",
+                busy ? "Looking for artists on the Killa YuE network…"
+                     : "No one is sharing yet that this phone can see. Artists who share publicly appear here from "
+                       + "anywhere in the world as the network finds them; pull ↻ Refresh in a minute. A friend's "
+                       + "peer card or invitation also works: Settings tab → Sharing and hosting → Peers and artists.",
                 Skin.DIM, 14);
             empty.setPadding(0, Ui.dp(this, 24), 0, 0);
             empty.setGravity(android.view.Gravity.CENTER_HORIZONTAL);

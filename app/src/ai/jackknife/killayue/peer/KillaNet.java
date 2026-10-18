@@ -21,7 +21,10 @@ import java.util.List;
 public final class KillaNet {
     private KillaNet() {}
 
-    private static native String nativeStart(String keyFile, String agent, int inboundPort, byte[] token);
+    private static native String nativeStart(String dir, String agent, int inboundPort, byte[] token, int flags,
+                                             int port, String entry);
+    private static native void nativeAnnounce(boolean on);
+    private static native void nativeLookup();
     private static native int nativeOpen(String peerId, byte[] token);
     private static native String nativePeers();
     private static native String nativeStatus();
@@ -38,8 +41,20 @@ public final class KillaNet {
     public static boolean running() { return peerId != null; }
     public static String peerId() { return peerId; }
 
-    /** Starts the node once per process; later calls return the same PeerId. dataDir holds the node key. */
-    public static synchronized String start(File dataDir, String pin) throws IOException {
+    /** Start flags. HELP: relay for others and answer DHT queries (Wi-Fi and charging, or a computer). */
+    public static final int HELP = 1, NO_MDNS = 2, NO_MAINLINE = 4, RELAY_ONLY = 8, NO_UPNP = 16, TEST_REACHABLE = 32;
+    /** QUIC and TCP share this port, so an address found in the BitTorrent DHT can be dialled both ways. */
+    public static final int PORT = 47291;
+
+    public static String start(File dataDir, String pin) throws IOException { return start(dataDir, pin, 0, PORT, ""); }
+
+    /**
+     * Starts the node once per process; later calls return the same PeerId. dataDir holds the node key and the
+     * peers remembered between runs. entry: newline-separated multiaddrs ending in /p2p/PeerId, for first contact
+     * besides the BitTorrent DHT and remembered peers.
+     */
+    public static synchronized String start(File dataDir, String pin, int flags, int port, String entry)
+        throws IOException {
         if (peerId != null)
             return peerId;
         try {
@@ -56,8 +71,8 @@ public final class KillaNet {
         t.setDaemon(true);
         t.start();
         dataDir.mkdirs();
-        String id = nativeStart(new File(dataDir, "node.key").getAbsolutePath(), AGENT + pin, bridge.getLocalPort(),
-                                TOKEN);
+        String id = nativeStart(dataDir.getAbsolutePath(), AGENT + pin, bridge.getLocalPort(), TOKEN, flags, port,
+                                entry == null ? "" : entry);
         if (id == null || id.startsWith("error")) {
             try {
                 bridge.close();
@@ -71,6 +86,18 @@ public final class KillaNet {
 
     /** The HAMMER server that inbound streams are handed to, or null to refuse them (hosting off). */
     public static void serve(Hammer.Server s) { server = s; }
+
+    /** Offer this host in the worldwide public host list (the DHT), or stop offering it. Public hosts only. */
+    public static void announce(boolean on) {
+        if (peerId != null)
+            nativeAnnounce(on);
+    }
+
+    /** Ask the DHT for public hosts now; they are connected to and appear in peers() as hosts. */
+    public static void lookup() {
+        if (peerId != null)
+            nativeLookup();
+    }
 
     /**
      * Connects transport to peerId through the node. The caller then runs TLS over it as over any socket.
@@ -126,15 +153,21 @@ public final class KillaNet {
         }
     }
 
-    /** A peer the node knows: its PeerId, its HAMMER pin if it told us, and whether it is on this network. */
+    /**
+     * A peer the node knows: its PeerId, its HAMMER pin, whether it is on this network, connected, ever reached
+     * through a relay, offered in the public host list, and turned direct by hole punching.
+     */
     public static final class Peer {
         public final String id, pin;
-        public final boolean local, connected;
-        Peer(String id, String pin, boolean local, boolean connected) {
+        public final boolean local, connected, relayed, host, punched;
+        Peer(String id, String pin, boolean local, boolean connected, boolean relayed, boolean host, boolean punched) {
             this.id = id;
             this.pin = pin;
             this.local = local;
             this.connected = connected;
+            this.relayed = relayed;
+            this.host = host;
+            this.punched = punched;
         }
     }
 
@@ -145,11 +178,12 @@ public final class KillaNet {
             return out;
         for (String line : nativePeers().split("\n")) {
             String[] f = line.split("\t", -1);
-            if (f.length != 4 || !f[1].startsWith(AGENT))
+            if (f.length != 7 || !f[1].startsWith(AGENT))
                 continue;
             String pin = f[1].substring(AGENT.length()).trim();
             if (Hammer.digest(pin))
-                out.add(new Peer(f[0], pin, "1".equals(f[2]), "1".equals(f[3])));
+                out.add(new Peer(f[0], pin, "1".equals(f[2]), "1".equals(f[3]), "1".equals(f[4]), "1".equals(f[5]),
+                                 "1".equals(f[6])));
         }
         return out;
     }
@@ -160,7 +194,13 @@ public final class KillaNet {
             return "Network off";
         String[] f = nativeStatus().split("\t");
         int n = f.length > 1 ? Integer.parseInt(f[1]) : 0;
-        return "Network on · " + n + (n == 1 ? " peer" : " peers") + " connected";
+        String reach = f.length > 3 ? f[3] : "unknown";
+        int relays = f.length > 4 ? Integer.parseInt(f[4]) : 0;
+        return "Network on · " + n + (n == 1 ? " peer" : " peers") + " · " +
+            ("unknown".equals(reach) ? "checking reachability"
+             : reach.startsWith("public") ? "reachable from the internet"
+             : relays > 0 ? "reachable through " + relays + (relays == 1 ? " relay" : " relays")
+             : "behind NAT, looking for a relay");
     }
 
     /** The node's listen addresses, for the engine log and tests. */
@@ -169,8 +209,8 @@ public final class KillaNet {
             return "";
         String[] f = nativeStatus().split("\t");
         StringBuilder b = new StringBuilder();
-        for (int i = 3; i < f.length; i++)
-            b.append(i > 3 ? " " : "").append(f[i]);
+        for (int i = 5; i < f.length; i++)
+            b.append(i > 5 ? " " : "").append(f[i]);
         return b.toString();
     }
 }

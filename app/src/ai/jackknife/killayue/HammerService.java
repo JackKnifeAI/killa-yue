@@ -35,6 +35,7 @@ public final class HammerService extends Service {
             s.hostGeneration++;
             starting = false;
             KillaNet.serve(null);
+            KillaNet.announce(false);
             if (s.host != null)
                 s.host.close();
             s.host = null;
@@ -236,6 +237,8 @@ public final class HammerService extends Service {
         try {
             HammerStore store = HammerAndroid.store(this);
             boolean publicHost = !store.catalog("").isEmpty() || store.publicObjects.own() != null;
+            // the worldwide public host list on the Killa YuE network; private-circle hosts are never listed
+            KillaNet.announce(publicHost && host != null);
             if (publicHost && announcement == null && host != null)
                 announcement = new HammerNearby.Announcement(this, HammerAndroid.pin(), host.port());
             else if (!publicHost && announcement != null) {
