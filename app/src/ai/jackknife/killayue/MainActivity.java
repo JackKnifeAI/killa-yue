@@ -3887,7 +3887,7 @@ public class MainActivity extends Activity {
         c.addView(label("The system driver opens GPU testing to more phones. It is experimental; "
                 + "use CPU if generation fails. CPU chooses compatible kernels automatically."));
         if (PhoneCheck.adrenoNumber() == 650) {
-            c.addView(label("Adreno 650: GPU support is experimental. CPU was faster in our short-song test. "
+            c.addView(label("Adreno 650: use CPU. GPU generation has known failures in this build. "
                 + "Start with Small (Q5), Short songs, and Keep everything loaded off."));
         }
         c.addView(label("Model quality (larger is closer to the original, and slower to load)"));

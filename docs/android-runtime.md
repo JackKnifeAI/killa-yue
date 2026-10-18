@@ -1,6 +1,6 @@
 # Portable Android song engine: local development record
 
-Date: 18 October 2026. The measurements below belong to the earlier `1.5.0-android.1` prototype (version code 19). The PR is rebased onto upstream 1.6.0 as `1.6.0-android.1` (version code 20); the old APK hash is not the integrated artifact. See [integration review](android-integration-review.md) for current CI and release gates. Neither build is a certified device-support list.
+Date: 18 October 2026. The measurements below belong to the earlier `1.5.0-android.1` prototype (version code 19). The PR is rebased onto upstream 1.6.0 as `1.6.1` (version code 20); the old APK hash is not the integrated artifact. See [integration review](android-integration-review.md) for current CI and release gates. Neither build is a certified device-support list.
 
 ## Behavior
 
@@ -12,7 +12,7 @@ Date: 18 October 2026. The measurements below belong to the earlier `1.5.0-andro
 
 The seven CPU variants are `android_armv8.0_1`, `armv8.2_1`, `armv8.2_2`, `armv8.6_1`, `armv9.0_1`, `armv9.2_1` and `armv9.2_2`. GGML scores the extensions actually reported by the device; the score functions and core code compile for baseline ARMv8-A. Unsupported variants are not selected. Private packaged names prevent the old static engine's backend scan from finding the portable modules.
 
-The Settings tab exposes the GPU driver choice and marks the system path experimental. Phones outside the bundled Adreno path start in CPU mode. A first install reporting less than 8 GiB (rounded) selects Q5, 4096 context, Gentle mode and stage unloading. Device defaults now run before UI controls are populated. Existing preferences are retained on upgrade. These defaults reduce memory demand; they do not guarantee that the model fits.
+The Settings tab exposes the GPU driver choice and marks the system path experimental. New Adreno 650 installs and phones outside the bundled Adreno path start in CPU mode. Adreno 650 is also excluded from the GPU-restore prompt. Its fixes remain in source, but the retained static Turnip engine does not contain them; existing Adreno 650 users with a saved GPU setting must select CPU in Settings. A first install reporting less than 8 GiB (rounded) selects Q5, 4096 context, Gentle mode and stage unloading. Device defaults now run before UI controls are populated. Existing preferences are retained on upgrade. These defaults reduce memory demand; they do not guarantee that the model fits.
 
 ## Checks performed
 

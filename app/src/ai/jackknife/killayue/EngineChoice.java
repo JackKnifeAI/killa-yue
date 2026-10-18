@@ -2,6 +2,12 @@ package ai.jackknife.killayue;
 
 /** Shared routing policy for executable and JNI launches; no Android dependency. */
 final class EngineChoice {
+    static String defaultDevice(int adreno) {
+        // The bundled static engine does not yet contain the Adreno 650 fixes.
+        // Keep other Adreno defaults unchanged until that engine is validated.
+        return adreno != 650 && (adreno == 0 || adreno >= 600) ? "Vulkan0" : "CPU";
+    }
+
     static String defaultDriver(int adreno) {
         return adreno == 0 || adreno >= 600 ? "turnip" : "system";
     }

@@ -12,7 +12,7 @@ import java.util.Locale;
  * What this phone can do, worked out without running anything heavy.
  *
  * The bundled GPU driver (Mesa Turnip) drives Qualcomm Adreno GPUs from the 600 series on,
- * through the kgsl kernel driver. Other phones default to the portable CPU engine;
+ * through the kgsl kernel driver. Adreno 650 and GPUs outside that range default to the portable CPU engine;
  * their system Vulkan driver is an experimental option that needs device testing.
  * The cover painter needs the Hexagon NPU of the Snapdragon 8 Elite (SM8750).
  */
@@ -40,10 +40,9 @@ public class PhoneCheck {
         return x.find() ? Integer.parseInt(x.group(1)) : 0;
     }
 
-    /** True when our GPU driver can be expected to work (Adreno 600 series or later, or an Adreno we cannot number). */
+    /** Whether to recommend bundled GPU mode, excluding the known Adreno 650 failure. */
     static boolean gpuSupported() {
-        int n = adrenoNumber();
-        return n == 0 || n >= 600;
+        return "Vulkan0".equals(EngineChoice.defaultDevice(adrenoNumber()));
     }
 
     static String socModel() {
@@ -84,11 +83,16 @@ public class PhoneCheck {
         StringBuilder b = new StringBuilder();
         if (!gpuSupported()) {
             cfg.edit().putString("device", "CPU").apply();
-            String g = gpuModel();
-            b.append("Songs are set to CPU on this phone. The bundled GPU driver does not support its GPU (")
-                    .append(g.length() > 0 ? g : "not a Qualcomm Adreno")
-                    .append("). You can test the experimental system driver under Settings. ")
-                    .append("CPU generation may take hours and still needs enough free memory.\n\n");
+            if (adrenoNumber() == 650) {
+                b.append("Songs are set to CPU on this Adreno 650 phone. GPU generation has known failures in this build. ")
+                        .append("Keep CPU selected until a validated GPU update is available. ");
+            } else {
+                String g = gpuModel();
+                b.append("Songs are set to CPU on this phone. The bundled GPU driver does not support its GPU (")
+                        .append(g.length() > 0 ? g : "not a Qualcomm Adreno")
+                        .append("). You can test the experimental system driver under Settings. ");
+            }
+            b.append("CPU generation may take hours and still needs enough free memory.\n\n");
         }
         long gb = memoryGb(c);
         if (gb > 0 && gb < 8) {

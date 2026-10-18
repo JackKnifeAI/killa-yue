@@ -12,7 +12,7 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-This branch builds **1.6.0-android.1**, an experimental Android compatibility build. Its song engine includes a baseline ARMv8-A CPU path, automatically selected optimized kernels, and a separate experimental system-Vulkan option. It retains the S20 Turnip fixes. CPU kernel and loader checks passed on the Samsung Galaxy S20 Ultra SM-G988W (Snapdragon 865, Android 13); Pixels, Motorolas, other Samsung variants and budget phones still need physical-device testing. See the [runtime validation record](docs/android-runtime.md).
+This branch builds **1.6.1**, an experimental Android compatibility build. Its song engine includes a baseline ARMv8-A CPU path, automatically selected optimized kernels, and a separate experimental system-Vulkan option. New Adreno 650 installs default to CPU because the bundled static GPU engine does not yet include the S20 fixes. The source patches remain available for a separately validated GPU build. CPU kernel and loader checks passed on the Samsung Galaxy S20 Ultra SM-G988W (Snapdragon 865, Android 13); Pixels, Motorolas, other Samsung variants and budget phones still need physical-device testing. See the [runtime validation record](docs/android-runtime.md).
 
 The upstream 1.6.0 release includes Discover, HAMMER hosting/rehosting and libp2p networking; this branch is based on that release. The public release was tested on the Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). No new S25 tests were performed for this branch.
 

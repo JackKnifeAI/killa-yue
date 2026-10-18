@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 5587dfc..96b2942 100644
+index 5587dfc..b13ba5b 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 @@ -7227,12 +7227,24 @@ void ggml_vk_dsv4_hc_post(ggml_backend_vk_context * ctx, vk_context& subctx, con
@@ -36,23 +36,20 @@ index 5587dfc..96b2942 100644
                 (src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_BF16 || ggml_is_quantized(src0->type))) {
          ggml_vk_mul_mat_vec_q_f16(ctx, subctx, cgraph, node_idx);
      } else {
-@@ -15322,9 +15334,29 @@ static ggml_backend_t ggml_backend_vk_device_init(ggml_backend_dev_t dev, const
- }
- 
- static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggml_tensor * op) {
-+    // These operations only describe existing storage; they never bind a
-+    // storage-buffer descriptor or dispatch a shader. Applying descriptor
-+    // range limits here makes the scheduler reject already allocated weights
-+    // on mobile devices (for example Turnip/Adreno 650 with a 128 MiB range).
-+    // Keep all size checks below for operations which actually access data.
-+    if (op->op == GGML_OP_NONE || op->op == GGML_OP_VIEW || op->op == GGML_OP_RESHAPE ||
-+        op->op == GGML_OP_PERMUTE || op->op == GGML_OP_TRANSPOSE) {
-+        return true;
-+    }
-+
+@@ -15325,6 +15337,26 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
      ggml_backend_vk_device_context * ctx = (ggml_backend_vk_device_context *)dev->context;
      const vk_device& device = ggml_vk_get_device(ctx->device);
  
++    // Only the tested Turnip/Adreno 650 needs this metadata exception.
++    // These operations describe storage without binding or dispatching it.
++    // Keep all size checks below for operations which actually access data,
++    // and preserve the original metadata behavior on every other GPU.
++    if (ggml_vk_is_turnip_adreno650(device) &&
++        (op->op == GGML_OP_NONE || op->op == GGML_OP_VIEW || op->op == GGML_OP_RESHAPE ||
++         op->op == GGML_OP_PERMUTE || op->op == GGML_OP_TRANSPOSE)) {
++        return true;
++    }
++
 +    // Q6_K dequantization and matmul produce incorrect values on this device
 +    // with the bundled Turnip driver. Let the scheduler use the CPU for these
 +    // operations while keeping validated F32, F16 and Q5_K work on Vulkan.

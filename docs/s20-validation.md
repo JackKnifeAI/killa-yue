@@ -43,6 +43,29 @@ Reference tests compare uploaded F16 data exactly with CPU dequantization,
 including partial/fused weight copies. Buffer accounting includes both CPU and
 GPU allocations, and three load/free cycles check cleanup.
 
+### Why Q5 was expanded too
+
+Q5_K did **not** show the wrong-result failure seen with Q6_K. Its direct
+nonconstant reference checks passed. Expanding all supported quantized matrices
+was a performance experiment and a uniform loader policy, not proof that Q5
+needed a correctness workaround.
+
+The recorded 2048-by-6144 matrix with 250 input columns took 384/206/2293 ms for
+Q5_K and 2448/77/74 ms for F16 across three runs; both matched the reference.
+These were constant-input microbenchmarks on a thermally variable phone, so
+shader warm-up and throttling prevent a reliable general speedup claim. The
+compressed song render's first two steps took 145.3 and 142.3 seconds; the
+F16-expanded eight-step render averaged about 126 seconds per step. The compressed
+run was stopped, so there is no complete matched song A/B measurement.
+
+The cost is real: expanded NAR weights occupied about 2698 MiB. Retaining Q5 and
+expanding only Q6_K is a sensible memory-saving follow-up, requiring a complete
+render and listened comparison before claiming it solves long-song GPU support.
+No such memory estimate should be presented as measured; Q5_K_M also contains
+mixed tensor types. CPU mode does not perform this Adreno-only F16 expansion.
+The current 1.6.1 candidate defaults new Adreno 650 installs to CPU because the
+retained static GPU engine does not include the prototype fixes.
+
 ## Verification completed
 
 - Original metadata regression reproduced, then all five metadata cases passed.

@@ -2,7 +2,7 @@
 
 Prepared for Claudia and maintainers, 18 October 2026. This PR targets `main` after
 1.6.0, at `cae47631be0c1f7b24b5dafeaa6cbe0ba7fac270` (release PR #36).
-It prepares `1.6.0-android.1`, version code 20, for review and device testing.
+It prepares release candidate `1.6.1`, version code 20, for review and device testing.
 It does not publish a release or claim all Android devices can generate music.
 
 ## What was integrated from upstream
@@ -25,11 +25,11 @@ be represented as validation of the new network-enabled package.
 
 | Risk | Protection in this PR | What still needs verification |
 |---|---|---|
-| Existing Adreno users silently switch engines | An absent driver preference retains Turnip for the same Adreno heuristic as upstream. `EngineChoice` directs both child and JNI launches to the existing static engine for GPU + Turnip. | On-device upgrade and full songs on the supported S25/Snapdragon configuration. The heuristic is not a certification of every Adreno model. |
+| Existing Adreno users silently switch engines | An absent driver preference retains Turnip for the same Adreno heuristic as upstream. New Adreno 650 installs select CPU, and the GPU-restore prompt excludes them; other Adreno defaults and existing preferences are unchanged. `EngineChoice` directs both child and JNI launches to the existing static engine for GPU + Turnip. | On-device upgrade and full songs on the supported S25/Snapdragon configuration. The heuristic is not a certification of every Adreno model. |
 | New backends are accidentally loaded by the legacy engine | Portable cores/modules use private names (`libkyggml*`, `libkycpu-*`, `libkyvulkan.so`). Only explicit private backend directories expose GGML's expected module names. APK inspection rejects leaked generic GGML filenames. | Audit the final integrated APK and test both launch modes. |
 | CPU launch crashes inside an unsupported GPU driver | Portable core and CPU modules do not link Vulkan. CPU sets `GGML_DISABLE_VULKAN`; dynamic backend discovery respects it. Turnip environment and loader paths are installed only for bundled GPU mode. | Actual older ARM64 phones and app linker namespaces, beyond the standalone native test. |
 | An S20 workaround changes every GPU's math or stage choice | Batched-matvec/Q6_K workarounds check Qualcomm + Mesa Turnip + Adreno 650. CPU AR/KV and F16 expansion check the exact `Turnip Adreno (TM) 650` backend description. Other GPUs retain their existing stage selection. | Numerical tests and complete songs on Adreno 830 and another supported GPU; do not infer those from S20 results. |
-| Generic fixes affect other devices | The metadata-buffer fix is restricted to non-computing view/reshape/permutation operations; real oversized computation is still rejected. Context clipping reserves prompt/end-token space. | Model/shape coverage outside the tested examples. Context edge cases run under sanitizers in CI. |
+| Generic fixes affect other devices | The metadata-buffer exception is gated to Turnip Adreno 650 and non-computing metadata operations; other GPUs retain the original checks and real oversized computation is still rejected. Context clipping reserves prompt/end-token space. | Model/shape coverage outside the tested examples. Context edge cases run under sanitizers in CI. |
 | A new driver is enabled automatically without evidence | Non-bundled phones default to CPU. System Vulkan is an explicit experimental choice, with a visible CPU option. There is no new whole-brand GPU whitelist. | Validate system-GPU math, quantization, attention and songs per device/driver before promoting it. |
 
 The prototype APK preserved all 20 pre-existing native files byte for byte when
@@ -37,6 +37,34 @@ adding the portable libraries. That comparison was against the S20 compatibility
 build, **not** every public 1.6.0 native artifact. It is not a zero-regression
 guarantee. The maintainer's final APK build must repeat the audit and compare
 the intended legacy artifacts before release.
+
+## Review follow-up: S20 stopgap and release scope
+
+Claudia's routing finding was correct: GPU + Turnip uses the retained static
+engine, while the portable engine runs CPU or system Vulkan. The S20 prototype's
+successful GPU runs do not validate that retained static engine. This revision
+chooses review option **(b)**: new Adreno 650 installs use CPU, and the existing
+GPU-restore prompt cannot recommend changing them back. Other Adreno defaults,
+including the S25's, are unchanged. Already-saved preferences are preserved;
+an Adreno 650 upgrade with GPU selected must switch to CPU in Settings.
+The UI explicitly identifies the known GPU failures in this build.
+
+The metadata exception now checks Qualcomm + Mesa Turnip + Adreno 650 before
+accepting oversized metadata operations. This narrows the source patch even
+though the retained static engine is not rebuilt here. Integrating those fixes
+into the static engine remains a separately tested follow-up.
+
+The release version is **1.6.1 / code 20**. Unverified capabilities must stay
+explicit in release notes: full-length portable-engine songs; other Adreno 6xx,
+Exynos, Mali, Tensor and older/budget devices; and adapters. The S20 length ladder
+has completed 30/60/120/180-second songs on the earlier static CPU engine; its
+210-second run is still in progress at this review update. These results do not
+close the portable-engine or integrated-APK gates.
+
+For Alexander's Q5/F16 question, see the [measured tradeoff](s20-validation.md#why-q5-was-expanded-too).
+Q5 passed the tested math cases; expanding all supported quantized matrices was
+a performance experiment, not a measured Q5 correctness repair. Q6-only unpacking
+is a reasonable next experiment but has not completed an end-to-end comparison.
 
 ## How device coverage expands
 
@@ -109,7 +137,7 @@ to validate our bundled Turnip stack or system-driver path automatically.
 - [Committed prototype evidence](testing/android-portable/): actual CPU test
   output, durations, APK dependencies and ELF alignment inspection. Those
   package results belong to the pre-integration prototype.
-- App CI runs the existing plain-Java regression suite, including 32 new routing
+- App CI runs the existing plain-Java regression suite, including 46 routing/default-policy
   assertions, then compiles resources, all Android Java and DEX.
 - HAMMER CI runs encrypted-peer/native-audio tests, malformed-media/descriptor
   sanitizer checks and desktop-companion packaging. This PR adds the upstream
@@ -131,9 +159,12 @@ to the repository by this PR.
 - [ ] Build the complete 1.6-based APK with portable engine, existing supported
       Turnip engine, `libhammer`, `libkillanet` and desktop companion. Audit all
       ARM64 ELF segments/dependencies, signature, permissions and native hashes.
-- [ ] Upgrade the supported S25 build and compare CPU/GPU generation, both
-      launch modes, audio output and sustained behavior. Do not overwrite an
-      in-use device or interrupt a running experiment just to satisfy this box.
+- [ ] **Claudia owns the S25 device gate** (confirmed by the maintainer): upgrade
+      the signed 1.6.0 APK to this exact 1.6.1 candidate without clearing data,
+      verify preferences carry over, and make a full song on GPU + Turnip.
+      Listen by ear and record the APK hash, settings, elapsed time and audio
+      assessment. Also compare CPU/GPU launches and both launch modes. This
+      remains open until the device results are recorded; CI cannot close it.
 - [ ] Finish the S20 30/60/120/180/210-second ladder, then test the integrated
       APK. Native-harness results are not app-service survival results.
 - [ ] On at least one non-Adreno phone and an older/budget ARM64 device, test
