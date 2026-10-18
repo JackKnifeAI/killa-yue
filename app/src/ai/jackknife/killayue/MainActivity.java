@@ -91,6 +91,7 @@ public class MainActivity extends Activity {
     boolean ready;
 
     TextView header, banner, lengthLabel, progText, engineStatus, logView, storageNote;
+    static final int DEFAULT_STEPS = 3;
     static final int TAB_CREATE = 0, TAB_LIBRARY = 1, TAB_LYRICS = 2, TAB_ENGINE = 3;
     View[] panels = new View[4];
     Button[] tabs = new Button[4];
@@ -703,7 +704,7 @@ public class MainActivity extends Activity {
         c.addView(advToggle, gap(8));
         advBox = column();
         advBox.setVisibility(View.GONE);
-        steps = numEdit("32");
+        steps = numEdit(String.valueOf(DEFAULT_STEPS));
         variations = numEdit("1");
         lmSeed = numEdit("random");
         seed = numEdit("random");
@@ -1032,7 +1033,8 @@ public class MainActivity extends Activity {
         r.put("cot", COT[cotSpin.getSelectedItemPosition()]);
         r.put("duration", lengthSeconds());
         if (val(score).length() > 0) r.put("abc", score.getText().toString());
-        if (val(steps).length() > 0) r.put("steps", Integer.parseInt(val(steps)));
+        // 3 render steps by default: practically the same sound as the engine's 32, in a fraction of the time
+        r.put("steps", val(steps).length() > 0 ? Integer.parseInt(val(steps)) : DEFAULT_STEPS);
         if (val(variations).length() > 0) {
             r.put("synth_batch_size", Math.max(1, Math.min(4, Integer.parseInt(val(variations)))));
         }

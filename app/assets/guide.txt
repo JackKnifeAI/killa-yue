@@ -30,7 +30,7 @@ Generate song starts making it now. Add to queue saves it to be made later, one 
 
 # Advanced settings (Create)
 Leave them empty for the defaults; every one is optional.
-- Render steps: how many passes turn the plan into sound. More is cleaner and slower.
+- Render steps: how many passes turn the plan into sound. Empty means 3, which sounds practically the same as 32 in a fraction of the time; more is slower.
 - Variations (1-4): how many takes of the same song to make at once. Each extra take costs time and memory.
 - Melody seed: a number that fixes the melody and score. Use the same seed to get the same tune again; "random" picks a new one each time.
 - Sound seed: a number that fixes the sound (the singing and the mix) the same way.
