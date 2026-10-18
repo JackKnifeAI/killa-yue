@@ -125,8 +125,10 @@ public class AiHost extends Service {
         cmd.add("-o");
         cmd.add((String) job.get("out"));
         if (job.get("input") != null) {
+            File in = new File(new File((String) job.get("out")).getParentFile(), "input.wav");
+            ai.jackknife.killayue.studio.SoundPacks.toBeatInput(new File((String) job.get("input")), in, 11);
             cmd.add("-i");
-            cmd.add((String) job.get("input"));
+            cmd.add(in.getAbsolutePath());
             cmd.add("-x");
             cmd.add(String.valueOf(((Number) job.get("strength")).doubleValue()));
         }

@@ -309,6 +309,29 @@ public final class SoundPacks {
             throw new IOException("Cancelled.");
     }
 
+    /** A recording as 44.1 kHz stereo float, up to maxSeconds long: what the beat model restyles. */
+    public static void toBeatInput(File in, File out, double maxSeconds) throws IOException {
+        try (WavIn w = WavIn.open(in)) {
+            int ch = w.channels, inFrames = (int) Math.min(w.frames, (long) (maxSeconds * w.rate) + 64);
+            float[] src = new float[inFrames * ch];
+            w.read(0, src, inFrames);
+            double ratio = w.rate / 44100.0;
+            final int frames = (int) Math.min((long) (maxSeconds * 44100), (long) (inFrames / ratio));
+            final short[] pcm = new short[frames * ch];
+            Resampler.pitch(src, ch, inFrames, ratio, pcm, frames);
+            final int channels = ch;
+            out.getParentFile().mkdirs();
+            InstrumentSamples.write(out, 44100, 2, frames, new InstrumentSamples.Generator() {
+                int i;
+                public void next(float[] f) {
+                    f[0] = pcm[i * channels] / 32768f;
+                    f[1] = pcm[i * channels + (channels > 1 ? 1 : 0)] / 32768f;
+                    i++;
+                }
+            });
+        }
+    }
+
     /** Kaiser-windowed sinc, 16 zero crossings, table-interpolated; low-passes when pitching up. */
     static final class Resampler {
         static final int ZEROS = 16, PHASES = 256;

@@ -92,6 +92,13 @@ public final class SoundsTest {
         check(clips.get(0).file.endsWith("60-0.wav") && clips.get(1).file.endsWith("60-2.wav"), "velocity picks the layer");
         check(new File(project, clips.get(1).file).isFile(), "clips name the shared pack from inside a project");
 
+        // the beat model's restyle input: 44.1 kHz stereo float, at most the length asked for
+        File beatIn = new File(dir, "beat-in.wav");
+        SoundPacks.toBeatInput(a4, beatIn, 1);
+        try (WavIn in = WavIn.open(beatIn)) {
+            check(in.rate == 44100 && in.channels == 2 && in.floats && in.frames == 44100, "restyle input converted");
+        }
+
         // MIDI files: write a project, read it back
         Project song = new Project("MIDI out", 48000);
         song.performance.tempo = 96;
