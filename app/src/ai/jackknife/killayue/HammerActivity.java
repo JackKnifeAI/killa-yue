@@ -584,9 +584,18 @@ public final class HammerActivity extends Activity {
     private void song(final Hit hit) {
         new Lux.Builder(this)
             .setTitle(hit.song.title)
-            .setMessage(hit.song.tags + "\n" + (hit.song.size / 1048576) + " MiB · "
-                + (hit.peer.card.isPrivate() ? "Private circle" : "Public catalog")
-                + "\nPublisher: " + shortAuthor(hit.song.key))
+            .setNeutralButton("Track details",
+                new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int which) {
+                        new Lux.Builder(HammerActivity.this)
+                            .setTitle(hit.song.title)
+                            .setMessage(hit.song.tags + "\n" + (hit.song.size / 1048576) + " MiB · "
+                                + (hit.peer.card.isPrivate() ? "Private circle" : "Public catalog")
+                                + "\nPublisher: " + shortAuthor(hit.song.key))
+                            .setPositiveButton("Done", null)
+                            .show();
+                    }
+                })
             .setItems(new String[] {"Stream / retry stream",
                           hit.song.reshare ? "Download / resume" : "Streaming only", "Comments",
                           "Up / down votes", "Follow this artist"},
@@ -1045,9 +1054,20 @@ public final class HammerActivity extends Activity {
                             return;
                         new Lux.Builder(HammerActivity.this)
                             .setTitle(count)
-                            .setMessage("Votes show no profile name. A separate signing key per track and "
-                                + "circle lets hosts merge votes without double-counting replicas. "
-                                + "Keys are not proof of unique people.")
+                            .setNeutralButton("About votes",
+                                new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface d, int which) {
+                                        new Lux.Builder(HammerActivity.this)
+                                            .setTitle("About votes")
+                                            .setMessage("Votes show no profile name. A separate signing key "
+                                                        + "per track and "
+                                                + "circle lets hosts merge votes without double-counting "
+                                                  + "replicas. "
+                                                + "Keys are not proof of unique people.")
+                                            .setPositiveButton("Done", null)
+                                            .show();
+                                    }
+                                })
                             .setItems(new String[] {"Upvote", "Downvote", "Clear my vote"},
                                 new DialogInterface.OnClickListener() {
                                     public void onClick(DialogInterface d, int n) {
