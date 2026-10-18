@@ -348,7 +348,7 @@ public final class HammerArtistActivity extends Activity {
         }
         if (!Covers.anyReady(this)) {
             new Lux.Builder(this).setTitle("One more download needed")
-                .setMessage("Portraits are painted on this phone by the cover model. Get it on the Engine tab, under Downloads.")
+                .setMessage("Portraits are painted on this phone by the cover model. Get it on the Settings tab, under Downloads.")
                 .setPositiveButton("OK", null).show();
             return;
         }

@@ -325,7 +325,7 @@ public class Covers {
      */
     static synchronized File make(Context c, JSONObject meta, int variation) throws Exception {
         String how = painter(c);
-        if (how.length() == 0) throw new Exception("No cover model is installed yet. Get one on the Engine tab.");
+        if (how.length() == 0) throw new Exception("No cover model is installed yet. Get one on the Settings tab.");
         long seed = (Math.abs((long) (meta.optString("_audio") + meta.optString("lyrics")).hashCode()) + variation * 7919L) % 2000000000L;
         int[] px = "gpu".equals(how) ? paintGpu(c, prompt(meta), seed) : paintNpu(c, prompt(meta), seed);
         return finish(c, meta, px);
@@ -337,7 +337,7 @@ public class Covers {
      */
     static synchronized File portrait(Context c, String words, int variation) throws Exception {
         String how = painter(c);
-        if (how.length() == 0) throw new Exception("No picture model is installed yet. Get the cover model on the Engine tab.");
+        if (how.length() == 0) throw new Exception("No picture model is installed yet. Get the cover model on the Settings tab.");
         if (words.length() > 160) words = words.substring(0, 160);
         String prompt = "portrait of a music artist, " + words + ", album photo, dramatic studio lighting, rich colour, highly detailed";
         long seed = (Math.abs((long) words.hashCode()) + variation * 7919L) % 2000000000L;

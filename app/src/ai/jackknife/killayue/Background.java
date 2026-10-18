@@ -67,7 +67,7 @@ public class Background {
         }
     }
 
-    /** One paragraph for the Engine tab. */
+    /** One paragraph for the Settings tab. */
     static String status(Context c) {
         StringBuilder b = new StringBuilder();
         b.append(exempt(c) ? "Battery: songs keep going when the phone sleeps."
@@ -83,7 +83,7 @@ public class Background {
     static String killedMessage(Context c) {
         StringBuilder b = new StringBuilder("Android stopped the engine before the song was finished (it was killed, it did not crash). "
                 + "That happens when the phone runs short of memory or limits work in the background.");
-        if (!exempt(c)) b.append(" Allowing Killa YuE to run in the background (Engine tab) helps.");
+        if (!exempt(c)) b.append(" Allowing Killa YuE to run in the background (Settings tab) helps.");
         if (childLimitsOn(c)) b.append(" Turning on \"Disable child process restrictions\" in Developer options helps too.");
         b.append(" A shorter song or a smaller memory setting also uses less memory.");
         return b.toString();

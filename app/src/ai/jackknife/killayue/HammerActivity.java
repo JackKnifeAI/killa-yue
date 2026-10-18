@@ -52,7 +52,7 @@ public final class HammerActivity extends Activity {
     static final int ALL = 0, HOSTING = 1, CIRCLES = 2, PEERS = 3, TRANSFERS = 4, COMPUTER = 5;
     static void open(Context c) { c.startActivity(new Intent(c, HammerActivity.class)); }
     static void settings(Context c) { settings(c, ALL); }
-    /** Sharing settings, grouped; section is the group to scroll to. The Engine tab opens these. */
+    /** Sharing settings, grouped; section is the group to scroll to. The Settings tab opens these. */
     static void settings(Context c, int section) {
         c.startActivity(new Intent(c, HammerActivity.class).putExtra("settings", true).putExtra("section", section));
     }
@@ -236,7 +236,7 @@ public final class HammerActivity extends Activity {
         plp.bottomMargin = Ui.dp(this, 8);
         root.addView(playerPanel, plp);
     }
-    /** Sharing settings in five groups, the same five the Engine tab names. */
+    /** Sharing settings in five groups, the same five the Settings tab names. */
     private void buildSettings(final int section) {
         body.addView(Ui.title(this, "Sharing and hosting"));
         label("Your Library decides which songs are shared: open a song's sharing line there. Everything else is here.");
@@ -875,7 +875,7 @@ public final class HammerActivity extends Activity {
                 this,
                 busy ? "Looking for artists nearby…"
                      : "No one is sharing yet. Artists on the same Wi-Fi appear here by themselves. To reach people "
-                       + "further away, add their peer card or invitation: Engine tab → Sharing and hosting → "
+                       + "further away, add their peer card or invitation: Settings tab → Sharing and hosting → "
                        + "Peers and artists.",
                 Skin.DIM, 14);
             empty.setPadding(0, Ui.dp(this, 24), 0, 0);

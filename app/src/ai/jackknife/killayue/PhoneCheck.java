@@ -91,10 +91,10 @@ public class PhoneCheck {
         long gb = memoryGb(c);
         if (gb > 0 && gb < 8) {
             b.append("This phone has about ").append(gb).append(" GB of memory. Short songs should work; full-length songs need about 6 GB free ")
-                    .append("and may stop. The Engine tab's memory setting can help.\n\n");
+                    .append("and may stop. The Settings tab's memory setting can help.\n\n");
         }
         if (b.length() > 0) {
-            b.append("A device report (Engine tab) posted to the project's GitHub helps add support for more phones.");
+            b.append("A device report (Settings tab) posted to the project's GitHub helps add support for more phones.");
         }
         return b.toString();
     }
