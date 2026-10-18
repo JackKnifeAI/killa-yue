@@ -14,7 +14,8 @@ import java.util.concurrent.*;
 public final class HammerArtistActivity extends Activity {
     private LinearLayout body, songs;
     private EditText name, bio, tags;
-    private TextView status;
+    private TextView status, shownName, shownTags, shownBio;
+    private int paintings;
     private ImageView portrait;
     private String image = "", artist;
     private Hammer.Card peer;
@@ -28,46 +29,89 @@ public final class HammerArtistActivity extends Activity {
     }
     @Override
     public void onCreate(Bundle saved) {
+        setTheme(Skin.themeFor(this, Skin.id(this)));
         super.onCreate(saved);
         Skin.load(this);
         ScrollView scroll = new ScrollView(this);
-        body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(24, 20, 24, 24);
-        body.setBackgroundColor(Skin.DECK);
+        scroll.setBackground(Skin.background(this));
+        scroll.setFitsSystemWindows(true);
+        body = Ui.column(this);
+        int pad = Ui.dp(this, 16);
+        body.setPadding(pad, Ui.dp(this, 8), pad, Ui.dp(this, 24));
         scroll.addView(body);
         setContentView(scroll);
-        body.addView(Ui.title(this, "Artist profile"));
-        status = Ui.text(this, "Loading artist…", Skin.DIM, 14);
-        body.addView(status);
-        portrait = new ImageView(this);
-        portrait.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        portrait.setVisibility(android.view.View.GONE);
-        body.addView(portrait, new LinearLayout.LayoutParams(-1, Ui.dp(this, 220)));
-        name = Ui.edit(this, "Artist name", 1);
-        body.addView(name);
-        bio = Ui.edit(this, "About your music", 5);
-        body.addView(bio);
-        tags = Ui.edit(this, "Genres and search tags", 2);
-        body.addView(tags);
         artist = getIntent().getStringExtra("artist");
         final boolean own = getIntent().getStringExtra("peer") == null;
+        body.addView(Ui.title(this, own ? "Your artist page" : "Artist"));
+        // the portrait: a gold medallion, centred, as the artists strip in Discover shows it
+        portrait = new ImageView(this);
+        portrait.setImageBitmap(Ui.medallion(this, null, "", 148));
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(Ui.dp(this, 148), Ui.dp(this, 148));
+        plp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        plp.topMargin = Ui.dp(this, 12);
+        body.addView(portrait, plp);
+        shownName = Ui.text(this, "", Skin.ACCENT, Skin.SCRIPT_TITLES ? 34 : 24);
+        shownName.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
+        shownName.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        shownName.setShadowLayer(8, 0, 2, 0xCC000000);
+        body.addView(shownName, Ui.gap(this, 8));
+        shownTags = Ui.text(this, "", Skin.DIM, 13);
+        shownTags.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        body.addView(shownTags);
+        status = Ui.text(this, "Loading artist…", Skin.DIM, 12);
+        status.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        status.setPadding(0, Ui.dp(this, 6), 0, 0);
+        body.addView(status);
+        name = Ui.edit(this, "Artist name", 1);
+        bio = Ui.edit(this, "About your music", 5);
+        tags = Ui.edit(this, "Genres and search tags", 2);
         if (own) {
-            add("Choose profile image", new Runnable() {
+            // the name under the portrait follows the field as it is typed
+            name.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+                public void onTextChanged(CharSequence t, int a, int b, int c) {}
+                public void afterTextChanged(android.text.Editable t) {
+                    shownName.setText(t.length() == 0 ? "Unnamed artist" : t.toString());
+                }
+            });
+            LinearLayout pics = Ui.row(this);
+            pics.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            pics.addView(chip("✦ Paint with AI", new Runnable() {
+                public void run() { askPaint(); }
+            }));
+            pics.addView(chip("Upload a picture", new Runnable() {
                 public void run() {
                     startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                                                .setType("image/*")
                                                .addCategory(Intent.CATEGORY_OPENABLE),
                                            1);
                 }
-            });
-            add("Use a generated song cover", new Runnable() {
+            }));
+            pics.addView(chip("Use a song cover", new Runnable() {
                 public void run() { chooseCover(); }
+            }));
+            HorizontalScrollView h = new HorizontalScrollView(this);
+            h.setHorizontalScrollBarEnabled(false);
+            h.setPadding(0, Ui.dp(this, 12), 0, 0);
+            h.addView(pics);
+            LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-2, -2);
+            hlp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+            body.addView(h, hlp);
+            body.addView(Ui.label(this, "Artist name"));
+            body.addView(name);
+            body.addView(Ui.label(this, "About your music"));
+            body.addView(bio);
+            body.addView(Ui.label(this, "Genres and search tags"));
+            body.addView(tags);
+            Button go = Ui.button(this, "Publish my page", true);
+            body.addView(go, Ui.gap(this, 16));
+            go.setOnClickListener(new android.view.View.OnClickListener() {
+                public void onClick(android.view.View v) {
+                    if (ready())
+                        publish();
+                }
             });
-            add("Publish artist profile", new Runnable() {
-                public void run() { publish(); }
-            });
-            add("Withdraw profile", new Runnable() {
+            add("Withdraw my page", new Runnable() {
                 public void run() {
                     work("Withdrawing profile", new Work() {
                         public void run() throws Exception {
@@ -78,53 +122,27 @@ public final class HammerArtistActivity extends Activity {
                     });
                 }
             });
-            body.addView(Ui.text(this,
-                                 "Your name, bio, tags and selected image become public when you publish. "
-                                     + "Share songs individually from Library. Your generated covers are " +
-                                       "reused without generating them again.",
-                                 Skin.DIM, 14));
+            TextView note = Ui.text(this,
+                                 "Your name, bio, tags and picture become public when you publish. "
+                                     + "Share songs one by one from the Library. Paint with AI runs on this phone, "
+                                     + "with the cover model.",
+                                 Skin.DIM, 12);
+            note.setPadding(0, Ui.dp(this, 10), 0, 0);
+            body.addView(note);
         } else {
-            name.setEnabled(false);
-            bio.setEnabled(false);
-            tags.setEnabled(false);
-            add("Follow artist & notify", new Runnable() {
-                public void run() {
-                    work("Following artist", new Work() {
-                        public void run() throws Exception {
-                            Hammer.require(Hammer.digest(artist), "Invalid artist");
-                            String label = profile == null ? "Artist" : profile.name;
-                            if (label.length() > 80) {
-                                int end = Character.isHighSurrogate(label.charAt(79)) ? 79 : 80;
-                                label = label.substring(0, end);
-                            }
-                            store.follow(new HammerStore.Peer(peer, label, false));
-                            HammerFollowService.prefs(HammerArtistActivity.this)
-                                .edit()
-                                .putString("artist." + artist, profile == null ? "Artist" : profile.name)
-                                .apply();
-                            runOnUiThread(new Runnable() {
-                                public void run() {
-                                    if (closed)
-                                        return;
-                                    NotificationManager nm =
-                                        (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-                                    if (nm.areNotificationsEnabled())
-                                        HammerFollowService.start(HammerArtistActivity.this);
-                                    else
-                                        startActivity(
-                                            new Intent(
-                                                android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,
-                                                          getPackageName()));
-                                }
-                            });
-                        }
-                    });
+            shownBio = Ui.text(this, "", Skin.TEXT, 15);
+            shownBio.setPadding(0, Ui.dp(this, 14), 0, 0);
+            body.addView(shownBio);
+            Button follow = Ui.button(this, "Follow & get new songs", true);
+            body.addView(follow, Ui.gap(this, 16));
+            follow.setOnClickListener(new android.view.View.OnClickListener() {
+                public void onClick(android.view.View v) {
+                    if (ready())
+                        follow();
                 }
             });
         }
-        songs = new LinearLayout(this);
-        songs.setOrientation(LinearLayout.VERTICAL);
+        songs = Ui.column(this);
         body.addView(songs);
         work("Loading artist", new Work() {
             public void run() throws Exception {
@@ -133,7 +151,10 @@ public final class HammerArtistActivity extends Activity {
                 if (own) {
                     profile = store.publicObjects.own();
                     artist = HammerAndroid.pin();
-                    tracks = store.catalog("");
+                    // your page shows everything you host, private circle songs too
+                    tracks = new ArrayList<Hammer.Song>();
+                    for (HammerStore.Hosted h : store.hosted())
+                        tracks.add(h.song);
                 } else {
                     peer = Hammer.Card.parse(getIntent().getStringExtra("peer"));
                     Hammer.require(Hammer.digest(artist), "Invalid artist identity");
@@ -142,10 +163,16 @@ public final class HammerArtistActivity extends Activity {
                             profile = p;
                     tracks = Hammer.catalog(peer, job);
                 }
+                // the artist's own songs first, then the copies of other artists' songs this host serves
                 final List<Hammer.Song> selected = new ArrayList<Hammer.Song>();
+                final List<Hammer.Song> carried = new ArrayList<Hammer.Song>();
                 for (Hammer.Song s : tracks)
                     if (Hammer.hash(Base64.getDecoder().decode(s.key)).equals(artist))
                         selected.add(s);
+                    else
+                        carried.add(s);
+                final int ownCount = selected.size();
+                selected.addAll(carried);
                 final HammerProfile p = profile;
                 final Bitmap avatar;
                 if (p != null && !p.image.isEmpty()) {
@@ -169,21 +196,49 @@ public final class HammerArtistActivity extends Activity {
                             tags.setText(p.tags);
                         } else if (!own)
                             name.setText("Artist " + artist.substring(0, 12));
-                        if (avatar != null) {
-                            portrait.setImageBitmap(avatar);
-                            portrait.setVisibility(android.view.View.VISIBLE);
-                        }
-                        songs.addView(Ui.text(HammerArtistActivity.this, "Published songs", Skin.TEXT, 20));
-                        for (final Hammer.Song song : selected) {
-                            final LinearLayout row = new LinearLayout(HammerArtistActivity.this);
-                            row.setOrientation(LinearLayout.VERTICAL);
-                            final ImageView art = new ImageView(HammerArtistActivity.this);
-                            art.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-                            art.setVisibility(android.view.View.GONE);
-                            row.addView(art, new LinearLayout.LayoutParams(
-                                                 -1, Ui.dp(HammerArtistActivity.this, 160)));
-                            Button b = Ui.button(HammerArtistActivity.this, song.title, false);
-                            row.addView(b);
+                        String shown = name.getText().toString();
+                        shownName.setText(shown.isEmpty() ? (own ? "Unnamed artist" : "") : shown);
+                        shownTags.setText(tags.getText().toString());
+                        if (shownBio != null)
+                            shownBio.setText(bio.getText().toString());
+                        portrait.setImageBitmap(Ui.medallion(HammerArtistActivity.this, avatar, shown, 148));
+                        if (ownCount > 0)
+                            songs.addView(heading(own ? "YOUR SONGS ON THE NETWORK" : "SONGS"));
+                        else if (own)
+                            songs.addView(Ui.text(HammerArtistActivity.this,
+                                "No published songs yet. In the Library, tap a song's sharing line and choose Public.", Skin.DIM, 13),
+                                Ui.gap(HammerArtistActivity.this, 18));
+                        for (int k = 0; k < selected.size(); k++) {
+                            final Hammer.Song song = selected.get(k);
+                            if (k == ownCount)
+                                songs.addView(heading(own ? "OTHER ARTISTS' SONGS YOU HOST" : "ALSO HOSTING"));
+                            final Context me = HammerArtistActivity.this;
+                            final LinearLayout row = Ui.row(me);
+                            row.setBackground(new LuxFrame(14, 8));
+                            int in = Ui.dp(me, 12);
+                            row.setPadding(in, in, in, in);
+                            final ImageView art = new ImageView(me);
+                            art.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                            art.setBackground(Ui.box(me, Skin.PILL, 8));
+                            art.setClipToOutline(true);
+                            row.addView(art, new LinearLayout.LayoutParams(Ui.dp(me, 64), Ui.dp(me, 64)));
+                            LinearLayout words = Ui.column(me);
+                            words.setPadding(Ui.dp(me, 12), 0, 0, 0);
+                            TextView t = Ui.text(me, song.title, Skin.TEXT, 16);
+                            t.setTypeface(Skin.text(), Typeface.BOLD);
+                            t.setSingleLine(true);
+                            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                            words.addView(t);
+                            if (song.tags != null && !song.tags.isEmpty()) {
+                                TextView g = Ui.text(me, song.tags, Skin.DIM, 12);
+                                g.setSingleLine(true);
+                                g.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                                words.addView(g);
+                            }
+                            row.addView(words, Ui.weight());
+                            if (!own)
+                                row.addView(Ui.text(me, "▶", Skin.ACCENT, 20));
+                            final android.view.View b = row;
                             b.setOnClickListener(new android.view.View.OnClickListener() {
                                 public void onClick(android.view.View v) {
                                     if (own) {
@@ -197,7 +252,7 @@ public final class HammerArtistActivity extends Activity {
                                                       .putExtra("refresh", true));
                                 }
                             });
-                            songs.addView(row);
+                            songs.addView(row, Ui.gap(me, 8));
                             if (songs.getChildCount() <= 21)
                                 worker.execute(new Runnable() {
                                     public void run() {
@@ -215,7 +270,6 @@ public final class HammerArtistActivity extends Activity {
                                                 public void run() {
                                                     if (!closed) {
                                                         art.setImageBitmap(bitmap);
-                                                        art.setVisibility(android.view.View.VISIBLE);
                                                     }
                                                 }
                                             });
@@ -229,9 +283,98 @@ public final class HammerArtistActivity extends Activity {
             }
         });
     }
+    private TextView heading(String name) {
+        TextView h = Ui.label(this, name);
+        h.setTextColor(Skin.ACCENT);
+        h.setLetterSpacing(0.12f);
+        h.setPadding(0, Ui.dp(this, 22), 0, Ui.dp(this, 4));
+        return h;
+    }
+    private void follow() {
+        work("Following artist", new Work() {
+            public void run() throws Exception {
+                Hammer.require(Hammer.digest(artist), "Invalid artist");
+                String label = profile == null ? "Artist" : profile.name;
+                if (label.length() > 80) {
+                    int end = Character.isHighSurrogate(label.charAt(79)) ? 79 : 80;
+                    label = label.substring(0, end);
+                }
+                store.follow(new HammerStore.Peer(peer, label, false));
+                HammerFollowService.prefs(HammerArtistActivity.this)
+                    .edit()
+                    .putString("artist." + artist, profile == null ? "Artist" : profile.name)
+                    .apply();
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (closed)
+                            return;
+                        NotificationManager nm =
+                            (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+                        if (nm.areNotificationsEnabled())
+                            HammerFollowService.start(HammerArtistActivity.this);
+                        else
+                            startActivity(
+                                new Intent(
+                                    android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,
+                                              getPackageName()));
+                    }
+                });
+            }
+        });
+    }
+    private boolean ready() {
+        if (store == null || busy) {
+            Ui.toast(this, "Please wait for the current operation");
+            return false;
+        }
+        return true;
+    }
+    private Button chip(String label, final Runnable action) {
+        Button b = Ui.chip(this, label);
+        b.setOnClickListener(new android.view.View.OnClickListener() {
+            public void onClick(android.view.View v) {
+                if (ready())
+                    action.run();
+            }
+        });
+        return b;
+    }
+    /** Paint with AI: a portrait from the artist's own words, on this phone, then shown for approval. */
+    private void askPaint() {
+        if (MainActivity.jobBusy) {
+            Ui.toast(this, "A song is being made. Paint your portrait when it is done.");
+            return;
+        }
+        if (!Covers.anyReady(this)) {
+            new Lux.Builder(this).setTitle("One more download needed")
+                .setMessage("Portraits are painted on this phone by the cover model. Get it on the Settings tab, under Downloads.")
+                .setPositiveButton("OK", null).show();
+            return;
+        }
+        final EditText what = Ui.edit(this, "e.g. silhouette in gold light, smoke, vintage microphone", 3);
+        String seed = tags.getText().toString().trim();
+        if (seed.length() > 0) what.setText(seed);
+        new Lux.Builder(this).setTitle("Paint your portrait")
+            .setMessage("Describe the picture. " + Covers.howLong(this))
+            .setView(what)
+            .setPositiveButton("Paint", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    final String words = (what.getText().toString().trim() + ", " + name.getText().toString().trim())
+                                             .replaceAll("^, |, $", "");
+                    final int variation = paintings++;
+                    work("Painting your portrait", new Work() {
+                        public void run() throws Exception {
+                            selectImage(Covers.portrait(getApplicationContext(), words, variation));
+                        }
+                    });
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
     private void add(String label, final Runnable action) {
         Button b = Ui.button(this, label, false);
-        body.addView(b);
+        body.addView(b, Ui.gap(this, 8));
         b.setOnClickListener(new android.view.View.OnClickListener() {
             public void onClick(android.view.View v) {
                 if (store == null || busy) {
@@ -281,10 +424,8 @@ public final class HammerArtistActivity extends Activity {
         final Bitmap bitmap = clean.bitmap;
         runOnUiThread(new Runnable() {
             public void run() {
-                if (!closed) {
-                    portrait.setImageBitmap(bitmap);
-                    portrait.setVisibility(android.view.View.VISIBLE);
-                }
+                if (!closed)
+                    portrait.setImageBitmap(Ui.medallion(HammerArtistActivity.this, bitmap, name.getText().toString(), 148));
             }
         });
     }

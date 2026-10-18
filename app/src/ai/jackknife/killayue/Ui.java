@@ -189,4 +189,44 @@ public final class Ui {
     public static void toast(Context c, String s) {
         Toast.makeText(c, s, Toast.LENGTH_SHORT).show();
     }
+
+    /**
+     * A round portrait in a gold ring, the artist medallion of Discover and the artist page. src may be null:
+     * then the ring holds the first letter of the name in the skin's script.
+     */
+    public static android.graphics.Bitmap medallion(Context c, android.graphics.Bitmap src, String name, int sizeDp) {
+        int px = dp(c, sizeDp), ring = Math.max(2, px / 28);
+        android.graphics.Bitmap out = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888);
+        android.graphics.Canvas cv = new android.graphics.Canvas(out);
+        android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG | android.graphics.Paint.FILTER_BITMAP_FLAG);
+        float r = px / 2f, inner = r - ring * 1.5f;
+        if (src != null) {
+            int side = Math.min(src.getWidth(), src.getHeight());
+            android.graphics.BitmapShader sh = new android.graphics.BitmapShader(src, android.graphics.Shader.TileMode.CLAMP,
+                    android.graphics.Shader.TileMode.CLAMP);
+            android.graphics.Matrix m = new android.graphics.Matrix();
+            float scale = inner * 2 / side;
+            m.setScale(scale, scale);
+            m.postTranslate(r - src.getWidth() * scale / 2, r - src.getHeight() * scale / 2);
+            sh.setLocalMatrix(m);
+            p.setShader(sh);
+            cv.drawCircle(r, r, inner, p);
+            p.setShader(null);
+        } else {
+            p.setColor(Skin.CARD);
+            cv.drawCircle(r, r, inner, p);
+            String letter = name == null || name.trim().isEmpty() ? "♪" : name.trim().substring(0, 1).toUpperCase();
+            p.setTypeface(Skin.script());
+            p.setColor(Skin.ACCENT);
+            p.setTextAlign(android.graphics.Paint.Align.CENTER);
+            p.setTextSize(inner);
+            cv.drawText(letter, r, r - (p.descent() + p.ascent()) / 2, p);
+        }
+        // the gold ring, lit from the left as the plates are
+        p.setStyle(android.graphics.Paint.Style.STROKE);
+        p.setStrokeWidth(ring);
+        p.setShader(new android.graphics.LinearGradient(0, 0, px, px, Skin.HI, Skin.LO, android.graphics.Shader.TileMode.CLAMP));
+        cv.drawCircle(r, r, r - ring, p);
+        return out;
+    }
 }

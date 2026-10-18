@@ -24,7 +24,7 @@ import java.net.URL;
 
 /**
  * Tells the person when a newer Killa YuE is out, and installs it when they say so. On by default
- * (Engine tab: "Check for updates"): at most once a day, on launch, the app asks GitHub for the
+ * (Settings tab: "Check for updates"): at most once a day, on launch, the app asks GitHub for the
  * project's latest release. A newer version shows its notes, with Update, Later and Skip this version.
  *
  * Update downloads the release's APK into the app's cache (it resumes after a dropped connection),

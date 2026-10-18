@@ -451,7 +451,7 @@ public class ShareServer {
                 "No Killa YuE yet? Get it below first, open it once and allow storage access, then come back to this page.",
                 "Tap <b>Open in Killa YuE</b>. The app copies the models it is missing over Wi-Fi: <b>no mobile data</b>.",
                 "Every file is checked against its published checksum, and an interrupted copy picks up where it stopped.",
-                "Keep both phones on the same Wi-Fi, with your friend's share screen open, until the Engine tab says ready.",
+                "Keep both phones on the same Wi-Fi, with your friend's share screen open, until the Settings tab says ready.",
             })).append("<ul class='files'>");
             for (int i = 0; i < items.size(); i++) {
                 b.append("<li><span>").append(esc(items.get(i).name)).append("</span><span>")

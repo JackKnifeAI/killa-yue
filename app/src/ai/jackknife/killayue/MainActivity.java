@@ -312,45 +312,43 @@ public class MainActivity extends Activity {
         top.addView(title, weight());
         header = text("", DIM, 12);
         top.addView(header);
-        Button discover = chip("Discover");
-        top.addView(discover);
-        discover.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { HammerActivity.open(MainActivity.this); }
-        });
         root.addView(top);
 
+        // six gold plates in one row: Create, Library, Lyrics, then Discover and Studio (each a screen of its own), Settings last
         LinearLayout tabRow = row();
-        tabRow.setPadding(dp(12), dp(4), dp(12), dp(4));
-        String[] names = {"Create", "Library", "Lyrics", "Engine"};
+        tabRow.setPadding(dp(8), dp(4), dp(8), dp(6));
+        String[] names = {"Create", "Library", "Lyrics", "Settings"};
         for (int i = 0; i < 4; i++) {
             final int idx = i;
-            tabs[i] = button(names[i], false);
-            tabs[i].setTextSize(14);
-            LinearLayout.LayoutParams lp = weight();
-            lp.leftMargin = dp(3);
-            lp.rightMargin = dp(3);
-            tabRow.addView(tabs[i], lp);
+            tabs[i] = tabPlate(names[i]);
             tabs[i].setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
                     showTab(idx);
                 }
             });
         }
-        // the Studio has a screen of its own: this tab opens it
-        Button studio = button("Studio", false);
-        studio.setTextSize(14);
-        studio.setBackground(new Skin.Plate(true));
+        Button discover = tabPlate("Discover");
+        discover.setTextColor(Skin.LO);
+        discover.setContentDescription("Discover music and artists");
+        discover.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                HammerActivity.open(MainActivity.this);
+            }
+        });
+        Button studio = tabPlate("Studio");
         studio.setTextColor(Skin.LO);
-        studio.setPadding(dp(12), 0, dp(12), dp(2));
-        LinearLayout.LayoutParams slp = weight();
-        slp.leftMargin = dp(3);
-        slp.rightMargin = dp(3);
-        tabRow.addView(studio, slp);
         studio.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 ai.jackknife.killayue.studio.ui.StudioActivity.open(MainActivity.this);
             }
         });
+        Button[] order = {tabs[TAB_CREATE], tabs[TAB_LIBRARY], tabs[TAB_LYRICS], discover, studio, tabs[TAB_ENGINE]};
+        for (Button t : order) {
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+            lp.leftMargin = dp(1);
+            lp.rightMargin = dp(1);
+            tabRow.addView(t, lp);
+        }
         root.addView(tabRow);
 
         FrameLayout content = new FrameLayout(this);
@@ -383,6 +381,18 @@ public class MainActivity extends Activity {
         handleLink(getIntent());
     }
 
+    /** One gold plate of the tab row, narrow enough for six across a phone. */
+    Button tabPlate(String name) {
+        Button b = button(name, false);
+        b.setTextSize(12);
+        b.setSingleLine(true);
+        b.setBackground(new Skin.Plate(true));
+        b.setPadding(dp(2), 0, dp(2), dp(1));
+        b.setMinHeight(dp(38));
+        b.setMinimumHeight(dp(38));
+        return b;
+    }
+
     View scroll(View v) {
         ScrollView s = new ScrollView(this);
         v.setPadding(dp(16), dp(4), dp(16), dp(24));
@@ -397,7 +407,7 @@ public class MainActivity extends Activity {
             boolean on = i == idx;
             tabs[i].setBackground(new Skin.Plate(true));
             tabs[i].setTextColor(on ? Skin.HI : Skin.LO);
-            tabs[i].setPadding(dp(12), 0, dp(12), dp(2));
+            tabs[i].setPadding(dp(2), 0, dp(2), dp(1));
         }
         if (idx == TAB_LIBRARY) refreshLibrary();
         if (idx == TAB_LYRICS) karaokeView.invalidate();
@@ -512,6 +522,7 @@ public class MainActivity extends Activity {
             watchTyping();
             runQueue();
             NowPlaying.turn(MainActivity.this);
+            if (panels[TAB_ENGINE].getVisibility() == View.VISIBLE) refreshSharing();
             if (jobBusy) Widget.refresh(MainActivity.this, false); // the time it has run, and the time left
             // the lyrics view animates itself only while music plays; this wakes it when playback starts with the tab open
             if (karaokeView != null && panels[TAB_LYRICS].getVisibility() == View.VISIBLE) karaokeView.invalidate();
@@ -1094,7 +1105,7 @@ public class MainActivity extends Activity {
         new Lux.Builder(this).setTitle("Let songs finish in the background?")
                 .setMessage("A song takes a while. To keep making it while you use other apps or the screen is off, "
                         + "Android needs to let Killa YuE run without battery optimisation. The next screen asks for that.\n\n"
-                        + "You can change it later on the Engine tab.")
+                        + "You can change it later on the Settings tab.")
                 .setPositiveButton("Allow", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         Background.askExemption(MainActivity.this);
@@ -1265,7 +1276,7 @@ public class MainActivity extends Activity {
     void showQueue() {
         if (queue.size() == 0) {
             alert("Queue", "Nothing is queued. Fill in a song and press \"Add to queue\"; do that for as many songs as you like, "
-                    + "then start the queue and leave the phone on its charger. The battery level it waits for is set on the Engine tab.");
+                    + "then start the queue and leave the phone on its charger. The battery level it waits for is set on the Settings tab.");
             return;
         }
         final String[] names = new String[queue.size()];
@@ -1576,7 +1587,7 @@ public class MainActivity extends Activity {
     }
 
     static void ensureEngine(Context app) throws Exception {
-        if (!Store.coreReady(app)) throw new Exception("The model is not downloaded yet. Open the Engine tab and download it.");
+        if (!Store.coreReady(app)) throw new Exception("The model is not downloaded yet. Open the Settings tab and download it.");
         if (!EngineService.running) EngineService.start(app);
         long t0 = System.currentTimeMillis();
         while (System.currentTimeMillis() - t0 < 180000) {
@@ -1586,11 +1597,11 @@ public class MainActivity extends Activity {
                 return;
             }
             if (!EngineService.running && System.currentTimeMillis() - t0 > 4000) {
-                throw new Exception("The engine did not start. " + EngineService.lastError + "\nSee the log on the Engine tab.");
+                throw new Exception("The engine did not start. " + EngineService.lastError + "\nSee the log on the Settings tab.");
             }
             Thread.sleep(500);
         }
-        throw new Exception("The engine did not answer within three minutes. See the log on the Engine tab.");
+        throw new Exception("The engine did not answer within three minutes. See the log on the Settings tab.");
     }
 
     /**
@@ -1615,7 +1626,7 @@ public class MainActivity extends Activity {
                 String why = EngineService.lastError;
                 if (why.startsWith("Android stopped the engine")) throw new Exception(why);
                 throw new Exception("The engine stopped while working. " + why
-                        + "\nIf the phone ran out of memory: try a shorter song or a shorter Max length on the Engine tab, and close other apps.");
+                        + "\nIf the phone ran out of memory: try a shorter song or a shorter Max length on the Settings tab, and close other apps.");
             }
             String s;
             try {
@@ -1727,7 +1738,7 @@ public class MainActivity extends Activity {
         final boolean transcribe = mode < 2;
         if (!Store.have(app, Store.MERT) || !Store.have(app, transcribe ? Store.SHEET : Store.TOKENIZER)) {
             alert("One more download needed", "Working from a recording needs the "
-                    + (transcribe ? "cover pack" : "recording pack") + ". Download it on the Engine tab, then stop and start the engine.");
+                    + (transcribe ? "cover pack" : "recording pack") + ". Download it on the Settings tab, then stop and start the engine.");
             showTab(TAB_ENGINE);
             return;
         }
@@ -1896,18 +1907,9 @@ public class MainActivity extends Activity {
 
     void showLibrary(LibData d) {
         libraryBox.removeAllViews();
-        libraryBox.addView(chipRow(new String[] {"Import audio", "Hosting", "Sharing settings"}, new Runnable[] {
-            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } },
-            new Runnable() { public void run() {
-                new Lux.Builder(MainActivity.this).setTitle("Library hosting")
-                    .setMessage(HammerService.status + "\nOnly songs you publish are served. Public songs appear in discovery; private songs require invitations.")
-                    .setPositiveButton("Start", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface d, int w) { HammerService.startHost(MainActivity.this); }
-                    }).setNeutralButton("Stop", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface d, int w) { HammerService.stopHost(); }
-                    }).setNegativeButton("Close", null).show();
-            } },
-            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this); } }
+        // hosting and sharing settings live on the Settings tab; the Library only says what each song shares
+        libraryBox.addView(chipRow(new String[] {"Import audio"}, new Runnable[] {
+            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } }
         }));
         ArrayList<File> metas = d.metas;
         if (metas.size() == 0) {
@@ -2360,8 +2362,8 @@ public class MainActivity extends Activity {
     void paintAlbumCover(final JSONObject a) {
         if (!Covers.anyReady(this)) {
             alert("One more download needed", PhoneCheck.npuCovers()
-                    ? "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB)."
-                    : "Covers are painted on this phone's GPU. Get the GPU cover model on the Engine tab (" + size(Covers.gpuBytes()) + ").");
+                    ? "Covers are painted by a model that runs on this phone's NPU. Get it on the Settings tab (710 MB)."
+                    : "Covers are painted on this phone's GPU. Get the GPU cover model on the Settings tab (" + size(Covers.gpuBytes()) + ").");
             return;
         }
         toast("Painting the album cover. " + Covers.howLong(this));
@@ -2527,7 +2529,7 @@ public class MainActivity extends Activity {
             if (Store.have(this, n)) items.add(new ShareServer.Item(n, new File(Store.models(this), n), "application/octet-stream", null));
         }
         if (items.size() == 0) {
-            alert("No models to share yet", "Download the models on the Engine tab first; then you can pass them on to friends.");
+            alert("No models to share yet", "Download the models on the Settings tab first; then you can pass them on to friends.");
             return;
         }
         showQrShare("models", "Killa YuE models", items, null, null);
@@ -2554,7 +2556,7 @@ public class MainActivity extends Activity {
         // only a phone on the local network, in the form ShareServer gives out
         if (from == null || !from.startsWith("http://") || !from.endsWith("/") || host == null
                 || !(host.startsWith("192.168.") || host.startsWith("10.") || host.matches("172\\.(1[6-9]|2\\d|3[01])\\..*"))) {
-            alert("That link is not a model share", "Ask your friend to open Engine > Share the models by QR and scan the code they show.");
+            alert("That link is not a model share", "Ask your friend to open Settings > Share the models by QR and scan the code they show.");
             return;
         }
         toast("Asking your friend's phone what it has…");
@@ -2601,7 +2603,7 @@ public class MainActivity extends Activity {
                         new Lux.Builder(MainActivity.this).setTitle("Copy the models from your friend?")
                                 .setMessage(need.size() + (need.size() == 1 ? " file, " : " files, ") + size(fbytes)
                                         + ", over Wi-Fi, no mobile data. Each file is checked against its published checksum before it is used, "
-                                        + "and an interrupted copy picks up where it stopped. Keep both phones on the same Wi-Fi until the Engine tab says ready.")
+                                        + "and an interrupted copy picks up where it stopped. Keep both phones on the same Wi-Fi until the Settings tab says ready.")
                                 .setPositiveButton("Copy", new DialogInterface.OnClickListener() {
                                     public void onClick(DialogInterface d, int w) {
                                         if (fb != null) {
@@ -3174,7 +3176,7 @@ public class MainActivity extends Activity {
                     .setPositiveButton("Download", new DialogInterface.OnClickListener() {
                         public void onClick(DialogInterface d, int w) {
                             LyricSync.download(getApplicationContext());
-                            toast("Downloading the lyric sync model. Progress is on the Engine tab.");
+                            toast("Downloading the lyric sync model. Progress is on the Settings tab.");
                         }
                     }).setNegativeButton("Cancel", null).show();
             return;
@@ -3274,8 +3276,8 @@ public class MainActivity extends Activity {
         if (!Covers.anyReady(this)) {
             if (tell) {
                 alert("One more download needed", PhoneCheck.npuCovers()
-                        ? "Covers are painted by a model that runs on this phone's NPU. Get it on the Engine tab (710 MB)."
-                        : "Covers are painted on this phone's GPU. Get the GPU cover model on the Engine tab (" + size(Covers.gpuBytes()) + ").");
+                        ? "Covers are painted by a model that runs on this phone's NPU. Get it on the Settings tab (710 MB)."
+                        : "Covers are painted on this phone's GPU. Get the GPU cover model on the Settings tab (" + size(Covers.gpuBytes()) + ").");
                 showTab(TAB_ENGINE);
             }
             return;
@@ -3730,6 +3732,46 @@ public class MainActivity extends Activity {
 
     // ---------- Engine ----------
 
+    TextView hostStatus;
+    Button hostBtn;
+
+    /** Settings tab: hosting your Library for other people, and every sharing setting behind one button each. */
+    void buildSharing(LinearLayout c) {
+        c.addView(label("Sharing and hosting"));
+        hostStatus = text("", DIM, 12);
+        c.addView(hostStatus);
+        hostBtn = button("Start hosting", false);
+        c.addView(hostBtn, gap(6));
+        hostBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (HammerService.hosting()) {
+                    HammerService.stopHost();
+                } else if (jobBusy) {
+                    toast("A song is being made. Host when it is done.");
+                } else {
+                    HammerService.startHost(MainActivity.this);
+                }
+            }
+        });
+        c.addView(chipRow(new String[] {"Hosting", "Circles and invitations", "Peers and artists", "Downloads", "Computer"}, new Runnable[] {
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.HOSTING); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.CIRCLES); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.PEERS); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.TRANSFERS); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.COMPUTER); } },
+        }));
+        TextView why = text("Only songs you share from the Library are offered. Public songs show in Discover; private ones need an invitation.", DIM, 12);
+        c.addView(why, gap(6));
+        refreshSharing();
+    }
+
+    void refreshSharing() {
+        if (hostStatus == null) return;
+        boolean on = HammerService.hosting();
+        hostStatus.setText(HammerService.status + " · " + HammerFollowService.status);
+        hostBtn.setText(on ? "Stop hosting" : "Start hosting");
+    }
+
     View buildEngine() {
         LinearLayout c = column();
         engineStatus = text("", Skin.ACCENT, 17);
@@ -4052,6 +4094,8 @@ public class MainActivity extends Activity {
         adapterBox = column();
         c.addView(adapterBox);
         refreshAdapters();
+
+        buildSharing(c);
 
         Button about = button("About and licences", false);
         c.addView(about, gap(18));

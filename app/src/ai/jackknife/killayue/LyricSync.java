@@ -231,7 +231,7 @@ public class LyricSync {
      * Returns a sentence for the user.
      */
     static String sync(Context c, JSONObject meta, File metaFile) throws Exception {
-        if (!ready(c)) throw new Exception("The lyric sync model is not downloaded yet. Get it on the Engine tab.");
+        if (!ready(c)) throw new Exception("The lyric sync model is not downloaded yet. Get it on the Settings tab.");
         File audio = new File(Store.library(c), meta.optString("_audio"));
         if (!audio.isFile()) throw new Exception("The song's audio file is missing.");
         ArrayList<Karaoke.Line> plain = Karaoke.lines(meta.optString("lyrics"));

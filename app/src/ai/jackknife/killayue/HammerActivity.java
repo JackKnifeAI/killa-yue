@@ -49,153 +49,52 @@ public final class HammerActivity extends Activity {
     private interface Work {
         void run() throws Exception;
     }
+    static final int ALL = 0, HOSTING = 1, CIRCLES = 2, PEERS = 3, TRANSFERS = 4, COMPUTER = 5;
     static void open(Context c) { c.startActivity(new Intent(c, HammerActivity.class)); }
-    static void settings(Context c) {
-        c.startActivity(new Intent(c, HammerActivity.class).putExtra("settings", true));
+    static void settings(Context c) { settings(c, ALL); }
+    /** Sharing settings, grouped; section is the group to scroll to. The Settings tab opens these. */
+    static void settings(Context c, int section) {
+        c.startActivity(new Intent(c, HammerActivity.class).putExtra("settings", true).putExtra("section", section));
     }
     static void publish(Context c, org.json.JSONObject song) {
         c.startActivity(new Intent(c, HammerActivity.class).putExtra("publish", song.toString()));
     }
+    private ScrollView scroll;
+    private Button hostToggle, playPause;
+    private ImageView ownPortrait;
+    private TextView ownName, playerTitle;
+    private Hit playing;
+    // covers and portraits, fetched one at a time so a peer's admission limit is never hit
+    private final ExecutorService art = Executors.newSingleThreadExecutor();
+    private final Map<String, android.graphics.Bitmap> pictures = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
+    private final Set<String> asked = new HashSet<String>();
     @Override
     public void onCreate(Bundle state) {
+        setTheme(Skin.themeFor(this, Skin.id(this)));
         super.onCreate(state);
         Skin.load(this);
-        ScrollView scroll = new ScrollView(this);
-        body = new LinearLayout(this);
-        body.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout root = Ui.column(this);
+        root.setBackground(Skin.background(this));
+        root.setFitsSystemWindows(true);
+        scroll = new ScrollView(this);
+        body = Ui.column(this);
         int pad = Ui.dp(this, 16);
-        body.setPadding(pad, pad, pad, pad);
-        body.setBackgroundColor(Skin.DECK);
+        body.setPadding(pad, Ui.dp(this, 8), pad, Ui.dp(this, 24));
         scroll.addView(body);
-        setContentView(scroll);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
         settingsMode = getIntent().getBooleanExtra("settings", false);
         artistFilter = getIntent().getStringExtra("artist");
-        body.addView(Ui.title(this, settingsMode ? "Sharing settings" : "Discover"));
-        label(settingsMode ? "Private circles, computer hosts and connection tools. Your Library controls " +
-                             "which songs are shared."
-                           : "Music and artists hosted by people. Publish your songs from Library.");
-        status = label("Opening local storage…");
-        if (settingsMode) {
-            button(body, "Start hosting", new Runnable() {
-                public void run() { HammerService.startHost(HammerActivity.this); }
-            });
-            button(body, "Stop hosting", new Runnable() {
-                public void run() { HammerService.stopHost(); }
-            });
-            button(body, "My hosted songs", new Runnable() {
-                public void run() { hosted(); }
-            });
-            button(body, "Public peer card", new Runnable() {
-                public void run() { invite(false); }
-            });
-            button(body, "Private circle invitation", new Runnable() {
-                public void run() { invite(true); }
-            });
-            button(body, "Revoke private invitations", new Runnable() {
-                public void run() {
-                    new Lux.Builder(HammerActivity.this)
-                        .setTitle("Replace the circle invitation?")
-                        .setMessage("All current private invitations stop working. Copies people already "
-                                    + "downloaded remain theirs.")
-                        .setPositiveButton("Revoke",
-                                           new DialogInterface.OnClickListener() {
-                                               public void onClick(DialogInterface d, int w) {
-                                                   work("Revoking invitations", new Work() {
-                                                       public void run() throws Exception {
-                                                           store.revoke();
-                                                           HammerService.disconnect();
-                                                       }
-                                                   });
-                                               }
-                                           })
-                        .setNegativeButton("Cancel", null)
-                        .show();
-                }
-            });
-            button(body, "Add peer or invitation", new Runnable() {
-                public void run() { addPeer(""); }
-            });
-            button(body, "Followed peers", new Runnable() {
-                public void run() { peers(); }
-            });
-        } else {
-            button(body, "My artist profile", new Runnable() {
-                public void run() {
-                    startActivity(new Intent(HammerActivity.this, HammerArtistActivity.class));
-                }
-            });
-        }
-        if (settingsMode) {
-            button(body, "Live Follow on / off", new Runnable() {
-                public void run() { liveFollow(); }
-            });
-            button(body, "Followed artists", new Runnable() {
-                public void run() { artists(); }
-            });
-        }
-        button(body, "Refresh discovery", new Runnable() {
-            public void run() { refresh(); }
-        });
-        query = Ui.edit(this, "Search artists, songs and styles", 1);
-        body.addView(query);
-        button(body, "Search", new Runnable() {
-            public void run() { render(); }
-        });
-        results = new LinearLayout(this);
-        results.setOrientation(LinearLayout.VERTICAL);
-        body.addView(results);
-        playerPanel = new LinearLayout(this);
-        playerPanel.setOrientation(LinearLayout.VERTICAL);
-        body.addView(playerPanel);
-        playerStatus = Ui.text(this, "Stopped", Skin.DIM, 14);
-        playerPanel.addView(playerStatus);
-        seek = new SeekBar(this);
-        playerPanel.addView(seek);
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar b, int p, boolean user) {
-                if (user)
-                    HammerService.seek(p);
-            }
-            public void onStartTrackingTouch(SeekBar b) {}
-            public void onStopTrackingTouch(SeekBar b) {}
-        });
-        button(playerPanel, "Play / pause", new Runnable() {
-            public void run() { HammerService.pause(); }
-        });
-        button(playerPanel, "Stop playback", new Runnable() {
-            public void run() { HammerService.stopPlayback(); }
-        });
-        if (settingsMode) {
-            button(body, "Downloaded songs", new Runnable() {
-                public void run() { downloads(); }
-            });
-            button(body, "Save desktop companion", new Runnable() {
-                public void run() {
-                    Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
-                                   .setType("application/zip")
-                                   .addCategory(Intent.CATEGORY_OPENABLE)
-                                   .putExtra(Intent.EXTRA_TITLE, "hammer-server.zip");
-                    startActivityForResult(i, 840);
-                }
-            });
-            button(body, "Cancel current transfer", new Runnable() {
-                public void run() {
-                    if (job != null)
-                        job.cancel();
-                }
-            });
-            label(
-                "Connect using a trusted peer card. Direct connections need reachable addresses: Wi-Fi, a "
-                + "hotspot, or a reachable internet/VPN endpoint. No global tracker or NAT relay is bundled. "
-                + "Lossless/original mode transfers the existing file unchanged; an MP3 master cannot regain "
-                +
-                "lost detail. Public metadata is public; encryption does not hide peer IP addresses. Search "
-                + "words stay here.");
-        }
+        if (settingsMode)
+            buildSettings(getIntent().getIntExtra("section", ALL));
+        else
+            buildDiscover(root);
+        setContentView(root);
         work("Opening HAMMER", new Work() {
             public void run() throws Exception {
                 store = HammerAndroid.store(HammerActivity.this);
                 HammerAndroid.identity();
+                if (!settingsMode)
+                    loadOwn();
                 ui.post(new Runnable() {
                     public void run() {
                         if (closed)
@@ -243,6 +142,212 @@ public final class HammerActivity extends Activity {
         });
         ui.post(tick);
     }
+    /** Discover: your own artist page on top, then artists as medallions, then songs as cards; the player sits below. */
+    private void buildDiscover(LinearLayout root) {
+        LinearLayout top = Ui.row(this);
+        top.addView(Ui.title(this, artistFilter == null ? "Discover" : "Artist"), Ui.weight());
+        Button again = Ui.chip(this, "↻ Refresh");
+        top.addView(again);
+        again.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (store != null)
+                    refresh();
+            }
+        });
+        body.addView(top);
+        TextView intro = Ui.text(this, "Songs and artists shared by people nearby and in your circles. Tap a song to hear it.",
+                                 Skin.DIM, 13);
+        intro.setPadding(0, Ui.dp(this, 2), 0, Ui.dp(this, 10));
+        body.addView(intro);
+        // your page, as the other artists see it
+        LinearLayout mine = Ui.row(this);
+        mine.setBackground(new LuxFrame(16, 8));
+        int in = Ui.dp(this, 14);
+        mine.setPadding(in, in, in, in);
+        ownPortrait = new ImageView(this);
+        ownPortrait.setImageBitmap(Ui.medallion(this, null, "", 56));
+        mine.addView(ownPortrait, new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
+        LinearLayout words = Ui.column(this);
+        words.setPadding(Ui.dp(this, 14), 0, 0, 0);
+        ownName = Ui.text(this, "Your artist page", Skin.ACCENT, 17);
+        ownName.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+        words.addView(ownName);
+        words.addView(Ui.text(this, "Portrait, name and bio · share songs from the Library", Skin.DIM, 12));
+        mine.addView(words, Ui.weight());
+        mine.addView(Ui.text(this, "›", Skin.ACCENT, 28));
+        mine.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                startActivity(new Intent(HammerActivity.this, HammerArtistActivity.class));
+            }
+        });
+        if (artistFilter == null)
+            body.addView(mine, Ui.gap(this, 2));
+        query = Ui.edit(this, "Search artists, songs and styles", 1);
+        query.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            public void afterTextChanged(android.text.Editable s) { render(); }
+        });
+        body.addView(query, Ui.gap(this, 14));
+        status = Ui.text(this, "Opening…", Skin.DIM, 12);
+        status.setPadding(0, Ui.dp(this, 6), 0, 0);
+        body.addView(status);
+        results = Ui.column(this);
+        body.addView(results);
+        // now playing: a framed bar under the list
+        playerPanel = Ui.column(this);
+        playerPanel.setBackground(new LuxFrame(16, 8));
+        playerPanel.setPadding(in, Ui.dp(this, 10), in, Ui.dp(this, 10));
+        LinearLayout bar = Ui.row(this);
+        LinearLayout now = Ui.column(this);
+        playerTitle = Ui.text(this, "", Skin.TEXT, 15);
+        playerTitle.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+        playerTitle.setSingleLine(true);
+        playerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        now.addView(playerTitle);
+        playerStatus = Ui.text(this, "Stopped", Skin.DIM, 12);
+        playerStatus.setSingleLine(true);
+        playerStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        now.addView(playerStatus);
+        bar.addView(now, Ui.weight());
+        playPause = Ui.chip(this, "❚❚");
+        bar.addView(playPause);
+        playPause.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { HammerService.pause(); }
+        });
+        Button stop = Ui.chip(this, "■");
+        bar.addView(stop);
+        stop.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { HammerService.stopPlayback(); }
+        });
+        playerPanel.addView(bar);
+        seek = new SeekBar(this);
+        playerPanel.addView(seek, Ui.gap(this, 4));
+        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar b, int p, boolean user) {
+                if (user)
+                    HammerService.seek(p);
+            }
+            public void onStartTrackingTouch(SeekBar b) {}
+            public void onStopTrackingTouch(SeekBar b) {}
+        });
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, -2);
+        plp.leftMargin = plp.rightMargin = Ui.dp(this, 10);
+        plp.bottomMargin = Ui.dp(this, 8);
+        root.addView(playerPanel, plp);
+    }
+    /** Sharing settings in five groups, the same five the Settings tab names. */
+    private void buildSettings(final int section) {
+        body.addView(Ui.title(this, "Sharing and hosting"));
+        label("Your Library decides which songs are shared: open a song's sharing line there. Everything else is here.");
+        status = Ui.text(this, "Opening local storage…", Skin.DIM, 13);
+        body.addView(status);
+        final View hosting = group("Hosting", "Serve the songs you share to people who follow you or find you nearby.");
+        hostToggle = Ui.button(this, "Start hosting", true);
+        body.addView(hostToggle, Ui.gap(this, 6));
+        hostToggle.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (HammerService.hosting())
+                    HammerService.stopHost();
+                else
+                    HammerService.startHost(HammerActivity.this);
+            }
+        });
+        button(body, "My hosted songs", new Runnable() {
+            public void run() { hosted(); }
+        });
+        final View circles = group("Circles and invitations", "A public card lets anyone follow you. A private circle invitation opens your private songs to the people you send it to.");
+        button(body, "Public peer card", new Runnable() {
+            public void run() { invite(false); }
+        });
+        button(body, "Private circle invitation", new Runnable() {
+            public void run() { invite(true); }
+        });
+        button(body, "Revoke private invitations", new Runnable() {
+            public void run() {
+                new Lux.Builder(HammerActivity.this)
+                    .setTitle("Replace the circle invitation?")
+                    .setMessage("All current private invitations stop working. Copies people already "
+                                + "downloaded remain theirs.")
+                    .setPositiveButton("Revoke",
+                                       new DialogInterface.OnClickListener() {
+                                           public void onClick(DialogInterface d, int w) {
+                                               work("Revoking invitations", new Work() {
+                                                   public void run() throws Exception {
+                                                       store.revoke();
+                                                       HammerService.disconnect();
+                                                   }
+                                               });
+                                           }
+                                       })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            }
+        });
+        final View peers = group("Peers and artists", "People you follow, and the artists who tell you about their new songs.");
+        button(body, "Add a peer or invitation", new Runnable() {
+            public void run() { addPeer(""); }
+        });
+        button(body, "Followed peers", new Runnable() {
+            public void run() { peers(); }
+        });
+        button(body, "Followed artists", new Runnable() {
+            public void run() { artists(); }
+        });
+        button(body, "Live Follow on / off", new Runnable() {
+            public void run() { liveFollow(); }
+        });
+        final View transfers = group("Downloads", "Verified copies you downloaded, ready to save to your Library or host again.");
+        button(body, "Downloaded songs", new Runnable() {
+            public void run() { downloads(); }
+        });
+        button(body, "Cancel current transfer", new Runnable() {
+            public void run() {
+                if (job != null)
+                    job.cancel();
+            }
+        });
+        final View computer = group("Computer", "A small server for a computer that hosts your songs while the phone sleeps.");
+        button(body, "Save desktop companion", new Runnable() {
+            public void run() {
+                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                               .setType("application/zip")
+                               .addCategory(Intent.CATEGORY_OPENABLE)
+                               .putExtra(Intent.EXTRA_TITLE, "hammer-server.zip");
+                startActivityForResult(i, 840);
+            }
+        });
+        group("Privacy", null);
+        TextView fine = Ui.text(this,
+            "Connect using a trusted peer card. Direct connections need reachable addresses: Wi-Fi, a "
+            + "hotspot, or a reachable internet/VPN endpoint. No global tracker or NAT relay is bundled. "
+            + "Lossless/original mode transfers the existing file unchanged; an MP3 master cannot regain "
+            + "lost detail. Public metadata is public; encryption does not hide peer IP addresses. Search "
+            + "words stay here.", Skin.DIM, 12);
+        body.addView(fine);
+        if (section != ALL)
+            scroll.post(new Runnable() {
+                public void run() {
+                    View[] at = {null, hosting, circles, peers, transfers, computer};
+                    if (section < at.length && at[section] != null)
+                        scroll.smoothScrollTo(0, at[section].getTop());
+                }
+            });
+    }
+    /** A group heading in the settings, with one line on what the group is for. Returns the heading. */
+    private View group(String name, String what) {
+        TextView h = Ui.label(this, name.toUpperCase());
+        h.setTextColor(Skin.ACCENT);
+        h.setLetterSpacing(0.12f);
+        h.setPadding(0, Ui.dp(this, 22), 0, Ui.dp(this, 2));
+        body.addView(h);
+        if (what != null) {
+            TextView t = Ui.text(this, what, Skin.DIM, 12);
+            t.setPadding(0, 0, 0, Ui.dp(this, 4));
+            body.addView(t);
+        }
+        return h;
+    }
     private TextView label(String text) {
         TextView v = Ui.text(this, text, Skin.TEXT, 14);
         v.setPadding(0, Ui.dp(this, 8), 0, Ui.dp(this, 8));
@@ -251,7 +356,7 @@ public final class HammerActivity extends Activity {
     }
     private void button(LinearLayout parent, String title, final Runnable action) {
         Button b = Ui.button(this, title, false);
-        parent.addView(b);
+        parent.addView(b, Ui.gap(this, 6));
         b.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (store == null) {
@@ -266,19 +371,105 @@ public final class HammerActivity extends Activity {
         public void run() {
             if (closed)
                 return;
-            playerPanel.setVisibility("Stopped".equals(HammerService.playback) ? android.view.View.GONE
-                                                                                 : android.view.View.VISIBLE);
-            playerStatus.setText(HammerService.status + "\n" + HammerService.playback + "\n" +
-                                 HammerService.bufferStatus() + "\n" + HammerFollowService.status);
-            seek.setMax(HammerService.duration());
-            if (!seek.isPressed())
-                seek.setProgress(HammerService.position());
+            if (hostToggle != null)
+                hostToggle.setText(HammerService.hosting() ? "Stop hosting" : "Start hosting");
+            if (playerPanel != null) {
+                boolean stopped = "Stopped".equals(HammerService.playback);
+                playerPanel.setVisibility(stopped ? View.GONE : View.VISIBLE);
+                if (!stopped) {
+                    playerTitle.setText(playing == null ? "Now playing"
+                                                        : playing.song.title + " · " + artistName(playing.song.key));
+                    playerStatus.setText(HammerService.playback + " · " + HammerService.bufferStatus());
+                    playPause.setText("Playing".equals(HammerService.playback) ? "❚❚" : "▶");
+                    seek.setMax(HammerService.duration());
+                    if (!seek.isPressed())
+                        seek.setProgress(HammerService.position());
+                }
+            }
             if (busy && job != null && job.total > 0)
                 status.setText("Downloading " + (job.done * 100 / job.total) +
                                "% — Cancel keeps the partial copy");
             ui.postDelayed(this, 500);
         }
     };
+    /** Your published profile, for the card on top of Discover. Runs on the worker. */
+    private void loadOwn() {
+        try {
+            final HammerProfile own = store.publicObjects.own();
+            if (own == null)
+                return;
+            android.graphics.Bitmap face = null;
+            if (!own.image.isEmpty())
+                try {
+                    face = picture(store.publicObjects.localImage(own.image));
+                } catch (Exception optional) {
+                }
+            final android.graphics.Bitmap f = face;
+            ui.post(new Runnable() {
+                public void run() {
+                    if (closed)
+                        return;
+                    ownName.setText(own.name.isEmpty() ? "Your artist page" : own.name);
+                    ownPortrait.setImageBitmap(Ui.medallion(HammerActivity.this, f, own.name, 56));
+                }
+            });
+        } catch (Exception none) {
+        }
+    }
+    /** The bitmap of artwork bytes, decoded by the isolated codec, never in this process. */
+    private android.graphics.Bitmap picture(byte[] bytes) throws Exception {
+        File f = File.createTempFile("discover-", ".image", getCacheDir());
+        try {
+            HammerStore.atomic(f, bytes);
+            return ((HammerCodec)HammerMedia.codec).imagePreview(f).bitmap;
+        } finally {
+            f.delete();
+        }
+    }
+    /** Fetches a cover or portrait once, in the background, then shows it in the view if it is still on screen. */
+    private void fetch(final String key, final ImageView into, final int sizeDp, final String name, final Fetch how) {
+        android.graphics.Bitmap have = pictures.get(key);
+        if (have != null) {
+            into.setImageBitmap(sizeDp > 0 ? Ui.medallion(this, have, name, sizeDp) : have);
+            return;
+        }
+        into.setTag(key);
+        if (!asked.add(key) || asked.size() > 48)
+            return;
+        art.execute(new Runnable() {
+            public void run() {
+                try {
+                    if (closed)
+                        return;
+                    byte[] bytes = how.get(new Hammer.Job());
+                    if (bytes == null)
+                        return;
+                    final android.graphics.Bitmap b = picture(bytes);
+                    pictures.put(key, b);
+                    ui.post(new Runnable() {
+                        public void run() {
+                            if (!closed && key.equals(into.getTag()))
+                                into.setImageBitmap(sizeDp > 0 ? Ui.medallion(HammerActivity.this, b, name, sizeDp) : b);
+                        }
+                    });
+                } catch (Exception noArt) {
+                }
+            }
+        });
+    }
+    private interface Fetch {
+        byte[] get(Hammer.Job job) throws Exception;
+    }
+    private void stream(Hit hit, int mode) {
+        streamMode = mode;
+        playing = hit;
+        try {
+            HammerService.play(HammerActivity.this, hosts(hit), hit.song, streamMode);
+            Ui.toast(this, "Opening “" + hit.song.title + "”");
+        } catch (Exception e) {
+            Ui.toast(HammerActivity.this, "Could not open stream");
+        }
+    }
     private void work(final String title, final Work action) {
         if (busy) {
             Ui.toast(this, "Finish or cancel the current operation first");
@@ -304,6 +495,8 @@ public final class HammerActivity extends Activity {
                         if (closed)
                             return;
                         status.setText(message == null ? title + " — done" : title + ": " + message);
+                        if (!settingsMode)
+                            render(); // the empty list stops saying it is still looking
                         if (message == null && title.equals("Opening HAMMER") &&
                             getIntent().getBooleanExtra("refresh", false)) {
                             getIntent().removeExtra("refresh");
@@ -638,48 +831,157 @@ public final class HammerActivity extends Activity {
         });
     }
     private void render() {
-        if (closed)
+        if (closed || results == null)
             return;
         results.removeAllViews();
         String q = query.getText().toString();
         int count = 0;
-        if (artistFilter == null)
+        if (artistFilter == null) {
+            LinearLayout strip = Ui.row(this);
+            strip.setGravity(android.view.Gravity.TOP);
             for (final ProfileHit profile : profiles.values())
-                if (profile.profile.matches(q)) {
-                    button(results, "Artist · " + profile.profile.name, new Runnable() {
-                        public void run() {
-                            try {
-                                startActivity(new Intent(HammerActivity.this, HammerArtistActivity.class)
-                                                  .putExtra("peer", profile.peer.card.encode())
-                                                  .putExtra("artist", profile.profile.id()));
-                            } catch (Exception ignored) {
-                            }
-                        }
-                    });
-                }
+                if (profile.profile.matches(q))
+                    strip.addView(artistTile(profile));
+            if (strip.getChildCount() > 0) {
+                results.addView(heading("Artists"));
+                HorizontalScrollView h = new HorizontalScrollView(this);
+                h.setHorizontalScrollBarEnabled(false);
+                h.addView(strip);
+                results.addView(h);
+            }
+        }
         Set<String> displayed = new HashSet<String>();
+        boolean first = true;
         for (final Hit hit : hits)
             if ((artistFilter == null || artistFilter.equals(shortAuthorFull(hit.song.key))) &&
                 (hit.song.matches(q) || artistMatches(hit.song.key, q)) &&
                 displayed.add(hit.song.id + hit.song.sig)) {
                 if (++count > 100)
                     break;
-                button(results, hit.song.title + " · " + artistName(hit.song.key), new Runnable() {
-                    public void run() { song(hit); }
-                });
+                if (first) {
+                    results.addView(heading("Songs"));
+                    first = false;
+                }
+                results.addView(songCard(hit), Ui.gap(this, 8));
             }
         TextView n = Ui.text(this,
                              count > 100 ? "Showing the first 100 matches. Narrow your search."
-                                         : count + " songs in reachable catalogs",
-                             Skin.DIM, 13);
+                                         : count == 0 ? "" : count + " songs in reachable catalogs",
+                             Skin.DIM, 12);
+        n.setPadding(0, Ui.dp(this, 10), 0, 0);
         results.addView(n);
-        if (hits.isEmpty() && profiles.isEmpty())
-            results.addView(Ui.text(
+        if (hits.isEmpty() && profiles.isEmpty()) {
+            TextView empty = Ui.text(
                 this,
-                "Nearby hosts appear automatically. Internet discovery needs a reachable community entry " +
-                "peer; "
-                    + "it cannot cross every router yet. Add an entry peer in Library → Sharing settings.",
-                Skin.DIM, 14));
+                busy ? "Looking for artists nearby…"
+                     : "No one is sharing yet. Artists on the same Wi-Fi appear here by themselves. To reach people "
+                       + "further away, add their peer card or invitation: Settings tab → Sharing and hosting → "
+                       + "Peers and artists.",
+                Skin.DIM, 14);
+            empty.setPadding(0, Ui.dp(this, 24), 0, 0);
+            empty.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+            results.addView(empty);
+        }
+    }
+    private TextView heading(String name) {
+        TextView h = Ui.label(this, name.toUpperCase());
+        h.setTextColor(Skin.ACCENT);
+        h.setLetterSpacing(0.12f);
+        h.setPadding(0, Ui.dp(this, 20), 0, Ui.dp(this, 6));
+        return h;
+    }
+    /** An artist medallion with the name under it; tap for the artist's page. */
+    private View artistTile(final ProfileHit profile) {
+        LinearLayout t = Ui.column(this);
+        t.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        t.setPadding(0, 0, Ui.dp(this, 14), 0);
+        final ImageView face = new ImageView(this);
+        final String name = profile.profile.name;
+        face.setImageBitmap(Ui.medallion(this, null, name, 84));
+        t.addView(face, new LinearLayout.LayoutParams(Ui.dp(this, 84), Ui.dp(this, 84)));
+        TextView n = Ui.text(this, name, Skin.TEXT, 13);
+        n.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+        n.setSingleLine(true);
+        n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        n.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        n.setPadding(0, Ui.dp(this, 6), 0, 0);
+        t.addView(n, new LinearLayout.LayoutParams(Ui.dp(this, 92), -2));
+        try {
+            final String id = profile.profile.id();
+            if (!profile.profile.image.isEmpty())
+                fetch("a:" + id + profile.profile.image, face, 84, name, new Fetch() {
+                    public byte[] get(Hammer.Job j) throws Exception {
+                        return Hammer.image(profile.peer.card, id, profile.profile.image, true, j);
+                    }
+                });
+        } catch (Exception badKey) {
+        }
+        t.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                try {
+                    startActivity(new Intent(HammerActivity.this, HammerArtistActivity.class)
+                                      .putExtra("peer", profile.peer.card.encode())
+                                      .putExtra("artist", profile.profile.id()));
+                } catch (Exception ignored) {
+                }
+            }
+        });
+        t.setContentDescription("Artist " + name);
+        return t;
+    }
+    /** A song in a gold frame: cover, title, artist and style; tap to listen, ⋯ for everything else. */
+    private View songCard(final Hit hit) {
+        LinearLayout card = Ui.row(this);
+        card.setBackground(new LuxFrame(14, 8));
+        int in = Ui.dp(this, 12);
+        card.setPadding(in, in, in, in);
+        final ImageView cover = new ImageView(this);
+        cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        cover.setBackground(Ui.box(this, Skin.PILL, 8));
+        cover.setClipToOutline(true);
+        card.addView(cover, new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)));
+        fetch("s:" + HammerStore.peerId(hit.peer.card) + hit.song.id, cover, 0, null, new Fetch() {
+            public byte[] get(Hammer.Job j) throws Exception {
+                HammerArt a = Hammer.cover(hit.peer.card, hit.song, j);
+                return a == null ? null : Hammer.image(hit.peer.card, hit.song.id, a.image, false, j);
+            }
+        });
+        LinearLayout words = Ui.column(this);
+        words.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 6), 0);
+        TextView title = Ui.text(this, hit.song.title, Skin.TEXT, 16);
+        title.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        words.addView(title);
+        TextView by = Ui.text(this, artistName(hit.song.key) + (hit.peer.card.isPrivate() ? " · private circle" : ""),
+                              Skin.ACCENT, 13);
+        by.setSingleLine(true);
+        by.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        words.addView(by);
+        if (hit.song.tags != null && !hit.song.tags.isEmpty()) {
+            TextView tags = Ui.text(this, hit.song.tags, Skin.DIM, 12);
+            tags.setSingleLine(true);
+            tags.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            words.addView(tags);
+        }
+        card.addView(words, Ui.weight());
+        Button play = Ui.chip(this, "▶");
+        card.addView(play);
+        play.setContentDescription("Play " + hit.song.title);
+        play.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { stream(hit, streamMode); }
+        });
+        Button more = Ui.chip(this, "⋯");
+        ((LinearLayout.LayoutParams)more.getLayoutParams()).rightMargin = 0;
+        card.addView(more);
+        more.setContentDescription("More for " + hit.song.title);
+        more.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { song(hit); }
+        });
+        card.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { stream(hit, streamMode); }
+        });
+        return card;
     }
     private String shortAuthorFull(String key) {
         try {
@@ -723,7 +1025,7 @@ public final class HammerActivity extends Activity {
                             .show();
                     }
                 })
-            .setItems(new String[] {"Stream / retry stream",
+            .setItems(new String[] {"Listen · choose the quality",
                                     hit.song.reshare ? "Download / resume" : "Streaming only", "Comments",
                                     "Up / down votes", "Follow this artist", "Artist profile"},
                       new DialogInterface.OnClickListener() {
@@ -737,13 +1039,7 @@ public final class HammerActivity extends Activity {
                                                         "Data saver · 48 kbps Opus"},
                                           new DialogInterface.OnClickListener() {
                                               public void onClick(DialogInterface d, int mode) {
-                                                  streamMode = mode;
-                                                  try {
-                                                      HammerService.play(HammerActivity.this, hosts(hit),
-                                                                         hit.song, streamMode);
-                                                  } catch (Exception e) {
-                                                      Ui.toast(HammerActivity.this, "Could not open stream");
-                                                  }
+                                                  stream(hit, mode);
                                               }
                                           })
                                       .setNegativeButton("Cancel", null)
@@ -1345,6 +1641,7 @@ public final class HammerActivity extends Activity {
         if (job != null)
             job.cancel();
         worker.shutdownNow();
+        art.shutdownNow();
         super.onDestroy();
     }
 }

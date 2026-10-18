@@ -466,10 +466,10 @@ public class EngineService extends Service {
                 return;
             }
             lastError = "The GPU driver crashed " + (gpuRestarts + 1) + " times in a row, and restarting it more carefully did not help. "
-                    + "Nothing was switched: songs are still made on the GPU. The Engine tab's \"Device report\" helps fix this phone. "
-                    + "To make songs anyway, you can choose the processor (CPU) under Engine > Device; it is much slower.";
+                    + "Nothing was switched: songs are still made on the GPU. The Settings tab's \"Device report\" helps fix this phone. "
+                    + "To make songs anyway, you can choose the processor (CPU) under Settings > Device; it is much slower.";
         } else if (code != 0 && "memory".equals(fault)) {
-            lastError = "The engine ran out of memory. Close other apps, or pick a shorter Max length on the Engine tab, and try again.";
+            lastError = "The engine ran out of memory. Close other apps, or pick a shorter Max length on the Settings tab, and try again.";
         }
         if (code != 0 && lastError.length() == 0) lastError = "Engine stopped (exit code " + code + ")";
         recovering = false;
