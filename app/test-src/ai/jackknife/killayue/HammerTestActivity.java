@@ -44,6 +44,7 @@ public final class HammerTestActivity extends Activity {
                                     throw new Exception("UI cancellation failed", error.get());
                             }
                         });
+                    result += "\n" + HammerPlaybackTest.run(HammerTestActivity.this);
                 } catch (Throwable e) {
                     java.io.StringWriter s = new java.io.StringWriter();
                     e.printStackTrace(new java.io.PrintWriter(s));

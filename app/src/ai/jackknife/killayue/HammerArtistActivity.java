@@ -42,6 +42,7 @@ public final class HammerArtistActivity extends Activity {
         body.addView(status);
         portrait = new ImageView(this);
         portrait.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        portrait.setVisibility(android.view.View.GONE);
         body.addView(portrait, new LinearLayout.LayoutParams(-1, Ui.dp(this, 220)));
         name = Ui.edit(this, "Artist name", 1);
         body.addView(name);
@@ -168,14 +169,17 @@ public final class HammerArtistActivity extends Activity {
                             tags.setText(p.tags);
                         } else if (!own)
                             name.setText("Artist " + artist.substring(0, 12));
-                        if (avatar != null)
+                        if (avatar != null) {
                             portrait.setImageBitmap(avatar);
+                            portrait.setVisibility(android.view.View.VISIBLE);
+                        }
                         songs.addView(Ui.text(HammerArtistActivity.this, "Published songs", Skin.TEXT, 20));
                         for (final Hammer.Song song : selected) {
                             final LinearLayout row = new LinearLayout(HammerArtistActivity.this);
                             row.setOrientation(LinearLayout.VERTICAL);
                             final ImageView art = new ImageView(HammerArtistActivity.this);
                             art.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+                            art.setVisibility(android.view.View.GONE);
                             row.addView(art, new LinearLayout.LayoutParams(
                                                  -1, Ui.dp(HammerArtistActivity.this, 160)));
                             Button b = Ui.button(HammerArtistActivity.this, song.title, false);
@@ -209,8 +213,10 @@ public final class HammerArtistActivity extends Activity {
                                                                            false, job));
                                             runOnUiThread(new Runnable() {
                                                 public void run() {
-                                                    if (!closed)
+                                                    if (!closed) {
                                                         art.setImageBitmap(bitmap);
+                                                        art.setVisibility(android.view.View.VISIBLE);
+                                                    }
                                                 }
                                             });
                                         } catch (Exception ignored) {
@@ -275,8 +281,10 @@ public final class HammerArtistActivity extends Activity {
         final Bitmap bitmap = clean.bitmap;
         runOnUiThread(new Runnable() {
             public void run() {
-                if (!closed)
+                if (!closed) {
                     portrait.setImageBitmap(bitmap);
+                    portrait.setVisibility(android.view.View.VISIBLE);
+                }
             }
         });
     }

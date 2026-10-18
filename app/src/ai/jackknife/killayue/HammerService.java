@@ -17,6 +17,8 @@ public final class HammerService extends Service {
     private volatile Hammer.Server host;
     private HammerNearby.Announcement announcement;
     private MediaPlayer player;
+    // MediaPlayer getters can report an asynchronous error while prepareAsync is in flight.
+    private boolean playerReady;
     private HammerBuffer buffer;
     private int playerGeneration, hostGeneration;
     private Hammer.Job opening;
@@ -52,28 +54,28 @@ public final class HammerService extends Service {
     }
     static int position() {
         try {
-            return instance != null && instance.player != null ? instance.player.getCurrentPosition() : 0;
+            return instance != null && instance.playerReady && instance.player != null ? instance.player.getCurrentPosition() : 0;
         } catch (Exception e) {
             return 0;
         }
     }
     static int duration() {
         try {
-            return instance != null && instance.player != null ? instance.player.getDuration() : 0;
+            return instance != null && instance.playerReady && instance.player != null ? instance.player.getDuration() : 0;
         } catch (Exception e) {
             return 0;
         }
     }
     static void seek(int ms) {
         try {
-            if (instance != null && instance.player != null)
+            if (instance != null && instance.playerReady && instance.player != null)
                 instance.player.seekTo(ms);
         } catch (Exception ignored) {
         }
     }
     static void pause() {
         HammerService s = instance;
-        if (s == null || s.player == null)
+        if (s == null || !s.playerReady || s.player == null)
             return;
         try {
             if (s.player.isPlaying()) {
@@ -258,6 +260,7 @@ public final class HammerService extends Service {
             public void onPrepared(MediaPlayer mp) {
                 if (generation != playerGeneration)
                     return;
+                playerReady = true;
                 if (requestFocus()) {
                     mp.start();
                     playback = "Playing: " + song.title;
@@ -308,8 +311,10 @@ public final class HammerService extends Service {
                                                 .build())
                         .setOnAudioFocusChangeListener(new AudioManager.OnAudioFocusChangeListener() {
                             public void onAudioFocusChange(int change) {
-                                if (change < 0 && player != null) {
+                                if (change < 0 && playerReady && player != null) {
                                     try {
+                                        if (!player.isPlaying())
+                                            return;
                                         player.pause();
                                         playback = "Paused for other audio";
                                         update();
@@ -323,6 +328,7 @@ public final class HammerService extends Service {
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
     }
     private void releasePlayer() {
+        playerReady = false;
         ++playerGeneration;
         if (opening != null) {
             opening.cancel();

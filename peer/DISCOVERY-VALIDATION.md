@@ -10,22 +10,19 @@ Date: 2026-10-18 (UTC). Branch: `ops/hammer-discover-security`, based on PR #32 
 - Latest host run: first two-second Opus segment 24,801 bytes, 78 ms including loopback TLS; loopback push 2 ms. These are local measurements, not internet latency guarantees.
 - Native AddressSanitizer / UndefinedBehaviorSanitizer with leak detection: duplicated descriptor survives caller close, descriptor encode/decode round trip, and **10,000 mutated, truncated or random packet inputs** passed. The harness uses non-PIE linking because the initial PIE executable collided with ASan shadow mapping on this host. This is targeted testing, not exhaustive fuzzing or an independent audit.
 
-## Preliminary S25 Ultra checks
+## Passed on the S25 Ultra (Android 16)
 
-An earlier preview in this work session passed 135 real-device protocol assertions through the isolated codec worker (76 ms for the first two-second Opus segment including loopback TLS). The isolated worker used a different Android UID from the main app.
+- **138 real-device protocol assertions** using permissionless isolated codec workers. Latest run: first two-second Opus segment 24,801 bytes, 92 ms including loopback TLS; push 3 ms.
+- New real `MediaPlayer` regression exercises Auto, Original and Data saver while polling duration/position during asynchronous preparation, then verifies advancing playback, pause, seek, resume and stop. It caught an actual startup race: querying duration before preparation completed raised Android error -38. Player controls now wait for the prepared callback.
+- A synthetic WAV entered Library through the document picker with local-only visibility. Public → private → local changes were exercised from the Library sharing badge. A separate TLS client saw only the selected test song and was denied access by its known hash after withdrawal/private selection.
+- Generated-cover reuse and profile image upload both used the final isolated-worker image IPC. Public JPEG output was 384×298 with the source Exif marker removed. Artist pages without artwork no longer reserve blank image space.
+- Phone publication was found by ops over NSD. The phone found a separate desktop host through a **lab mDNS advertiser**, opened its signed artist page and song menu, and streamed the remote test WAV to completion. The companion CLI does not yet advertise itself through native desktop mDNS; this fixture validates Android discovery and authenticated connection, not automatic companion setup.
+- Download completed into Library, with a full audio SHA-256 match. Rehosting from Library preserved the original desktop publisher key, signature and bytes. The download metadata points at the Library file; no second permanent audio copy was retained in the private download directory.
+- Artist-page Follow completed and its test artist/host were subsequently removed. Live Follow was returned to its original off state. Broader notification delivery tests remain in the parent PR's `VALIDATION.md`.
+- Both synthetic Library entries, test publications/profile/follow, five isolated test directories and the lab server/advertisement were cleaned up. **All 29 original Library files matched the pre-test SHA-256 manifest.** That manifest stays on ops, outside Git.
 
-The Android document picker imported a synthetic three-second WAV into Library with local-only visibility. A synthetic artist profile and uploaded JPEG were explicitly published; a separate ops client discovered the phone through NSD, authenticated it with pinned TLS, read the signed profile and verified that the served JPEG omitted the source Exif marker. The public song catalog remained empty before explicit song publication.
+The test APK contains exported test activities and is not a release artifact. Tests use synthetic music; they are not listening-quality judgments. No generation ran on the phone during this pass.
 
-These preliminary checks precede the final worker-session and image-pixel IPC changes. They must not be counted as a final pass for the current APK.
+## Remaining work
 
-## Pending before review completion
-
-The phone stopped accepting its supplied wireless-debugging connection while validation was underway. Remaining checks:
-
-- Install final preview and retrieve a fresh on-device integration result.
-- Exercise Library visibility transitions, generated-cover reuse, profile upload and rendering through the final worker IPC.
-- Discover another host automatically; open its artist page, stream in each quality mode, download into Library and rehost with original identity.
-- Verify cancellation/worker restart, idle service shutdown and temperature after testing.
-- Remove only synthetic QA imports/profile/publications and compare the pre-test manifest of 29 original Library files. That manifest stays on ops, outside Git.
-
-No production release or merge is implied by this record. The broader PR #32 device report in `VALIDATION.md` applies to its earlier implementation. Worldwide discovery/bootstrap, NAT traversal, relays, non-Linux portability, desktop decoder isolation, sustained hostile load and long unplugged/Doze tests remain outstanding.
+Worldwide bootstrap, NAT traversal, end-to-end encrypted relays, a scalable public search index, automatic companion mDNS advertisement, desktop decoder isolation, other Android vendors, sustained hostile load, independent security review and long unplugged/Doze testing remain outstanding. No production release or merge is implied by this record.
