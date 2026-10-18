@@ -36,7 +36,8 @@ import ai.jackknife.killayue.studio.Track;
 
 /** THE VAULT: the projects, newest first; a new one from a song or a file; open, rename, compact, delete. */
 final class VaultScreen implements Screen {
-    static final int PICK_FILE = 41;
+    static final int PICK_FILE = 41, PICK_BUNDLE = 42, SAVE_BUNDLE = 43;
+    private File exporting;
 
     private final StudioActivity a;
     private final ScrollView view;
@@ -63,6 +64,16 @@ final class VaultScreen implements Screen {
                 i.addCategory(Intent.CATEGORY_OPENABLE);
                 i.setType("audio/*");
                 a.startActivityForResult(i, PICK_FILE);
+            }
+        });
+        Button bundle = Ui.button(a, "Open a portable project (.killa)", false);
+        col.addView(bundle, Ui.gap(a, 2));
+        bundle.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("*/*");
+                a.startActivityForResult(i, PICK_BUNDLE);
             }
         });
         col.addView(Ui.label(a, "Projects"));
@@ -148,14 +159,15 @@ final class VaultScreen implements Screen {
     }
 
     private void menu(final Projects.Entry e) {
-        final String[] items = {"Open", "Rename", "Wrap up (the mix into my library, then free the space)", "Compact (free unused audio)",
-            "Delete"};
+        final String[] items = {"Open", "Rename", "Save a portable copy (.killa), to move or back up", "Wrap up (the mix into my library, then free the space)",
+            "Compact (free unused audio)", "Delete"};
         new Lux.Builder(a).setTitle(e.name + " · " + size(e.bytes)).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 if (w == 0) openProject(e.dir);
                 else if (w == 1) rename(e);
-                else if (w == 2) wrapUp(e);
-                else if (w == 3) compact(e);
+                else if (w == 2) saveBundle(e);
+                else if (w == 3) wrapUp(e);
+                else if (w == 4) compact(e);
                 else delete(e);
             }
         }).show();
@@ -297,8 +309,123 @@ final class VaultScreen implements Screen {
     }
 
     void result(int request, int result, Intent data) {
-        if (request != PICK_FILE || result != Activity.RESULT_OK || data == null || data.getData() == null) return;
-        newFromFile(data.getData());
+        if (result != Activity.RESULT_OK || data == null || data.getData() == null) return;
+        if (request == PICK_FILE) {
+            String name = displayName(data.getData()), type = a.getContentResolver().getType(data.getData());
+            if ((type != null && type.contains("midi")) || name.endsWith(".mid") || name.endsWith(".midi")) Ui.toast(a, "To bring in a MIDI file, open a project and use Keys → ⋯.");
+            else newFromFile(data.getData());
+        } else if (request == PICK_BUNDLE) openBundle(data.getData());
+        else if (request == SAVE_BUNDLE && exporting != null) writeBundle(exporting, data.getData());
+    }
+
+    private void saveBundle(Projects.Entry e) {
+        if (a.session.dir() != null && a.session.dir().equals(e.dir)) a.session.flush();
+        exporting = e.dir;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/octet-stream");
+        i.putExtra(Intent.EXTRA_TITLE, e.name + ai.jackknife.killayue.studio.Bundle.EXTENSION);
+        a.startActivityForResult(i, SAVE_BUNDLE);
+    }
+
+    /** Runs a bundle job with a progress dialog; work returns an error or null. */
+    private interface BundleWork {
+        String run(TextView msg, AtomicBoolean cancel) throws Exception;
+    }
+    private void bundleJob(final String title, final BundleWork work) {
+        final AtomicBoolean cancel = new AtomicBoolean();
+        final TextView msg = Ui.text(a, title + "…", Skin.TEXT, 15);
+        msg.setPadding(Ui.dp(a, 24), Ui.dp(a, 16), Ui.dp(a, 24), Ui.dp(a, 8));
+        final AlertDialog d = new Lux.Builder(a).setTitle(title).setView(msg).setCancelable(false)
+                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface di, int w) {
+                        cancel.set(true);
+                    }
+                }).show();
+        new Thread(new Runnable() {
+            public void run() {
+                String out;
+                try {
+                    out = work.run(msg, cancel);
+                } catch (Exception x) {
+                    out = cancel.get() ? null : "!" + x.getMessage();
+                }
+                final String said = out;
+                a.runOnUiThread(new Runnable() {
+                    public void run() {
+                        d.dismiss();
+                        refresh();
+                        if (said == null) return;
+                        if (said.startsWith("!")) new Lux.Builder(a).setTitle(title).setMessage(said.substring(1)).setPositiveButton("OK", null).show();
+                        else Ui.toast(a, said);
+                    }
+                });
+            }
+        }, "studio-bundle").start();
+    }
+    private ai.jackknife.killayue.studio.Bundle.Progress progress(final TextView msg) {
+        return new ai.jackknife.killayue.studio.Bundle.Progress() {
+            long last;
+            public void at(final long done, final long total) {
+                long now = System.currentTimeMillis();
+                if (now - last < 150) return;
+                last = now;
+                a.runOnUiThread(new Runnable() {
+                    public void run() {
+                        msg.setText(size(done) + " of " + size(Math.max(done, total)));
+                    }
+                });
+            }
+        };
+    }
+    private void writeBundle(final File dir, final Uri uri) {
+        bundleJob("Saving a portable copy", new BundleWork() {
+            public String run(TextView msg, AtomicBoolean cancel) throws Exception {
+                java.io.OutputStream out = a.getContentResolver().openOutputStream(uri, "w");
+                if (out == null) throw new java.io.IOException("Could not write there.");
+                try {
+                    ai.jackknife.killayue.studio.Bundle.export(dir, out, progress(msg), cancel);
+                } finally {
+                    out.close();
+                }
+                return "Saved. Open it on any phone with Killa YuE: Studio → Vault → Open a portable project.";
+            }
+        });
+    }
+    private void openBundle(final Uri uri) {
+        bundleJob("Opening the portable project", new BundleWork() {
+            public String run(TextView msg, AtomicBoolean cancel) throws Exception {
+                long size = -1;
+                try {
+                    android.content.res.AssetFileDescriptor fd = a.getContentResolver().openAssetFileDescriptor(uri, "r");
+                    if (fd != null) {
+                        size = fd.getLength();
+                        fd.close();
+                    }
+                } catch (Exception ignored) {
+                    // size unknown
+                }
+                java.io.InputStream in = a.getContentResolver().openInputStream(uri);
+                if (in == null) throw new java.io.IOException("Could not read it.");
+                final ai.jackknife.killayue.studio.Bundle.Opened o;
+                try {
+                    o = ai.jackknife.killayue.studio.Bundle.open(StudioSession.root(a), in, size, progress(msg), cancel);
+                } finally {
+                    in.close();
+                }
+                a.runOnUiThread(new Runnable() {
+                    public void run() {
+                        openProject(o.dir);
+                        if (!o.missingPacks.isEmpty())
+                            new Lux.Builder(a).setTitle("Recorded instruments to download")
+                                .setMessage("This project plays " + o.missingPacks.size() + (o.missingPacks.size() == 1 ? " recorded instrument" : " recorded instruments")
+                                    + " not on this phone yet. Open Keys, choose the track, and tap Download when asked.")
+                                .setPositiveButton("OK", null).show();
+                    }
+                });
+                return "Opened " + o.name + ".";
+            }
+        });
     }
 
     private void newFromFile(final Uri uri) {

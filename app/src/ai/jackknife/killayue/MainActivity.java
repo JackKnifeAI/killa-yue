@@ -2539,7 +2539,18 @@ public class MainActivity extends Activity {
     }
 
     /** "Open in Killa YuE" on a friend's model page: copy the models this phone is missing from theirs. */
+    /** From the Studio's Sing card: these lyrics and this voice, ready on Create. */
+    public static final String SING_LYRICS = "singLyrics", SING_STYLE = "singStyle";
+
     void handleLink(Intent in) {
+        if (in != null && in.getStringExtra(SING_LYRICS) != null) {
+            lyrics.setText(in.getStringExtra(SING_LYRICS));
+            if (in.getStringExtra(SING_STYLE) != null) style.setText(in.getStringExtra(SING_STYLE));
+            in.removeExtra(SING_LYRICS);
+            showTab(TAB_CREATE);
+            Ui.toast(this, "Ready to sing: check the words and voice, then Create. Its vocals can go into the Studio when it is done.");
+            return;
+        }
         if (in == null || in.getData() == null) return;
         Uri u = in.getData();
         if ("hammer".equals(u.getScheme())) {

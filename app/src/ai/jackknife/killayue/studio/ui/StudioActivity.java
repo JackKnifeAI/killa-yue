@@ -20,7 +20,7 @@ import java.io.File;
 
 /**
  * The Studio: its own screen in the app, in the skin's dress, portrait or landscape. The Vault (projects),
- * Arrange (the timeline), Keys (instruments, MIDI effects and the piano), the Mixer and the Splitter (stems),
+ * Arrange (the timeline), Keys (instruments, MIDI effects and the piano), AI (beats and voices), the Mixer and the Splitter (stems),
  * Play Along and the Sampler, swapped by the bar at the bottom. The session
  * (engine, project, undo tree) outlives the screen, so rotating or leaving and coming back never stops it.
  */
@@ -102,8 +102,8 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
         vault = new VaultScreen(this);
         playAlong = new PlayAlongScreen(this);
         screens = new Screen[] {
-            vault, new ArrangeScreen(this), keys = new KeysScreen(this), new MixerScreen(this), new SplitterScreen(this), playAlong,
-            sampler = new SamplerScreen(this)};
+            vault, new ArrangeScreen(this), keys = new KeysScreen(this), new AiScreen(this), new MixerScreen(this),
+            new SplitterScreen(this), playAlong, sampler = new SamplerScreen(this)};
         LinearLayout bar = Ui.row(this);
         bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 8));
         tabs = new Button[screens.length];
