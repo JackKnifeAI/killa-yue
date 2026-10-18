@@ -425,7 +425,8 @@ public final class Hammer {
     }
 
     public static final class Server implements Closeable {
-        private final SSLServerSocket listener;
+        private final ServerSocket listener;
+        private final SSLSocketFactory tls;
         private final Source source;
         private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<Socket>());
         private final ThreadPoolExecutor workers =
@@ -434,7 +435,8 @@ public final class Hammer {
             new ThreadPoolExecutor(0, 16, 30, TimeUnit.SECONDS, new SynchronousQueue<Runnable>());
         public Server(SSLContext context, InetSocketAddress address, Source source) throws Exception {
             this.source = source;
-            listener = (SSLServerSocket) context.getServerSocketFactory().createServerSocket();
+            tls = context.getSocketFactory();
+            listener = new ServerSocket();
             listener.setReuseAddress(true);
             listener.bind(address, 8);
             Thread t = new Thread(new Runnable() {
@@ -450,8 +452,14 @@ public final class Hammer {
         }
         private void accept() {
             while (!listener.isClosed()) try {
-                    final SSLSocket s = (SSLSocket) listener.accept();
-                    clients.add(s);
+                    final Socket s = listener.accept();
+                    synchronized (clients) {
+                        if (listener.isClosed()) {
+                            Hammer.close(s);
+                            continue;
+                        }
+                        clients.add(s);
+                    }
                     try {
                         workers.execute(new Runnable() {
                             public void run() {
@@ -466,10 +474,14 @@ public final class Hammer {
                     break;
                 }
         }
-        private void handle(SSLSocket s) {
-            ScheduledFuture<?> end = deadline(s);
+        private void handle(final Socket transport) {
+            ScheduledFuture<?> end = deadline(transport);
+            SSLSocket s = null;
             boolean handedOff = false;
             try {
+                s = (SSLSocket) tls.createSocket(
+                    transport, transport.getInetAddress().getHostAddress(), transport.getPort(), true);
+                s.setUseClientMode(false);
                 secure(s);
                 s.startHandshake();
                 DataInputStream in = new DataInputStream(new BufferedInputStream(s.getInputStream()));
@@ -552,7 +564,7 @@ public final class Hammer {
                     final DataOutputStream output = out;
                     subscribers.execute(new Runnable() {
                         public void run() {
-                            subscription(channel, output, capability);
+                            subscription(transport, channel, output, capability);
                         }
                     });
                     handedOff = true;
@@ -564,15 +576,16 @@ public final class Hammer {
             } finally {
                 end.cancel(false);
                 if (!handedOff) {
-                    clients.remove(s);
+                    clients.remove(transport);
+                    Hammer.close(transport);
                     Hammer.close(s);
                 }
             }
         }
-        private void subscription(SSLSocket s, DataOutputStream out, String token) {
+        private void subscription(Socket transport, SSLSocket s, DataOutputStream out, String token) {
             try {
                 String last = "";
-                while (!s.isClosed()) {
+                while (!transport.isClosed()) {
                     List<Song> changed = source.changed(token, last, 25000);
                     ScheduledFuture<?> end = deadline(s);
                     try {
@@ -589,7 +602,8 @@ public final class Hammer {
                 }
             } catch (Exception ignored) {
             } finally {
-                clients.remove(s);
+                clients.remove(transport);
+                Hammer.close(transport);
                 Hammer.close(s);
             }
         }
@@ -614,12 +628,16 @@ public final class Hammer {
         final DataOutputStream out;
         final ScheduledFuture<?> end;
         Connection(Card card, int op, Job job) throws Exception {
-            socket = (SSLSocket) clientContext(card.pin).getSocketFactory().createSocket();
-            end = deadline(socket);
+            // Cancellation closes raw TCP. SSLSocket.close may send close_notify, which Android
+            // forbids on its UI thread even when closing an otherwise idle connection.
+            Socket transport = new Socket();
+            end = deadline(transport);
             try {
-                job.attach(socket);
+                job.attach(transport);
+                transport.connect(new InetSocketAddress(card.host, card.port), 8000);
+                socket = (SSLSocket) clientContext(card.pin).getSocketFactory().createSocket(
+                    transport, card.host, card.port, true);
                 secure(socket);
-                socket.connect(new InetSocketAddress(card.host, card.port), 8000);
                 socket.startHandshake();
                 in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
                 out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
@@ -628,7 +646,7 @@ public final class Hammer {
                 text(out, card.token, 64);
             } catch (Exception e) {
                 end.cancel(false);
-                Hammer.close(socket);
+                Hammer.close(transport);
                 throw e;
             }
         }

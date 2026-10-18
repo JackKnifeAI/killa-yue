@@ -77,7 +77,18 @@ public final class HammerIntegration {
         v.sign(key);
         return v;
     }
+    public interface Controls {
+        void run(Runnable action) throws Exception;
+    }
     public static String run(final KeyPair key, final X509Certificate cert, File root) throws Exception {
+        return run(key, cert, root, new Controls() {
+            public void run(Runnable action) {
+                action.run();
+            }
+        });
+    }
+    public static String run(final KeyPair key, final X509Certificate cert, File root, Controls controls)
+        throws Exception {
         passed = 0;
         root.mkdirs();
         File source = wave(root, "master.wav", 12, 44100, 0),
@@ -250,7 +261,11 @@ public final class HammerIntegration {
             a.visibility(priv.id, true);
             check(event.await(5, TimeUnit.SECONDS), "new release pushed without polling");
             long pushMillis = (System.nanoTime() - sent) / 1000000;
-            watch.cancel();
+            controls.run(new Runnable() {
+                public void run() {
+                    watch.cancel();
+                }
+            });
             t.join(2000);
             check(!t.isAlive(), "subscription cancellation closes socket");
             final Hammer.Song missed = a.publish(
@@ -274,7 +289,11 @@ public final class HammerIntegration {
             resumed.start();
             check(caughtUp.await(5, TimeUnit.SECONDS),
                 "reconnected subscription catches releases published while offline");
-            first.disconnect();
+            controls.run(new Runnable() {
+                public void run() {
+                    first.disconnect();
+                }
+            });
             resumed.join(2000);
             check(!resumed.isAlive(), "host disconnect ends subscription for retry");
             reconnect.cancel();
@@ -372,7 +391,11 @@ public final class HammerIntegration {
                 check(compressed.readAt(44 + 3L * 384000, block, 0, block.length) == block.length,
                     "native compressed seek");
                 check(compressed.bufferedBytes <= 3 * 1024 * 1024, "native playback cache bounded");
-                first.close();
+                controls.run(new Runnable() {
+                    public void run() {
+                        first.close();
+                    }
+                });
                 check(compressed.readAt(44 + 5L * 384000, block, 0, block.length) == block.length,
                     "playback survives original host leaving");
             } finally {

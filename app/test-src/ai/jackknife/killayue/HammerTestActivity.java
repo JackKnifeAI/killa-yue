@@ -19,7 +19,30 @@ public final class HammerTestActivity extends Activity {
                 String result;
                 try {
                     result = HammerIntegration.run(HammerAndroid.identity(), HammerAndroid.certificate(),
-                        new File(getFilesDir(), "hammer-test-" + System.currentTimeMillis()));
+                        new File(getFilesDir(), "hammer-test-" + System.currentTimeMillis()),
+                        new HammerIntegration.Controls() {
+                            public void run(final Runnable action) throws Exception {
+                                final java.util.concurrent.CountDownLatch done =
+                                    new java.util.concurrent.CountDownLatch(1);
+                                final java.util.concurrent.atomic.AtomicReference<Throwable> error =
+                                    new java.util.concurrent.atomic.AtomicReference<Throwable>();
+                                runOnUiThread(new Runnable() {
+                                    public void run() {
+                                        try {
+                                            action.run();
+                                        } catch (Throwable failure) {
+                                            error.set(failure);
+                                        } finally {
+                                            done.countDown();
+                                        }
+                                    }
+                                });
+                                if (!done.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                                    throw new Exception("UI cancellation timed out");
+                                if (error.get() != null)
+                                    throw new Exception("UI cancellation failed", error.get());
+                            }
+                        });
                 } catch (Throwable e) {
                     java.io.StringWriter s = new java.io.StringWriter();
                     e.printStackTrace(new java.io.PrintWriter(s));
