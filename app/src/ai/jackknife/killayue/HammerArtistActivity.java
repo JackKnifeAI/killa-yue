@@ -151,7 +151,10 @@ public final class HammerArtistActivity extends Activity {
                 if (own) {
                     profile = store.publicObjects.own();
                     artist = HammerAndroid.pin();
-                    tracks = store.catalog("");
+                    // your page shows everything you host, private circle songs too
+                    tracks = new ArrayList<Hammer.Song>();
+                    for (HammerStore.Hosted h : store.hosted())
+                        tracks.add(h.song);
                 } else {
                     peer = Hammer.Card.parse(getIntent().getStringExtra("peer"));
                     Hammer.require(Hammer.digest(artist), "Invalid artist identity");
@@ -160,10 +163,16 @@ public final class HammerArtistActivity extends Activity {
                             profile = p;
                     tracks = Hammer.catalog(peer, job);
                 }
+                // the artist's own songs first, then the copies of other artists' songs this host serves
                 final List<Hammer.Song> selected = new ArrayList<Hammer.Song>();
+                final List<Hammer.Song> carried = new ArrayList<Hammer.Song>();
                 for (Hammer.Song s : tracks)
                     if (Hammer.hash(Base64.getDecoder().decode(s.key)).equals(artist))
                         selected.add(s);
+                    else
+                        carried.add(s);
+                final int ownCount = selected.size();
+                selected.addAll(carried);
                 final HammerProfile p = profile;
                 final Bitmap avatar;
                 if (p != null && !p.image.isEmpty()) {
@@ -193,17 +202,16 @@ public final class HammerArtistActivity extends Activity {
                         if (shownBio != null)
                             shownBio.setText(bio.getText().toString());
                         portrait.setImageBitmap(Ui.medallion(HammerArtistActivity.this, avatar, shown, 148));
-                        if (!selected.isEmpty()) {
-                            TextView h = Ui.label(HammerArtistActivity.this, (own ? "YOUR PUBLISHED SONGS" : "SONGS"));
-                            h.setTextColor(Skin.ACCENT);
-                            h.setLetterSpacing(0.12f);
-                            h.setPadding(0, Ui.dp(HammerArtistActivity.this, 22), 0, Ui.dp(HammerArtistActivity.this, 4));
-                            songs.addView(h);
-                        } else if (own)
+                        if (ownCount > 0)
+                            songs.addView(heading(own ? "YOUR SONGS ON THE NETWORK" : "SONGS"));
+                        else if (own)
                             songs.addView(Ui.text(HammerArtistActivity.this,
                                 "No published songs yet. In the Library, tap a song's sharing line and choose Public.", Skin.DIM, 13),
                                 Ui.gap(HammerArtistActivity.this, 18));
-                        for (final Hammer.Song song : selected) {
+                        for (int k = 0; k < selected.size(); k++) {
+                            final Hammer.Song song = selected.get(k);
+                            if (k == ownCount)
+                                songs.addView(heading(own ? "OTHER ARTISTS' SONGS YOU HOST" : "ALSO HOSTING"));
                             final Context me = HammerArtistActivity.this;
                             final LinearLayout row = Ui.row(me);
                             row.setBackground(new LuxFrame(14, 8));
@@ -274,6 +282,13 @@ public final class HammerArtistActivity extends Activity {
                 });
             }
         });
+    }
+    private TextView heading(String name) {
+        TextView h = Ui.label(this, name);
+        h.setTextColor(Skin.ACCENT);
+        h.setLetterSpacing(0.12f);
+        h.setPadding(0, Ui.dp(this, 22), 0, Ui.dp(this, 4));
+        return h;
     }
     private void follow() {
         work("Following artist", new Work() {
