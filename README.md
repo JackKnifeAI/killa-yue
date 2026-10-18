@@ -4,7 +4,7 @@
 
 Full songs, with vocals, written and rendered entirely on an Android phone.
 
-Killa YuE is a native Android app around [YuE2](https://github.com/multimodal-art-projection/YuE), the open lyrics-to-song model from M-A-P. You type a style and lyrics, the phone's GPU does the rest, and your songs and lyrics stay on the device. (When you ask Write with AI to look something up, it sends the search queries it writes to web search sites; nothing else goes out.)
+Killa YuE is a native Android app around [YuE2](https://github.com/multimodal-art-projection/YuE), the open lyrics-to-song model from M-A-P. You type a style and lyrics, and the phone generates music locally. You can also listen, import recordings, host or rehost music through the peer network without downloading generation models. Sharing sends the recordings and metadata you choose to peers; Write with AI can send search queries when you ask it to research.
 
 As far as we could find when we built it (October 2026), this is the first app that runs YuE2 on a phone's GPU.
 
@@ -12,58 +12,68 @@ As far as we could find when we built it (October 2026), this is the first app t
 
 ## Status
 
-Version 1.5.0. It has been run on exactly one phone: a Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). Treat every other device as untested. Reports from other Adreno phones are the most useful contribution right now.
+This branch builds **1.6.0-android.1**, an experimental Android compatibility build. Its song engine includes a baseline ARMv8-A CPU path, automatically selected optimized kernels, and a separate experimental system-Vulkan option. It retains the S20 Turnip fixes. CPU kernel and loader checks passed on the Samsung Galaxy S20 Ultra SM-G988W (Snapdragon 865, Android 13); Pixels, Motorolas, other Samsung variants and budget phones still need physical-device testing. See the [runtime validation record](docs/android-runtime.md).
 
-## Requirements
+The upstream 1.6.0 release includes Discover, HAMMER hosting/rehosting and libp2p networking; this branch is based on that release. The public release was tested on the Samsung Galaxy S25 Ultra (Snapdragon 8 Elite, Adreno 830, 12 GB). No new S25 tests were performed for this branch.
 
-- Android 9 or later, arm64 (almost every phone sold since 2018).
-- For the fast GPU mode, a phone with a **Qualcomm Adreno GPU** (Snapdragon). The app ships its own GPU driver, which is Adreno-only. Every other phone runs in **CPU mode**: see [Phones without a Snapdragon](#phones-without-a-snapdragon-cpu-mode).
+The S20 path uses the CPU to compose score/tokens and Vulkan to render audio. GPU mode is currently slower than CPU in the short-song tests. Start with **Small (Q5)**, **Short songs**, **Gentle mode** on and **Keep everything loaded** off. These engine changes do not add S20 support to the separate GPU cover or stem-splitting engines.
+
+See the [integration and release review](docs/android-integration-review.md) for upstream preservation, CI coverage and release gates. See the [S20 validation record](docs/s20-validation.md) for reproduced failures, measurements and limits. This compatibility APK is a local test build; it has not been published to Releases.
+
+## Requirements for local generation
+
+- Android 9 or later with a 64-bit ARM userspace. This branch's portable song engine selects CPU extensions at runtime; the optional AI writer, transcription and cover engines still need separate portability work. Hardware targets and remaining work are described in the [Android reach plan](docs/android-reach-plan.md).
+- For GPU mode, a phone with a **Qualcomm Adreno GPU** (Snapdragon). Speed depends on the model and driver. The app ships its own GPU driver, which is Adreno-only. Every other phone runs in **CPU mode**: see [Phones without a Snapdragon](#phones-without-a-snapdragon-cpu-mode).
 - About 4 GB of storage for the model, and about 6 GB of free memory for a full-length song.
 - A charger. On the test phone one full-length song used about 40% of the battery.
+
+## Listen and participate without generating
+
+Open **Discover** to find artists and listen. Use **Library → Import audio** for existing recordings, and **Settings → Sharing and hosting** to serve music or rehost verified downloads when permitted. These paths do not require the YuE model or a compatible music-generation GPU. The desktop companion is another hosting option. Peer networking still needs a working build for the device and reachable peers; model-generation results are not a prerequisite for participation. See [HAMMER](peer/README.md) and the [network design](docs/designs/2026-10-18-worldwide-network.md).
 
 ## Install
 
 1. On your phone, open **[Releases](../../releases/latest)** and download the newest `killa-yue-*.apk` under **Assets**.
 2. Open the downloaded file. Android asks you to allow installs from your browser or file manager the first time: allow it, then press **Install**. Android may warn that the app targets an older Android version; that is expected (see "Why it is built this way").
 3. Open Killa YuE and allow storage access, so your songs are kept in `KillaYuE/` where you can find them.
-4. Open the **Engine** tab and press **Get** on the song model and the sound decoder (about 4 GB together; use Wi-Fi). Downloads resume if interrupted and are checked against their SHA-256. If a friend already has the app, **Share the models by QR** on their phone copies the models over Wi-Fi instead.
+4. Open the **Settings** tab and press **Get** on the song model and the sound decoder (about 4 GB together; use Wi-Fi). Downloads resume if interrupted and are checked against their SHA-256. If a friend already has the app, **Share the models by QR** on their phone copies the models over Wi-Fi instead.
 5. Go to **Create**, write a style and some lyrics (or press **Write with AI**), and press **Generate song**.
 
 Updating: install the new APK over the old one. Your songs, projects and models stay.
 
 ## Phones without a Snapdragon (CPU mode)
 
-Killa YuE runs on any arm64 phone with Android 9 or later, Samsung Exynos, Google Tensor and MediaTek included, by making songs on the processor instead of the GPU.
+This branch is intended to make CPU song generation available on more ARM64 phones, including Samsung Exynos, Google Tensor and MediaTek. Correctness, available memory, Android background limits and sustained performance still need testing on each device. A successful install is not a song-generation pass; 3/4 GB phones may not fit the current model.
 
 1. Install the app as above and download the models.
-2. Open **Engine** and set **Run on** to **CPU (slow fallback)**. The app also switches to the processor by itself when it finds no supported Adreno GPU, and says why.
+2. Open **Settings** and set **Run on** to **CPU**. The app also switches to the processor by itself when it finds no supported Adreno GPU, and says why.
 3. Make it lighter for the processor: set **Model quality** to **Small (2.6 GB)**, **Memory for song length** to **Short songs** or **Normal**, and leave **Keep everything loaded** off.
 4. Start small: a 20 to 30 second song with **Render steps** set to 8 under **Advanced settings** on Create. Raise them once you know how long your phone takes.
 5. Keep the phone on a charger and somewhere cool, and keep **Gentle mode** on so the phone stays usable.
 
-CPU mode is much slower than the GPU. We have not timed it on any phone yet, so we cannot say how long a song takes; please post your timings and a **Device report** (Engine > Developer options) on GitHub. Album covers painted on the NPU need a Snapdragon 8 Elite; the GPU cover model and the Studio's stem splitter have so far only been run on the test phone's Adreno GPU.
+On the S20 Ultra, CPU mode generated a 10-second song with Q5 weights and 8 render steps in about 12 minutes. GPU speed varies by device and is slower on this S20 in the current tests. Album covers painted on the NPU need a Snapdragon 8 Elite; the GPU cover model and the Studio's stem splitter have so far only been run on the S25 Ultra's Adreno GPU.
 
 ## What it does
 
 - **Create**: style with genre chips, lyrics with section tags, a length dial and slider (10 seconds to 6 minutes), score mode, an editable ABC score, and advanced settings (render steps, variations, seeds, sampling, MP3 or WAV).
 - **Library**: play, re-render a song with a new sound, edit its score and render again, start a new song from part of an old one, share, rename, delete.
-- **Recordings**: cover a recording (melody, or melody and chords), continue from it, or re-render it. Needs the cover and recording packs from the Engine tab.
+- **Recordings**: cover a recording (melody, or melody and chords), continue from it, or re-render it. Needs the cover and recording packs from the Settings tab.
 - **Style adapters (LoRA)**: install from a Hugging Face repository or a file, then switch them on per song.
 - **Writing aids**: save and recall styles and lyrics, clear both at once, undo and redo.
 - **Player**: a deck with previous, back 10 s, play or pause, forward 10 s and next; song titles; a sleep timer; the song in the system's now-playing card, lock screen and status bar.
 - **Lyrics**: a Lyrics tab that lights up each line as it is sung; tap along once for exact timing. Every song gets an `.lrc` file and MP3 tags with the title, lyrics, timed lyrics and cover.
 - **Queue, takes and recipes**: line up songs to make one after another on the charger; songs with the same lyrics and score are grouped as takes; share a song's recipe as a `.killa` file so another phone can make it.
-- **Album covers on the NPU**: on a Snapdragon 8 Elite, a cover is painted in about three seconds with Stable Diffusion 1.5 on the Hexagon NPU, and the app letters the title. The cover model is a separate 710 MB download on the Engine tab.
+- **Album covers on the NPU**: on a Snapdragon 8 Elite, a cover is painted in about three seconds with Stable Diffusion 1.5 on the Hexagon NPU, and the app letters the title. The cover model is a separate 710 MB download on the Settings tab.
 - **Skins**: Killa Gold, Neon District and Foundry.
-- **Gentle mode** (on by default): the engine runs at low CPU and GPU priority, in smaller GPU jobs with short pauses, so the phone stays smooth while a song is made. On the test phone, with a hot GPU, a 30-second song took about 2% longer in gentle mode, and Android's "isn't responding" message stopped appearing. Turn it off on the Engine tab for the last bit of speed.
+- **Gentle mode** (on by default): the engine runs at low CPU and GPU priority, in smaller GPU jobs with short pauses, so the phone stays smooth while a song is made. On the test phone, with a hot GPU, a 30-second song took about 2% longer in gentle mode, and Android's "isn't responding" message stopped appearing. Turn it off on the Settings tab for the last bit of speed.
 - **Time left**: an estimate next to the elapsed time, learned from this phone's earlier songs and corrected live when the GPU slows down with heat.
-- **Background**: songs keep going while you use other apps. Before the first song the app asks Android to let it run without battery optimisation; the Engine tab shows what else can stop a song and links to the settings.
+- **Background**: songs keep going while you use other apps. Before the first song the app asks Android to let it run without battery optimisation; the Settings tab shows what else can stop a song and links to the settings.
 - **Albums**: put songs in order under one title, sound and cover; queue new songs straight into an album from saved lyrics; paint the album cover on the NPU; export to `Music/Killa YuE/<album>` with every track tagged (album, track number, lyrics, timed lyrics, cover) plus a playlist, or share the album as a zip.
 
 - **Share phone to phone with a QR code**: the app itself, a song, an album, or the models. The other phone scans with its camera and gets a page in the app's style with players, downloads and install steps (songs and albums work on iPhones too). No internet needed: the phones only have to share a Wi-Fi network or a hotspot.
 - **Copy the models from a friend's phone** instead of downloading 4 GB: each file is checked against its published checksum, and an interrupted copy resumes.
 - **Lyric videos** (new, experimental): a vertical 1080x1920 video of a song with its cover and lyrics lighting up, ready for TikTok, Reels and Shorts.
-- **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Engine tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
+- **Phone check**: on phones without a supported Adreno GPU the app switches to the processor and says why. "Device report" on the Settings tab copies what we need to bring Killa YuE to your phone: please post it on GitHub.
 
 New in 1.5.0, **Studio expansion**:
 
@@ -80,7 +90,7 @@ New in 1.4.1, **GPU driver recovery**:
 
 - When the GPU driver crashes, the engine restarts on the GPU, more carefully each time, and the song carries on from where it stopped.
 - Killa YuE no longer moves your phone to the processor by itself. Before 1.4.1, a crash (often just the phone running out of memory) could switch songs to the CPU for good, which needs even more memory, so every song after that was stopped by Android. If that happened to your phone, the app asks once whether to go back to the GPU.
-- Running out of memory now says so, with what helps: a shorter Max length on the Engine tab, and closing other apps.
+- Running out of memory now says so, with what helps: a shorter Max length on the Settings tab, and closing other apps.
 
 New in 1.4.0, **the Studio**, a music studio inside the app:
 
@@ -90,7 +100,7 @@ New in 1.4.0, **the Studio**, a music studio inside the app:
 - **Record (Play Along)**: sing or play over a song from the microphone, a USB interface or another app's sound, with count-in, click, punch, loop takes, latency calibration and recovery of interrupted takes.
 - **The Chamber**: sixteen pads; load any project clip or sound file, chop it at its hits, trim, tune and shape it, record what you play onto the step grid, and bounce the pads to their own track.
 - **Export and wrap up**: the mix as WAV or M4A, every stem, or straight into your library; Wrap up turns a finished project into a song and frees its space.
-- **Write with AI now writes the title too**, and has its own big button. **How everything works** (Engine tab) explains every control in the app. Two new community skins in `skins/`: **Abbey '68** and **Arctic Tactical**.
+- **Write with AI now writes the title too**, and has its own big button. **How everything works** (Settings tab) explains every control in the app. Two new community skins in `skins/`: **Abbey '68** and **Arctic Tactical**.
 
 New in 1.3.0:
 
@@ -143,7 +153,7 @@ The **⋯** beside a song: play it, show its lyrics in time, other takes, a **ne
 The words of the playing song, lit line by line. **Sync automatically** listens to the song on the phone and times every line; **Time the lyrics by tapping** lets you tap along instead; **Share timed lyrics** sends the words with their timings.
 
 </td></tr>
-<tr><td><img src="docs/screenshots/07-engine.jpg" alt="Engine tab"></td><td>
+<tr><td><img src="docs/screenshots/07-engine.jpg" alt="Settings tab"></td><td>
 
 ### Engine
 **Start engine** loads the song engine early to save a wait. **How everything works** opens the in-app guide. **Skin** changes the whole look; **Install a skin** adds a community skin from a file. Below: the queue's battery limit, a **wake-up song** alarm that plays the newest song from the overnight queue, **Run on** (GPU or CPU), **Model quality**, memory for song length, **Gentle mode**, **Studio jobs at full speed**, running the engine in its own process, the model downloads, and **Share the models by QR**.
@@ -152,7 +162,7 @@ The words of the playing song, lit line by line. **Sync automatically** listens 
 <tr><td><img src="docs/screenshots/08-guide.jpg" alt="How everything works"></td><td>
 
 ### How everything works
-The app's own manual, from **Engine**. It explains every setting and button on every screen, Studio included, in plain words with the defaults. It grows with every feature: see CONTRIBUTING.md.
+The app's own manual, from **Settings**. It explains every setting and button on every screen, Studio included, in plain words with the defaults. It grows with every feature: see CONTRIBUTING.md.
 
 </td></tr>
 <tr><td><img src="docs/screenshots/09-vault.jpg" alt="Studio Vault"></td><td>

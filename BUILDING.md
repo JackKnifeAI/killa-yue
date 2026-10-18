@@ -4,6 +4,21 @@ There are three parts: the engine, the GPU driver, and the app. Release 1.1.0 is
 
 ## On a PC with the Android NDK (how 1.1.0 is built)
 
+### Portable Android song engine (1.6.0-android.1 branch)
+
+Keep the validated static Turnip engine as `ENGINE_BIN` / `ENGINE_LIB_DIR`. Build the portable engine separately so CPU generation does not depend on a GPU driver. For a reproducible public checkout, use yue2.cpp `83b65f5d6bf4806557ef17fe763021ff4eead928` and its GGML submodule `2eddaf94a8cdbbf1c30017d28313cd661a9da543`, then run `bash engine/prepare-mobile-source.sh /path/to/yue2.cpp`. It applies all nine patches in order and rejects an unexpected revision. Initialize the submodule with `git submodule update --init ggml` first. The original hardware measurements used a local snapshot of those sources with the gentle/JNI/resume patches already applied; do not apply those twice to that snapshot. Newer native upstream GGML revisions need separate validation before changing this pin.
+
+```sh
+bash engine/build-portable-android.sh /path/to/prepared-yue2.cpp \
+  /path/to/build-portable "$NDK" /path/to/Vulkan-Headers "$SPV"
+```
+
+The script targets Android 28, baseline ARMv8-A glue, seven GGML runtime-selected CPU variants and system Vulkan. It uses a shared C++ runtime across the portable modules, following [Android's multi-library guidance](https://developer.android.com/ndk/guides/cpp-support). Use the same NDK's `libc++_shared.so` for `LIBCXX`. Set `PORTABLE_ENGINE_DIR` to the build output in `app/local.env`; the app build requires it.
+
+CPU modules and shared GGML cores have private names (`libkycpu-*`, `libkyggml*`) so the static Turnip engine cannot discover them by accident. At launch the app prepares a CPU-only or system-Vulkan backend directory with symlinks to the installed APK libraries. CPU sets `GGML_DISABLE_VULKAN=1`; only the system GPU module links Android's `libvulkan.so`. Both child-process and JNI launches choose the appropriate engine.
+
+Validation commands and the remaining device-test requirements are in [docs/android-runtime.md](docs/android-runtime.md). These changes cover the **song engine**. Older instructions below for the separate AI writer, whisper and cover engines still specify architecture-dependent builds; they are not evidence of baseline compatibility for those optional features.
+
 Tools: Android NDK r30 (`ndk;30.0.16248370`), Android SDK build-tools (`aapt2`, `d8`, `zipalign`, `apksigner`) and `platforms;android-35`, a JDK, CMake, Ninja, Meson, Python with Mako and PyYAML, `glslc`, and the Khronos Vulkan-Headers and SPIRV-Headers sources. Below, `$NDK` is the NDK folder and `$TC` is `$NDK/toolchains/llvm/prebuilt/linux-x86_64`.
 
 ### Engine
@@ -21,7 +36,28 @@ cmake -S . -B build-android -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-android --target yue-server
 ```
 
+For the S20 compatibility branch, also apply `engine/ggml-vulkan-mobile.patch`, `engine/yue2-context-budget.patch`, `engine/yue2-mobile-weights.patch` and `engine/yue2-mobile-backend.patch` in the yue2.cpp source directory before building. The first patch targets the vendored `ggml/` directory. Apply them after the preview patch. Build both the executable and JNI library with these changes.
+
+The Vulkan patch permits metadata-only operations on tensors larger than the driver's storage-buffer binding limit, while retaining the limit for actual computation. On Turnip/Adreno 650 it also routes small multi-column matrix products through the general matrix kernel and rejects raw Q6_K computation, which failed reference checks. The weight loader expands supported quantized matrices to F16 once when loading this GPU, using CPU dequantization and bounded scratch space; this also avoids its broken Q6_K GPU decoder. The files on disk stay compressed. In the Q5 test, the NAR weights occupy about 2698 MiB after expansion, so leave **Keep everything loaded** off. Matrices that the GPU cannot compute stay in CPU memory to avoid repeated transfers; accounting and cleanup include both buffers. The context patch fits the requested output-token ceiling to the selected context after reserving the prompt and end token.
+
+When `--device Vulkan0` selects Turnip Adreno 650, the backend patch uses the CPU for score/token generation and its KV cache, and Vulkan for audio rendering. The S20's CPU is faster at the autoregressive stage in the measured tests. Separate reference-counted caches allow the two backends to coexist, including when models remain loaded. Explicit CPU mode continues to use the CPU throughout. Other GPU models retain the original stage selection.
+
 ggml's Vulkan backend looks for SPIRV-Headers but does not add its include folder, hence the `-isystem`. The result needs only `libc`, `libm`, `libdl` and `libvulkan.so`.
+
+The compatibility tests are independent of the Android UI:
+
+```sh
+c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+  -fno-pie -no-pie -I/path/to/yue2.cpp/src engine/context-budget-test.cpp \
+  -o /tmp/context-budget-test
+/tmp/context-budget-test
+bash engine/build-mobile-vulkan-test.sh /path/to/yue2.cpp \
+  /path/to/yue2.cpp/build-android "$NDK" /tmp/mobile-vulkan-test
+```
+
+Run `mobile-vulkan-test` on the target phone using the app's bundled Vulkan loader and Turnip ICD. `--metadata-only` checks the allocation regression and verifies that oversized compute operations remain rejected. Test `--type f32`, `f16` and `q5_k` with `--cols 1`, `2`, `4`, `8`, `16` and `64`; use `--type q6_k --expect-fallback` on Adreno 650. `--dequant` tests row extraction, and `--inner 2048 --rows 2048` exercises a model-sized matrix. Successful matrix tests execute directly on Vulkan and compare against a scalar CPU reference; they cannot silently use a CPU fallback. These checks do not replace an end-to-end song test.
+
+On Adreno 650, `--weights` checks CPU/GPU weight placement, exact F16 readback against CPU dequantization (including fused weight offsets), combined memory accounting and cleanup across three load/free cycles. `--benchmark --inner 2048 --rows 6144 --cols 250 --type f16` times a render-sized matrix, with constant inputs and an exact expected result. The build script also accepts a fifth argument naming a test source: `engine/mobile-backend-test.cpp` checks stage routing and backend lifetimes; `engine/mobile-set-rows-test.cpp` checks KV cache writes with 32-bit and 64-bit row indices.
 
 ### GPU driver
 

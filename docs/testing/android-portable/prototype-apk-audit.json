@@ -1,0 +1,414 @@
+{
+  "apk": "1.5.0-android.1-prototype.apk",
+  "sha256": "9eca440548b570f49cbe256a25d3376d936bd9fc2d76ca7b710296827ebac1c9",
+  "libraries": [
+    {
+      "file": "libQnnHtp.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "30e2981965e687d71626c91397867da81247c639e598f49fa5d139cbb21255d0"
+    },
+    {
+      "file": "libQnnHtpV79Skel.so",
+      "machine": 164,
+      "arm64": false
+    },
+    {
+      "file": "libQnnHtpV79Stub.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "d9f5eca67297125c572995526fc97b1c04cf6b8eb14c81eb0cef5115f58aa766"
+    },
+    {
+      "file": "libQnnSystem.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "ca9e5429c77380e1c3f5a401f00288915ec2f6cc478979bafd57c665391d432f"
+    },
+    {
+      "file": "libc++_shared.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "16972653f330991ca1a6c2afc7e4c8514fcbc334b9f56cddd54e643039b022fe"
+    },
+    {
+      "file": "libkexpat.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384
+      ],
+      "sha256": "61fde151ffc8880c275b59ef7f519f1bd427a24400b1c3446c8eeaf71134b3f7"
+    },
+    {
+      "file": "libkillascout.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "14f78900275de02e132bf3471a5813f2cc553b02a46069fe35800c1b3a4bb4b0"
+    },
+    {
+      "file": "libkillastem.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "eaee08f4f916e0e4c5ac64d0c205719352bc2cda2c2b7e40de1702d9aa0ad5a1"
+    },
+    {
+      "file": "libkillawriter.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "1063eaa54c3c4a182cab7cfb1a84ede76756f9d1f9b62bcb8fe011c7b69ecef7"
+    },
+    {
+      "file": "libkvulkan.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384,
+        65536
+      ],
+      "sha256": "4a662f8bad9c1c1e28a67606ae0a6813d87b60cfa81e6e80a69f7f7b1e119693"
+    },
+    {
+      "file": "libkycpu-android_armv8.0_1.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "47e61449666dc17a5801a58b495412ca3a3864640ca7bf35246fe09472603cc7",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkycpu-android_armv8.2_1.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "7c4b727686524d15cf3d7c21a310425a461581332c7bf944d689915f5dbe871f",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkycpu-android_armv8.2_2.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "7e51cbb9facc51b6e00bae452899d4d03ccc409dd7c500c4e0e923a5d7adf23b",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkycpu-android_armv8.6_1.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "cb6e623bd23c99ce9acacbb4fdf975a0355e81b15ffa984ec3250eedc159167c",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkycpu-android_armv9.0_1.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "7c8e003a3f7387ef94cf35035010f32d6aba6a4bca6e58e7ebb0956a3c2e3dc5",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkycpu-android_armv9.2_1.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "d798c7a0b021f199e6b1fa7cfe087265073965b79b78999dd8e0f8ce5f682197",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkycpu-android_armv9.2_2.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "6b91a96756f6a337a971b9ee4a750ac40bd2eee740f62a5146f0cb7cdbf107df",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkyggml-base.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "8f4745b32b9de11a21d03dcf1a22528e6d7fa0de1de2eb8aec081cfa098b437a",
+      "needed": [
+        "libm.so",
+        "libdl.so",
+        "libc++_shared.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkyggml.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "09c785b282bd0d3933a97a7b7c7067377720102a894e5ce9a51670dc68e7a86f",
+      "needed": [
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkyvulkan.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "1f1b0acffd5a86048bd99702a7e5f768d5a35c7ce5d09f99c51d12bf4a807db2",
+      "needed": [
+        "libkyggml-base.so",
+        "libvulkan.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libkz.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384
+      ],
+      "sha256": "c47748ed4b6ca6a2ecd664bab04795f3493956ab1f5cddc4ba0efa737ef3b711"
+    },
+    {
+      "file": "libkzstd.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "1677d5e828c1839f111f0261697c08f99a5e4e80434659ab88e5ff859a1374f7"
+    },
+    {
+      "file": "libsdgpu.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "0110b8d5ac35b2555008ec44680db806749b08ffb29da7c9caa929712658359d"
+    },
+    {
+      "file": "libsdnpu.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "dca1c88a44cb40ba015c0068a0e500bf5811fdbe0a504455564d4292298e9478"
+    },
+    {
+      "file": "libstudio.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "4762635b4a2d56fe94b9013875b05f1a64c39d64efd460c8a2f9361c86905f8c"
+    },
+    {
+      "file": "libturnip.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "81cb5e1a37eecbbfc84ffb5d15fd25ed36ea8302bbec888436dd56747a183080"
+    },
+    {
+      "file": "libvkloader.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "c7c3041953429296359b8814d3a15b7009bc7dd374cea1061fd795c6e0af49bf"
+    },
+    {
+      "file": "libwhisper.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "59d1f1a0f92a375cdd65aed21d56ce16ac4b9989096a23a8209e819f081c4294"
+    },
+    {
+      "file": "libyueengine.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "38a1fcc46ab728a7dca6713444c170fc7d7c0908ec40a2cc245b3303371e2587"
+    },
+    {
+      "file": "libyueengine_portable.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "48f697c8c74d283ce3b8b4e3848043296363af67f542b9ad5ece99368ac8334e",
+      "needed": [
+        "liblog.so",
+        "libkyggml.so",
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    },
+    {
+      "file": "libyueserver.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "de35c2bf89b6fbaba423da97d23a4b691f550f9a200e0f5ebf740acf39fe30f8"
+    },
+    {
+      "file": "libyueserver_portable.so",
+      "arm64": true,
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ],
+      "sha256": "1353fe053d9d68a93c614ddc89d2f3273c0d07e637780c4cc1cb23920b743ed5",
+      "needed": [
+        "libkyggml.so",
+        "libkyggml-base.so",
+        "libm.so",
+        "libc++_shared.so",
+        "libdl.so",
+        "libc.so"
+      ]
+    }
+  ],
+  "failures": [],
+  "passed": true
+}

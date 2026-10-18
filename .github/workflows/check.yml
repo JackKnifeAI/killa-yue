@@ -52,7 +52,35 @@ jobs:
         run: bash peer/test/native-safety.sh
       - name: Build downloadable desktop companion
         run: HAMMER_DESKTOP_LIB="$PWD/build-hammer-host/libhammer.so" bash peer/build-companion.sh "$PWD/out"
+      - name: Build the pinned libp2p network
+        run: bash net/build.sh host
+      - name: Network discovery, DHT and relay regression tests
+        run: bash peer/test/network.sh
       - uses: actions/upload-artifact@v4
         with:
           name: hammer-desktop-linux-x86_64-preview
           path: out/hammer-server.zip
+
+  mobile:
+    name: Mobile patch stack and context safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ServeurpersoCom/yue2.cpp
+          ref: 83b65f5d6bf4806557ef17fe763021ff4eead928
+          submodules: true
+          path: build-mobile-source
+      - name: Apply all patches to the pinned public engine
+        run: bash engine/prepare-mobile-source.sh build-mobile-source
+      - name: Context limits under address and undefined-behavior sanitizers
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-pie -no-pie -Ibuild-mobile-source/src engine/context-budget-test.cpp \
+            -o /tmp/context-budget-test
+          /tmp/context-budget-test
+      - name: Helper syntax checks
+        run: |
+          bash -n engine/build-portable-android.sh engine/build-mobile-vulkan-test.sh
+          python3 -m py_compile tools/check-android-runtime.py tools/android-length-test/*.py

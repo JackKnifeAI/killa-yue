@@ -27,11 +27,14 @@ public class EngineHost extends Service {
             final String[] env = in.getStringArrayExtra("env");
             final String log = in.getStringExtra("log");
             final int nice = in.getIntExtra("nice", 0);
+            final String library = in.getStringExtra("engine_library");
             Thread t = new Thread(new Runnable() {
                 public void run() {
                     int code;
                     try {
-                        System.loadLibrary("yueengine");
+                        if (!"yueengine".equals(library) && !"yueengine_portable".equals(library))
+                            throw new IllegalArgumentException("Unknown song engine");
+                        System.loadLibrary(library);
                         code = runEngine(args, env, log, nice);
                     } catch (Throwable e) {
                         EngineHost.append(log, "[App] The engine library could not start: " + e);

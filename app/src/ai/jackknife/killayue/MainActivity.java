@@ -72,7 +72,7 @@ public class MainActivity extends Activity {
     static final String[] COT = {"full", "melody", "off"};
     static final String[] FORMATS = {"mp3", "wav16", "wav24"};
     static final String[] DEVICES = {"Vulkan0", "CPU"};
-    static final String[] DEVICE_LABELS = {"GPU (Adreno, Vulkan)", "CPU (slow fallback)"};
+    static final String[] DEVICE_LABELS = {"GPU", "CPU"};
     static final int[] SEQS = {4096, 8192, 16384, 0};
     static final String[] SEQ_LABELS = {"Short songs (4096)", "Normal (8192)", "Long songs (16384)", "Maximum (uses most memory)"};
 
@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
     String playTitle = "";
     final ArrayList<JSONObject> playlist = new ArrayList<JSONObject>();
     DialView lengthDial;
-    Spinner cotSpin, formatSpin, deviceSpin, quantSpin, seqSpin;
+    Spinner cotSpin, formatSpin, deviceSpin, driverSpin, quantSpin, seqSpin;
     LinearLayout advBox, libraryBox, modelBox, adapterBox;
     TextView adapterStatus, coverStatus, syncStatus;
     String adapterSeen = "", packsSeen = null;
@@ -289,6 +289,8 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         inst = this;
         cfg = getSharedPreferences("cfg", 0);
+        // Apply device defaults before the controls read them.
+        String check = PhoneCheck.firstLaunch(this);
         Skin.load(this);
         BG = Skin.DECK;
         CARD = Skin.CARD;
@@ -375,7 +377,6 @@ public class MainActivity extends Activity {
         tick.run();
         healthLoop();
         probeLoop();
-        String check = PhoneCheck.firstLaunch(this);
         if (check.length() > 0) alert("About this phone", check);
         if (PhoneCheck.askGpuBack(this)) askGpuBack();
         else if (check.length() == 0) Updates.onLaunch(this); // one question at a time on launch
@@ -3879,6 +3880,16 @@ public class MainActivity extends Activity {
         deviceSpin = spinner(DEVICE_LABELS);
         deviceSpin.setSelection(Math.max(0, Arrays.asList(DEVICES).indexOf(cfg.getString("device", "Vulkan0"))));
         c.addView(deviceSpin);
+        c.addView(label("GPU driver"));
+        driverSpin = spinner(EngineRuntime.DRIVER_LABELS);
+        driverSpin.setSelection(Math.max(0, Arrays.asList(EngineRuntime.DRIVERS).indexOf(EngineRuntime.driver(this))));
+        c.addView(driverSpin);
+        c.addView(label("The system driver opens GPU testing to more phones. It is experimental; "
+                + "use CPU if generation fails. CPU chooses compatible kernels automatically."));
+        if (PhoneCheck.adrenoNumber() == 650) {
+            c.addView(label("Adreno 650: GPU support is experimental. CPU was faster in our short-song test. "
+                + "Start with Small (Q5), Short songs, and Keep everything loaded off."));
+        }
         c.addView(label("Model quality (larger is closer to the original, and slower to load)"));
         quantSpin = spinner(new String[] {"Small, 2.6 GB (Q5)", "Balanced, 2.9 GB (Q6)", "Best, 3.8 GB (Q8)"});
         quantSpin.setSelection(Math.max(0, Arrays.asList(Store.QUANTS).indexOf(cfg.getString("quant", "Q6_K"))));
@@ -3966,6 +3977,7 @@ public class MainActivity extends Activity {
             }
         };
         deviceSpin.setOnItemSelectedListener(changed);
+        driverSpin.setOnItemSelectedListener(changed);
         quantSpin.setOnItemSelectedListener(changed);
         seqSpin.setOnItemSelectedListener(changed);
         keepBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -4129,15 +4141,17 @@ public class MainActivity extends Activity {
     void saveEngineSettings() {
         if (!ready) return;
         String dev = DEVICES[deviceSpin.getSelectedItemPosition()];
+        String driver = EngineRuntime.DRIVERS[driverSpin.getSelectedItemPosition()];
         String q = Store.QUANTS[quantSpin.getSelectedItemPosition()];
         int seq = SEQS[seqSpin.getSelectedItemPosition()];
         boolean keep = keepBox.isChecked();
         boolean gentle = gentleBox.isChecked();
-        boolean same = dev.equals(cfg.getString("device", "Vulkan0")) && q.equals(cfg.getString("quant", "Q6_K"))
+        boolean same = dev.equals(cfg.getString("device", "Vulkan0")) && driver.equals(EngineRuntime.driver(this))
+                && q.equals(cfg.getString("quant", "Q6_K"))
                 && seq == cfg.getInt("maxseq", 8192) && keep == cfg.getBoolean("keep", false)
                 && gentle == cfg.getBoolean("gentle", true);
         if (same) return;
-        cfg.edit().putString("device", dev).putString("quant", q).putInt("maxseq", seq).putBoolean("keep", keep)
+        cfg.edit().putString("device", dev).putString("gpu_driver", driver).putString("quant", q).putInt("maxseq", seq).putBoolean("keep", keep)
                 .putBoolean("gentle", gentle).apply();
         refreshModels();
         if (EngineService.running) {

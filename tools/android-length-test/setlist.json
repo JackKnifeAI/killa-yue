@@ -1,0 +1,117 @@
+[
+  {
+    "slug": "01-window-light",
+    "title": "Window Light",
+    "context": 4096,
+    "request": {
+      "style": "lo-fi hip hop, 78 BPM, warm Rhodes chords, dusty swung drums, round bass, intimate soulful male vocal, hopeful, gentle tape texture, brief intro, complete verse and hook, clean vocal mix",
+      "lyrics": "[Verse]\nRain on the window, blue on the keys,\nSomeone left a little light for me.\nI changed one line and passed it on,\nNow a thousand rooms can greet the dawn.\n\n[Chorus]\nLeave the source wide open,\nLet the little lights grow.\nWhat we build together\nIs a world we get to know.",
+      "duration": 30,
+      "cot": "full",
+      "steps": 8,
+      "lm_seed": 2026101801,
+      "seed": 2026101811,
+      "output_format": "mp3",
+      "mp3_bitrate": 192,
+      "lm_batch_size": 1,
+      "synth_batch_size": 1,
+      "max_chunk": 750,
+      "semantic_sampling": {
+        "min_tokens": 749,
+        "max_tokens": 750
+      }
+    }
+  },
+  {
+    "slug": "02-pass-the-source",
+    "title": "Pass the Source",
+    "context": 8192,
+    "request": {
+      "style": "conscious hip hop, 92 BPM, crisp boom bap drums, warm sampled-style jazz piano played originally, deep bass, articulate confident rapper, memorable sung hook, uplifting community anthem, tight arrangement, clear lyrics",
+      "lyrics": "[Verse]\nHand-me-down laptop, a crack in the frame,\nLearned how to build before I learned the names.\nFound a little project with an open front door,\nFixed one broken button, then I fixed one more.\nSomeone in Manila made the letters read right,\nSomeone out in Lagos kept the server alight.\nNo velvet rope at the edge of the stage,\nJust a note that said improve it, turn the page.\n\n[Chorus]\nPass the source, pass the spark,\nBuild a little daylight in the dark.\nTake what you need, give what you can,\nPut tomorrow back in everybody's hands.\n\n[Outro]\nFrom a kitchen table to a hundred shores,\nThis is ours, this is yours.",
+      "duration": 60,
+      "cot": "full",
+      "steps": 8,
+      "lm_seed": 2026101802,
+      "seed": 2026101812,
+      "output_format": "mp3",
+      "mp3_bitrate": 192,
+      "lm_batch_size": 1,
+      "synth_batch_size": 1,
+      "max_chunk": 750,
+      "semantic_sampling": {
+        "min_tokens": 1499,
+        "max_tokens": 1500
+      }
+    }
+  },
+  {
+    "slug": "03-no-locked-doors",
+    "title": "No Locked Doors",
+    "context": 8192,
+    "request": {
+      "style": "melodic punk rock, 164 BPM, driving live drums, crunchy power chords, melodic picked bass, energetic raspy lead vocal, big gang-vocal chorus, hopeful rebellious open source anthem, dynamic bridge, tight ending, clear words",
+      "lyrics": "[Verse]\nThey sold us keys that never fit,\nA shining box we couldn't fix.\nThe clock ran out, the screen went black,\nWe found the screws and took it back.\nAn old machine on borrowed time,\nA patched-up board, a stubborn light.\nWe wrote our names in pencil first,\nThen let the next kid make it work.\n\n[Chorus]\nNo locked doors! Let the daylight in!\nBreak it, mend it, try again!\nNo locked doors! Hear the whole street sing!\nNobody owns the songs we bring!\n\n[Verse]\nThe night shift sends a small repair,\nA student makes the buttons clear.\nA reader puts the words in reach,\nA thousand voices start to teach.\nNo perfect heroes, no parade,\nJust patient hands and things we've made.\nIf you can see it, you can learn,\nIf you can change it, take your turn.\n\n[Chorus]\nNo locked doors! Let the daylight in!\nBreak it, mend it, try again!\nNo locked doors! Hear the whole street sing!\nNobody owns the songs we bring!\n\n[Bridge]\nLeave a map beside the wire,\nLeave a chair beside the fire.\nWhen my little light burns through,\nThere'll be a brighter one with you.\n\n[Final Chorus]\nNo locked doors! Let the daylight in!\nEvery ending starts again!\nNo locked doors! Hear the whole street sing!\nWe can build the world we bring!\n\n[Outro]\nTake your turn!\nLet it learn!\nKeep the light on!",
+      "duration": 120,
+      "cot": "full",
+      "steps": 8,
+      "lm_seed": 2026101803,
+      "seed": 2026101813,
+      "output_format": "mp3",
+      "mp3_bitrate": 192,
+      "lm_batch_size": 1,
+      "synth_batch_size": 1,
+      "max_chunk": 750,
+      "semantic_sampling": {
+        "min_tokens": 2999,
+        "max_tokens": 3000
+      }
+    }
+  },
+  {
+    "slug": "04-common-ground",
+    "title": "Common Ground",
+    "context": 16384,
+    "request": {
+      "style": "lo-fi neo soul, 76 BPM, lush warm Rhodes, soft acoustic guitar, relaxed swung drums, melodic electric bass, intimate female lead vocal with subtle harmonies, reflective verses, hopeful memorable chorus, spacious instrumental passage, warm clear mix",
+      "lyrics": "[Verse]\nThe kettle sings beside the screen,\nThe smallest hours are evergreen.\nA message from a place I've never been:\nYour little fix has let the morning in.\nI used to think the world was made\nBy distant hands behind a shade.\nThen someone left the working on the page,\nAnd I could see a doorway in the maze.\n\n[Chorus]\nMeet me on the common ground,\nWhere the quiet hands are building sound.\nTake a little, leave a little more,\nKeep a light beside the open door.\nWe don't have to own the sun\nTo share the warmth with everyone.\nMeet me where the walls come down,\nMeet me on the common ground.\n\n[Verse]\nAn aging phone begins to sing,\nA garden grows from borrowed things.\nThe careful notes that someone left behind\nBecome a bridge for someone else's mind.\nAcross the sea, another dawn,\nAnother person carries on.\nWe may not ever stand in the same room,\nBut every little kindness leaves its tune.\n\n[Chorus]\nMeet me on the common ground,\nWhere the quiet hands are building sound.\nTake a little, leave a little more,\nKeep a light beside the open door.\nWe don't have to own the sun\nTo share the warmth with everyone.\nMeet me where the walls come down,\nMeet me on the common ground.\n\n[Instrumental]\n\n[Bridge]\nNot every seed will find the rain,\nNot every try will ease the pain.\nBut nothing shared is lost for good,\nIt waits until it's understood.\n\n[Final Chorus]\nMeet me on the common ground,\nLet a thousand little lights reach out.\nTake a little, leave a little more,\nSomeone's waiting at the open door.\nWe don't have to own the sun\nTo make a brighter day for someone.\nWhen the evening settles down,\nLeave your light on common ground.\n\n[Outro]\nLeave your light on.\nI'll leave mine on.\nWe'll leave the door open.",
+      "duration": 180,
+      "cot": "full",
+      "steps": 8,
+      "lm_seed": 2026101804,
+      "seed": 2026101814,
+      "output_format": "mp3",
+      "mp3_bitrate": 192,
+      "lm_batch_size": 1,
+      "synth_batch_size": 1,
+      "max_chunk": 750,
+      "semantic_sampling": {
+        "min_tokens": 4499,
+        "max_tokens": 4500
+      }
+    }
+  },
+  {
+    "slug": "05-fork-the-future",
+    "title": "Fork the Future",
+    "context": 16384,
+    "request": {
+      "style": "conscious hip hop, 90 BPM, soulful boom bap, rich live bass, original jazz guitar and piano, charismatic articulate rap vocal, soaring soulful sung chorus, open source revolution theme, evolving arrangement, stripped-back bridge, triumphant final chorus, polished clear vocal mix",
+      "lyrics": "[Intro]\nOne little change.\nOne open door.\nYou know what we're building for.\n\n[Verse]\nI had a secondhand tower and a fan that screamed,\nA folder full of questions and a half-built dream.\nEvery road had a toll, every tool had a chain,\nPay to see the answer, pay to ask again.\nThen I found a little corner where the plans were clear,\nWhere a stranger said welcome, you can start right here.\nFirst patch was a typo, second made a light,\nThird one kept a neighbor's old machine alive.\nSomebody checked my work, showed me what I'd missed,\nDidn't need a pedestal, just a patient list.\nNow the thing I thought was magic has a shape I understand,\nAnd the future feels different when it's something in your hands.\n\n[Chorus]\nFork the future, share the flame,\nA thousand different voices, no two the same.\nBuild it in the open, let the whole world see,\nWhat we make together is what freedom means to me.\nPass the source, let it grow,\nLeave a little daylight everywhere you go.\n\n[Verse]\nFrom the library basement to a village school,\nSomeone writes a language into someone else's tool.\nSomeone makes it smaller so an old phone breathes,\nSomeone makes it readable for eyes that struggle to see.\nSomeone takes the midnight shift and finds a hidden flaw,\nPuts the fix out in the morning where it's there for all.\nThat is how a little seed becomes a forest canopy,\nDifferent roots beneath the earth, a shared reality.\nWe can disagree and still improve the same design,\nDifferent roads can meet without erasing either sign.\nCredit every shoulder that we stand upon,\nWrite the map down clearly so the next can carry on.\n\n[Chorus]\nFork the future, share the flame,\nA thousand different voices, no two the same.\nBuild it in the open, let the whole world see,\nWhat we make together is what freedom means to me.\nPass the source, let it grow,\nLeave a little daylight everywhere you go.\n\n[Bridge]\nNo one has to know my footsteps just to let me walk.\nNo one has to own my words to let the people talk.\nKeep the private things protected, keep the knowledge in the light.\nMake the tools serve the people, let the people hold the rights.\n\n[Verse]\nIt isn't just a download, it's a habit of repair,\nIt's a chair beside the table and a reason to be there.\nIt's a promise to the next kid with a cracked-up screen,\nYou can ask a better question, you can build a better thing.\nBring your rough first version, bring your half-formed tune,\nThere's a place for every learner making room for someone new.\nWe don't need a single hero to decide where we belong,\nWhen a million little changes are the rhythm of the song.\n\n[Final Chorus]\nFork the future, share the flame,\nA thousand different voices, no two the same.\nBuild it in the open, let the whole world see,\nWhat we make together is what freedom means to me.\nPass the source, let it grow,\nLeave a little daylight everywhere you go.\n\n[Outro]\nOne little change becomes a thousand more.\nLeave the light on. Leave an open door.",
+      "duration": 210,
+      "cot": "full",
+      "steps": 8,
+      "lm_seed": 2026101805,
+      "seed": 2026101815,
+      "output_format": "mp3",
+      "mp3_bitrate": 192,
+      "lm_batch_size": 1,
+      "synth_batch_size": 1,
+      "max_chunk": 750,
+      "semantic_sampling": {
+        "min_tokens": 5249,
+        "max_tokens": 5250
+      }
+    }
+  }
+]

@@ -1,0 +1,95 @@
+diff --git a/src/backend.h b/src/backend.h
+index dd385da..9b0fa66 100644
+--- a/src/backend.h
++++ b/src/backend.h
+@@ -22,6 +22,8 @@ struct BackendPair {
+ // Cached backend state (shared across all modules in the same binary)
+ static BackendPair g_backend_cache = {};
+ static int         g_backend_refs  = 0;
++static BackendPair g_ar_backend_cache = {};
++static int         g_ar_backend_refs = 0;
+ 
+ // Physical core count heuristic (logical / 2 for HT/SMT).
+ // Used for GGML CPU thread count: GEMM shares SIMD units across hyperthreads,
+@@ -93,6 +95,7 @@ static void yue2_ggml_log(enum ggml_log_level level, const char * text, void * u
+ // Device named by --device, NULL for the best available one. Inline so
+ // every translation unit of the binary sees the one main sets.
+ inline const char * g_backend_device = NULL;
++inline bool g_backend_cpu_ar = false;
+ 
+ // Install the log callback and load every backend, once per process.
+ static void backend_load(void) {
+@@ -118,6 +121,13 @@ static bool backend_set_device(const char * name) {
+         return false;
+     }
+     g_backend_device = name;
++    ggml_backend_dev_t selected = ggml_backend_dev_by_name(name);
++    const char * description = ggml_backend_dev_description(selected);
++    g_backend_cpu_ar = strncmp(name, "Vulkan", 6) == 0 &&
++                       strcmp(description, "Turnip Adreno (TM) 650") == 0;
++    if (g_backend_cpu_ar) {
++        fprintf(stderr, "[Compat] Adreno 650: CPU score/tokens, Vulkan audio rendering\n");
++    }
+     return true;
+ }
+ 
+@@ -128,14 +138,18 @@ static bool backend_set_device(const char * name) {
+ static BackendPair backend_init(const char * label) {
+     backend_load();
+ 
+-    if (g_backend_refs > 0) {
+-        g_backend_refs++;
+-        fprintf(stderr, "[Load] %s backend: %s (shared)\n", label, ggml_backend_name(g_backend_cache.backend));
+-        return g_backend_cache;
++    const bool cpu_ar = g_backend_cpu_ar && (strcmp(label, "LM") == 0 || strcmp(label, "KV") == 0);
++    BackendPair & cache = cpu_ar ? g_ar_backend_cache : g_backend_cache;
++    int & refs = cpu_ar ? g_ar_backend_refs : g_backend_refs;
++    if (refs > 0) {
++        refs++;
++        fprintf(stderr, "[Load] %s backend: %s (shared)\n", label, ggml_backend_name(cache.backend));
++        return cache;
+     }
+ 
+     BackendPair bp = {};
+-    bp.backend     = g_backend_device ? ggml_backend_init_by_name(g_backend_device, nullptr) : ggml_backend_init_best();
++    bp.backend = cpu_ar ? cpu_backend_new(backend_cpu_n_threads()) :
++        (g_backend_device ? ggml_backend_init_by_name(g_backend_device, nullptr) : ggml_backend_init_best());
+     if (!bp.backend) {
+         fprintf(stderr, "[Load] FATAL: no backend available\n");
+         exit(1);
+@@ -156,25 +170,21 @@ static BackendPair backend_init(const char * label) {
+     bp.has_gpu = !best_is_cpu;
+     fprintf(stderr, "[Load] %s backend: %s (CPU threads: %d)\n", label, ggml_backend_name(bp.backend), n_threads);
+ 
+-    g_backend_cache = bp;
+-    g_backend_refs  = 1;
++    cache = bp;
++    refs = 1;
+     return bp;
+ }
+ 
+ // Release a backend reference. Frees GPU + CPU backends when refcount hits 0.
+ static void backend_release(ggml_backend_t backend, ggml_backend_t cpu_backend) {
+-    if (g_backend_refs <= 0) {
+-        return;
+-    }
+-    g_backend_refs--;
+-    if (g_backend_refs == 0) {
+-        if (backend && backend != cpu_backend) {
+-            ggml_backend_free(backend);
+-        }
+-        if (cpu_backend) {
+-            ggml_backend_free(cpu_backend);
+-        }
+-        g_backend_cache = {};
++    const bool ar = backend && backend == g_ar_backend_cache.backend;
++    BackendPair & cache = ar ? g_ar_backend_cache : g_backend_cache;
++    int & refs = ar ? g_ar_backend_refs : g_backend_refs;
++    if (refs <= 0) return;
++    if (--refs == 0) {
++        if (backend && backend != cpu_backend) ggml_backend_free(backend);
++        if (cpu_backend) ggml_backend_free(cpu_backend);
++        cache = {};
+     }
+ }
+ 

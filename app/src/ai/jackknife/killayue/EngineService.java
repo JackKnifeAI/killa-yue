@@ -285,7 +285,7 @@ public class EngineService extends Service {
         String lib = c.getApplicationInfo().nativeLibraryDir;
         File models = Store.models(c);
         ArrayList<String> a = new ArrayList<String>();
-        a.add(lib + "/libyueserver.so");
+        a.add(EngineRuntime.executable(c));
         a.add("--model");
         a.add(new File(models, Store.backbone(c)).getAbsolutePath());
         a.add("--vae");
@@ -319,9 +319,9 @@ public class EngineService extends Service {
     }
 
     /**
-     * The engine uses our bundled Turnip driver, not the phone's stock one, which
-     * crashes on the engine's shaders. This folder makes the engine's "libvulkan.so"
-     * resolve to the bundled loader and tells that loader where the driver is.
+     * Prepare the bundled Adreno path. This folder makes the legacy engine's
+     * "libvulkan.so" resolve to our loader and tells that loader where Turnip is.
+     * Portable CPU and system Vulkan launches do not use this folder.
      */
     static File prepareDriver(Context c) throws Exception {
         String lib = c.getApplicationInfo().nativeLibraryDir;
@@ -349,9 +349,14 @@ public class EngineService extends Service {
      */
     static java.util.LinkedHashMap<String, String> engineEnv(Context c, File vk, boolean gentle, int level) {
         java.util.LinkedHashMap<String, String> env = new java.util.LinkedHashMap<String, String>();
-        String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
-        env.put("VK_DRIVER_FILES", icd);   // read by our loader, libkvulkan.so, which the engine library links to by that name
-        env.put("VK_ICD_FILENAMES", icd);
+        boolean bundled = EngineRuntime.bundledGpu(c);
+        if (bundled) {
+            String icd = new File(vk, "turnip_icd.json").getAbsolutePath();
+            env.put("VK_DRIVER_FILES", icd);
+            env.put("VK_ICD_FILENAMES", icd);
+        } else if ("CPU".equals(c.getSharedPreferences("cfg", 0).getString("device", "Vulkan0"))) {
+            env.put("GGML_DISABLE_VULKAN", "1");
+        }
         env.put("HOME", c.getFilesDir().getAbsolutePath());
         env.put("TMPDIR", c.getCacheDir().getAbsolutePath());
         if (gentle) {
@@ -361,12 +366,12 @@ public class EngineService extends Service {
             env.put("YUE_THREADS", "2");
             env.put("YUE_AR_PAUSE_MS", "15");
             env.put("YUE_NAR_PAUSE_MS", "1500");
-            env.put("TU_KGSL_PRIORITY", "15");
+            if (bundled) env.put("TU_KGSL_PRIORITY", "15");
         }
         if (level >= 1) {
             env.put("GGML_VK_SERIALIZE_SUBMISSIONS", "1");
             env.put("GGML_VK_MAX_NODES_PER_SUBMIT", "8");
-            env.put("TU_KGSL_PRIORITY", "15");
+            if (bundled) env.put("TU_KGSL_PRIORITY", "15");
         }
         if (level >= 2) {
             env.put("GGML_VK_MAX_NODES_PER_SUBMIT", "4");
@@ -393,7 +398,9 @@ public class EngineService extends Service {
                 args.add(0, "/system/bin/nice");
             }
             String lib = getApplicationInfo().nativeLibraryDir;
-            File vk = prepareDriver(this);
+            boolean bundled = EngineRuntime.bundledGpu(this);
+            File vk = bundled ? prepareDriver(this) : EngineRuntime.prepareBackends(this,
+                    "CPU".equals(getSharedPreferences("cfg", 0).getString("device", "Vulkan0")));
             if (inProcessMode(this)) {
                 launchInProcess(buildArgs(this), gentle, vk);
                 return;
@@ -401,8 +408,10 @@ public class EngineService extends Service {
             ProcessBuilder pb = new ProcessBuilder(args);
             pb.redirectErrorStream(true);
             pb.directory(getFilesDir());
-            pb.environment().put("LD_LIBRARY_PATH", vk.getAbsolutePath() + ":" + lib);
+            EngineRuntime.clearDriverEnvironment(pb.environment());
+            pb.environment().put("LD_LIBRARY_PATH", bundled ? vk.getAbsolutePath() + ":" + lib : lib);
             pb.environment().putAll(engineEnv(this, vk, gentle, gpuRestarts));
+            if (!bundled) pb.environment().put("YUE_BACKEND_DIR", vk.getAbsolutePath());
             lastError = "";
             openLogFile(this);
             addLog("[App] Starting engine: " + args.toString());
@@ -509,7 +518,7 @@ public class EngineService extends Service {
 
     /** True when the engine runs in the ":engine" app process: the setting is on and the library is in the APK. */
     static boolean inProcessMode(Context c) {
-        boolean have = new File(c.getApplicationInfo().nativeLibraryDir, "libyueengine.so").isFile();
+        boolean have = new File(c.getApplicationInfo().nativeLibraryDir, "lib" + EngineRuntime.library(c) + ".so").isFile();
         return have && c.getSharedPreferences("cfg", 0).getBoolean("engine_process", false);
     }
 
@@ -522,6 +531,7 @@ public class EngineService extends Service {
         ArrayList<String> env = new ArrayList<String>();
         for (java.util.Map.Entry<String, String> e : engineEnv(this, vk, gentle, gpuRestarts).entrySet())
             env.add(e.getKey() + "=" + e.getValue());
+        if (!EngineRuntime.bundledGpu(this)) env.add("YUE_BACKEND_DIR=" + vk.getAbsolutePath());
         args.set(0, "yue-server");
         lastError = "";
         openLogFile(this);
@@ -529,6 +539,7 @@ public class EngineService extends Service {
         if (gpuRestarts > 0) addLog("[App] Careful GPU mode " + gpuRestarts + ": " + env);
         final long since = System.currentTimeMillis();
         Intent in = new Intent(this, EngineHost.class)
+                .putExtra("engine_library", EngineRuntime.library(this))
                 .putExtra("args", args.toArray(new String[0]))
                 .putExtra("env", env.toArray(new String[0]))
                 .putExtra("log", logf.getAbsolutePath())

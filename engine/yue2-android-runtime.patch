@@ -1,0 +1,73 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -58,6 +58,27 @@
+ endif()
+ set(GGML_SOURCE_DIR "${CMAKE_SOURCE_DIR}/ggml" CACHE PATH "ggml source tree")
+ add_subdirectory(${GGML_SOURCE_DIR} ggml)
++
++# Android extracts lib*.so from APKs; versioned .so.0 dependencies are not packaged.
++if(ANDROID)
++    set_target_properties(ggml ggml-base PROPERTIES VERSION "" SOVERSION "")
++    if(GGML_BACKEND_DL)
++        # Private names prevent the bundled static engine discovering these
++        # modules and keep shared GGML separate from other native app features.
++        set_target_properties(ggml PROPERTIES OUTPUT_NAME kyggml)
++        set_target_properties(ggml-base PROPERTIES OUTPUT_NAME kyggml-base)
++        if(TARGET ggml-vulkan)
++            set_target_properties(ggml-vulkan PROPERTIES OUTPUT_NAME kyvulkan)
++        endif()
++        get_property(cpu_targets DIRECTORY "${GGML_SOURCE_DIR}/src" PROPERTY BUILDSYSTEM_TARGETS)
++        foreach(cpu_target IN LISTS cpu_targets)
++            if(cpu_target MATCHES "^ggml-cpu-")
++                string(REGEX REPLACE "^ggml-cpu-" "kycpu-" cpu_output "${cpu_target}")
++                set_target_properties(${cpu_target} PROPERTIES OUTPUT_NAME "${cpu_output}")
++            endif()
++        endforeach()
++    endif()
++endif()
+ 
+ # cpp-httplib (HTTP server library, used by yue-server)
+ add_subdirectory(vendor/cpp-httplib)
+@@ -153,11 +174,12 @@
+ # (Killa YuE). Its main is renamed and called from a JNI bridge given in YUE_ENGINE_JNI.
+ if(YUE_ENGINE_JNI)
+     add_library(yue-engine SHARED tools/yue-server.cpp src/request.cpp src/model-store.cpp ${WEBUI_OUTPUT} ${YUE_ENGINE_JNI})
+-    set_source_files_properties(tools/yue-server.cpp PROPERTIES COMPILE_DEFINITIONS "main=yue_server_main")
++    target_compile_definitions(yue-engine PRIVATE main=yue_server_main)
+     target_include_directories(yue-engine PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+     target_link_libraries(yue-engine PRIVATE yyjson httplib log)
+     link_ggml_backends(yue-engine)
+-    set_target_properties(yue-engine PROPERTIES OUTPUT_NAME yueengine)
++    set(YUE_ENGINE_OUTPUT_NAME "yueengine" CACHE STRING "JNI engine library name")
++    set_target_properties(yue-engine PROPERTIES OUTPUT_NAME ${YUE_ENGINE_OUTPUT_NAME})
+ endif()
+ 
+ # neural-codec: Oobleck VAE neural audio codec (audio <-> latent)
+--- a/src/backend.h
++++ b/src/backend.h
+@@ -101,7 +101,10 @@
+ static void backend_load(void) {
+     static const bool loaded = [] {
+         ggml_log_set(yue2_ggml_log, nullptr);
+-        ggml_backend_load_all();
++        // App-process executables live outside nativeLibraryDir. Load only the
++        // packaged directory supplied by the app, including runtime CPU variants.
++        const char * directory = std::getenv("YUE_BACKEND_DIR");
++        ggml_backend_load_all_from_path(directory && *directory ? directory : nullptr);
+         return true;
+     }();
+     (void) loaded;
+--- a/ggml/src/ggml-backend-reg.cpp
++++ b/ggml/src/ggml-backend-reg.cpp
+@@ -590,7 +590,10 @@
+     ggml_backend_load_best("metal", silent, dir_path);
+     ggml_backend_load_best("rpc", silent, dir_path);
+     ggml_backend_load_best("sycl", silent, dir_path);
+-    ggml_backend_load_best("vulkan", silent, dir_path);
++    // CPU mode must not initialize a potentially incompatible system GPU driver.
++    if (std::getenv("GGML_DISABLE_VULKAN") == nullptr) {
++        ggml_backend_load_best("vulkan", silent, dir_path);
++    }
+     ggml_backend_load_best("virtgpu", silent, dir_path);
+     ggml_backend_load_best("opencl", silent, dir_path);
+     ggml_backend_load_best("hexagon", silent, dir_path);
