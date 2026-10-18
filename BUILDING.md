@@ -242,3 +242,20 @@ Add the two library paths to `app/local.env`, then run the ordinary app build. T
 The Library/Discover preview requires rebuilding `libhammer.so`: Android now calls the `framesFd` and `encodeFd` JNI entry points from a non-exported isolated service. Do not pair the new Java sources with an older native library. The main process supplies read-only descriptors; artwork decoding and normalization use the same isolated-service boundary. See `peer/DISCOVERY-SECURITY.md` for the remaining desktop isolation and internet discovery work.
 
 The HAMMER device suite also runs `HammerPlaybackTest`: it polls the real Android player throughout asynchronous preparation in all three quality modes, then checks advancing playback, pause, seek, resume and stop. This is a device test, not part of the host JVM suite. Its quiet synthetic fixtures live in an isolated app test directory.
+
+### Studio sounds, voice and beats (1.7.0)
+
+- **Sound packs** (downloaded by the app, not built into it): `tools/sounds/build.py SALAMANDER_DIR VSCO_DIR OUT_DIR`
+  with ffmpeg and numpy. SALAMANDER_DIR is the unpacked SalamanderGrandPiano-SFZ+FLAC-V3+20200602; VSCO_DIR a
+  checkout of github.com/sgossner/VSCO-2-CE. It prints each zip's size and SHA-256 for `SoundPacks.PACKS`; the zips
+  are assets of the `sounds-v1` release.
+- **Speak** (`killa-voice-v1.zip`, asset of the `studio-ai-v1` release): Kokoro-82M v1.0 as packaged by
+  sherpa-onnx (`kokoro-multi-lang-v1_0`), the sherpa-onnx v1.13.8 Android libraries `libsherpa-onnx-c-api.so` and
+  `libonnxruntime.so`, and `libkillavoice.so` built from `studio/voice/voice_jni.c` against sherpa-onnx's `c-api.h`:
+  `$TC/bin/aarch64-linux-android28-clang -O2 -fPIC -shared voice_jni.c -o libkillavoice.so -L<jniLibs/arm64-v8a> -lsherpa-onnx-c-api`.
+  All of it under `voice/` in the zip, with the licences and NOTICE.txt.
+- **Beat Lab** (`killa-beats-v1.zip`): Arm's `kleidiai-examples/audiogen` (ML-examples, Apache-2.0) built for
+  Android with the NDK, and Stable Audio Open Small converted with its `scripts/export_sao.py` (Python 3.10,
+  stable_audio_tools 0.0.19, litert-torch 0.9.0, jax and jaxlib 0.6.2, numpy 1.26.4), plus `spiece.model` from
+  google-t5/t5-base, the model's LICENSE and a NOTICE with "Powered by Stability AI". The model is gated on Hugging
+  Face: its licence must be accepted for the account first.
