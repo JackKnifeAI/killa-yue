@@ -312,11 +312,6 @@ public class MainActivity extends Activity {
         top.addView(title, weight());
         header = text("", DIM, 12);
         top.addView(header);
-        Button discover = chip("Discover");
-        top.addView(discover);
-        discover.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { HammerActivity.open(MainActivity.this); }
-        });
         root.addView(top);
 
         LinearLayout tabRow = row();
@@ -352,6 +347,24 @@ public class MainActivity extends Activity {
             }
         });
         root.addView(tabRow);
+        // Discover: the same gold plate as the five tabs, drawn long under them, so people find the music of other artists
+        Button discover = button("Discover", false);
+        discover.setTextSize(15);
+        discover.setLetterSpacing(0.18f);
+        discover.setBackground(new Skin.Plate(true));
+        discover.setTextColor(Skin.HI);
+        discover.setPadding(dp(12), 0, dp(12), dp(2));
+        discover.setContentDescription("Discover music and artists");
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-1, -2);
+        dlp.leftMargin = dp(15);
+        dlp.rightMargin = dp(15);
+        dlp.bottomMargin = dp(4);
+        root.addView(discover, dlp);
+        discover.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                HammerActivity.open(MainActivity.this);
+            }
+        });
 
         FrameLayout content = new FrameLayout(this);
         panels[0] = scroll(buildCreate());
@@ -512,6 +525,7 @@ public class MainActivity extends Activity {
             watchTyping();
             runQueue();
             NowPlaying.turn(MainActivity.this);
+            if (panels[TAB_ENGINE].getVisibility() == View.VISIBLE) refreshSharing();
             if (jobBusy) Widget.refresh(MainActivity.this, false); // the time it has run, and the time left
             // the lyrics view animates itself only while music plays; this wakes it when playback starts with the tab open
             if (karaokeView != null && panels[TAB_LYRICS].getVisibility() == View.VISIBLE) karaokeView.invalidate();
@@ -1896,18 +1910,9 @@ public class MainActivity extends Activity {
 
     void showLibrary(LibData d) {
         libraryBox.removeAllViews();
-        libraryBox.addView(chipRow(new String[] {"Import audio", "Hosting", "Sharing settings"}, new Runnable[] {
-            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } },
-            new Runnable() { public void run() {
-                new Lux.Builder(MainActivity.this).setTitle("Library hosting")
-                    .setMessage(HammerService.status + "\nOnly songs you publish are served. Public songs appear in discovery; private songs require invitations.")
-                    .setPositiveButton("Start", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface d, int w) { HammerService.startHost(MainActivity.this); }
-                    }).setNeutralButton("Stop", new DialogInterface.OnClickListener() {
-                        public void onClick(DialogInterface d, int w) { HammerService.stopHost(); }
-                    }).setNegativeButton("Close", null).show();
-            } },
-            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this); } }
+        // hosting and sharing settings live on the Engine tab; the Library only says what each song shares
+        libraryBox.addView(chipRow(new String[] {"Import audio"}, new Runnable[] {
+            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } }
         }));
         ArrayList<File> metas = d.metas;
         if (metas.size() == 0) {
@@ -3730,6 +3735,46 @@ public class MainActivity extends Activity {
 
     // ---------- Engine ----------
 
+    TextView hostStatus;
+    Button hostBtn;
+
+    /** Engine tab: hosting your Library for other people, and every sharing setting behind one button each. */
+    void buildSharing(LinearLayout c) {
+        c.addView(label("Sharing and hosting"));
+        hostStatus = text("", DIM, 12);
+        c.addView(hostStatus);
+        hostBtn = button("Start hosting", false);
+        c.addView(hostBtn, gap(6));
+        hostBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                if (HammerService.hosting()) {
+                    HammerService.stopHost();
+                } else if (jobBusy) {
+                    toast("A song is being made. Host when it is done.");
+                } else {
+                    HammerService.startHost(MainActivity.this);
+                }
+            }
+        });
+        c.addView(chipRow(new String[] {"Hosting", "Circles and invitations", "Peers and artists", "Downloads", "Computer"}, new Runnable[] {
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.HOSTING); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.CIRCLES); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.PEERS); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.TRANSFERS); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.COMPUTER); } },
+        }));
+        TextView why = text("Only songs you share from the Library are offered. Public songs show in Discover; private ones need an invitation.", DIM, 12);
+        c.addView(why, gap(6));
+        refreshSharing();
+    }
+
+    void refreshSharing() {
+        if (hostStatus == null) return;
+        boolean on = HammerService.hosting();
+        hostStatus.setText(HammerService.status + " · " + HammerFollowService.status);
+        hostBtn.setText(on ? "Stop hosting" : "Start hosting");
+    }
+
     View buildEngine() {
         LinearLayout c = column();
         engineStatus = text("", Skin.ACCENT, 17);
@@ -4052,6 +4097,8 @@ public class MainActivity extends Activity {
         adapterBox = column();
         c.addView(adapterBox);
         refreshAdapters();
+
+        buildSharing(c);
 
         Button about = button("About and licences", false);
         c.addView(about, gap(18));

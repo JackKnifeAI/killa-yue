@@ -323,23 +323,45 @@ public class Covers {
      * Paints a cover for the song and saves it beside the audio. Blocks for a few seconds on the NPU and minutes on the GPU;
      * call from a background thread. variation changes the picture for the same song.
      */
-    static File make(Context c, JSONObject meta, int variation) throws Exception {
+    static synchronized File make(Context c, JSONObject meta, int variation) throws Exception {
         String how = painter(c);
         if (how.length() == 0) throw new Exception("No cover model is installed yet. Get one on the Engine tab.");
         long seed = (Math.abs((long) (meta.optString("_audio") + meta.optString("lyrics")).hashCode()) + variation * 7919L) % 2000000000L;
-        int[] px = "gpu".equals(how) ? paintGpu(c, meta, seed) : paintNpu(c, meta, seed);
+        int[] px = "gpu".equals(how) ? paintGpu(c, prompt(meta), seed) : paintNpu(c, prompt(meta), seed);
         return finish(c, meta, px);
+    }
+
+    /**
+     * Paints an artist portrait from the artist's own words, on the same NPU or GPU model as the covers, with no
+     * lettering. Saves a 1024 px JPEG in the cache and returns it; call from a background thread.
+     */
+    static synchronized File portrait(Context c, String words, int variation) throws Exception {
+        String how = painter(c);
+        if (how.length() == 0) throw new Exception("No picture model is installed yet. Get the cover model on the Engine tab.");
+        if (words.length() > 160) words = words.substring(0, 160);
+        String prompt = "portrait of a music artist, " + words + ", album photo, dramatic studio lighting, rich colour, highly detailed";
+        long seed = (Math.abs((long) words.hashCode()) + variation * 7919L) % 2000000000L;
+        int[] px = "gpu".equals(how) ? paintGpu(c, prompt, seed) : paintNpu(c, prompt, seed);
+        Bitmap art = Bitmap.createScaledBitmap(Bitmap.createBitmap(px, 512, 512, Bitmap.Config.ARGB_8888), 1024, 1024, true);
+        File out = new File(c.getCacheDir(), "portrait.jpg");
+        FileOutputStream o = new FileOutputStream(out);
+        try {
+            art.compress(Bitmap.CompressFormat.JPEG, 90, o);
+        } finally {
+            o.close();
+        }
+        return out;
     }
 
     private static final String NEGATIVE = "text, letters, words, watermark, signature, logo, blurry, low quality, deformed";
 
     /** 512x512 pixels from the NPU (Qualcomm's compiled model, 20 steps with guidance). */
-    private static int[] paintNpu(Context c, JSONObject meta, long seed) throws Exception {
+    private static int[] paintNpu(Context c, String prompt, long seed) throws Exception {
         String lib = c.getApplicationInfo().nativeLibraryDir;
         File raw = new File(c.getCacheDir(), "cover.rgb");
         raw.delete();
         ProcessBuilder pb = new ProcessBuilder(lib + "/libsdnpu.so", "--dir", dir(c).getAbsolutePath(), "--lib", lib,
-                "--tokens", tokens(c, prompt(meta)),
+                "--tokens", tokens(c, prompt),
                 "--neg", tokens(c, NEGATIVE),
                 "--steps", "20", "--guidance", "7.5", "--seed", String.valueOf(seed), "--out", raw.getAbsolutePath());
         pb.redirectErrorStream(true);
@@ -366,7 +388,7 @@ public class Covers {
      * the LCM LoRA (a good picture in 6 steps) and the tiny TAESD decoder, on the bundled Turnip driver
      * on Adreno phones or the phone's own Vulkan driver elsewhere.
      */
-    private static int[] paintGpu(Context c, JSONObject meta, long seed) throws Exception {
+    private static int[] paintGpu(Context c, String prompt, long seed) throws Exception {
         String lib = c.getApplicationInfo().nativeLibraryDir;
         File d = gpuDir(c);
         File png = new File(c.getCacheDir(), "cover-gpu.png");
@@ -375,7 +397,7 @@ public class Covers {
                 "-m", new File(d, GPU_FILES[0][0]).getAbsolutePath(),
                 "--lora-model-dir", d.getAbsolutePath(),
                 "--taesd", new File(d, GPU_FILES[2][0]).getAbsolutePath(),
-                "-p", prompt(meta) + " <lora:lcm-lora-sdv1-5:1>",
+                "-p", prompt + " <lora:lcm-lora-sdv1-5:1>",
                 "-n", NEGATIVE,
                 "--sampling-method", "lcm", "--steps", "6", "--cfg-scale", "1.5",
                 "-W", "512", "-H", "512", "-s", String.valueOf(seed), "-o", png.getAbsolutePath());
