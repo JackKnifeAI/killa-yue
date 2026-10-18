@@ -1,0 +1,128 @@
+name: Compatibility AI fix and retest
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        options: [propose-fix, request-retest]
+        required: true
+      issue:
+        description: Compatibility issue number
+        required: true
+      pr:
+        description: Reviewed candidate PR number (request-retest)
+      candidate_apk_sha256:
+        description: SHA-256 of the signed candidate Compatibility Lab APK
+      candidate_apk_url:
+        description: Candidate APK release asset URL in this repository
+permissions:
+  contents: read
+concurrency:
+  group: compatibility-fix-${{ inputs.issue }}
+  cancel-in-progress: false
+jobs:
+  disabled:
+    if: inputs.operation == 'propose-fix' && vars.COMPATIBILITY_AI_ENABLED != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'AI proposals are disabled. Configure OPENAI_API_KEY and enable COMPATIBILITY_AI_ENABLED after setting an API budget. Reports and retests work without AI.' >> "$GITHUB_STEP_SUMMARY"
+  propose:
+    if: inputs.operation == 'propose-fix' && vars.COMPATIBILITY_AI_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Read only the validated diagnostic fields
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_ISSUE: ${{ inputs.issue }}
+        run: python3 tools/compatibility/github_flow.py prepare --issue "$REPORT_ISSUE"
+      - uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/compatibility-fix.md
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          output-file: compatibility-proposal.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compatibility-proposal
+          path: |
+            compatibility-proposal.patch
+            compatibility-proposal.md
+          if-no-files-found: error
+          retention-days: 14
+  publish-proposal:
+    needs: propose
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: compatibility-proposal
+          path: ${{ runner.temp }}/compatibility-proposal
+      - name: Apply only source and test changes in this fresh job
+        run: python3 tools/compatibility/github_flow.py apply-proposal --patch "$RUNNER_TEMP/compatibility-proposal/compatibility-proposal.patch"
+      - uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
+        id: pr
+        with:
+          branch: compatibility/issue-${{ inputs.issue }}-run-${{ github.run_id }}
+          draft: true
+          title: 'Compatibility proposal for issue #${{ inputs.issue }}'
+          commit-message: 'Propose compatibility fix with targeted retest required'
+          body: |
+            Proposed device-compatibility change based on issue #${{ inputs.issue }}.
+
+            Review the code and CI before building a signed Compatibility Lab candidate.
+            Use **Compatibility AI fix and retest → request-retest** to bind the candidate APK to this PR and request hardware results.
+            A targeted pass is required evidence, not full-generation certification. No release or merge is automated.
+      - name: Start CI explicitly for the bot-created branch
+        if: steps.pr.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_BRANCH: compatibility/issue-${{ inputs.issue }}-run-${{ github.run_id }}
+        run: gh workflow run check.yml --ref "$CANDIDATE_BRANCH"
+  request-retest:
+    if: inputs.operation == 'request-retest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      checks: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify candidate and create the targeted retest request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_ISSUE: ${{ inputs.issue }}
+          CANDIDATE_PR: ${{ inputs.pr }}
+          CANDIDATE_SHA: ${{ inputs.candidate_apk_sha256 }}
+          CANDIDATE_URL: ${{ inputs.candidate_apk_url }}
+        run: |
+          python3 tools/compatibility/github_flow.py request --issue "$REPORT_ISSUE" --pr "$CANDIDATE_PR" \
+            --candidate "$CANDIDATE_SHA" --url "$CANDIDATE_URL" --request-id "retest-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --output retest-request.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: retest-request
+          path: retest-request.json
+          retention-days: 90

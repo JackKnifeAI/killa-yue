@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ai.jackknife.killayue.compatlab" android:versionCode="1" android:versionName="1.6.2-lab.1">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28"/>
+    <!-- Deliberately no permissions, shared UID, boot receivers or exported services. -->
+    <application android:label="Killa YuE Compatibility Lab" android:allowBackup="false"
+        android:debuggable="false" android:extractNativeLibs="true" android:usesCleartextTraffic="false"
+        android:theme="@android:style/Theme.Material.Light">
+        <activity android:name="ai.jackknife.killayue.compat.CompatibilityActivity" android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -4,7 +4,15 @@ There are three parts: the engine, the GPU driver, and the app. Release 1.1.0 is
 
 ## On a PC with the Android NDK (how 1.1.0 is built)
 
-### Portable Android song engine (1.6.1 branch)
+### Driver diagnostics and separate beta APK (1.6.2)
+
+Build `engine/build-compatibility.sh` against the candidate portable engine source and libraries,
+then set `COMPATIBILITY_DIR` to its output before building the app. `compatlab/build.sh` packages
+the same checks in a separate APK with no Android permissions. See
+[the compatibility and retest guide](docs/compatibility-lab-1.6.2.md) for build variables,
+report privacy, GitHub automation and hardware validation requirements.
+
+### Portable Android song engine (introduced in 1.6.1)
 
 Keep the validated static Turnip engine as `ENGINE_BIN` / `ENGINE_LIB_DIR`. In this release candidate, Adreno 650 defaults to CPU: the S20 GPU patches below are not in the retained static engine. Do not claim S20 GPU support merely because the portable source contains those patches. Build the portable engine separately so CPU generation does not depend on a GPU driver. For a reproducible public checkout, use yue2.cpp `83b65f5d6bf4806557ef17fe763021ff4eead928` and its GGML submodule `2eddaf94a8cdbbf1c30017d28313cd661a9da543`, then run `bash engine/prepare-mobile-source.sh /path/to/yue2.cpp`. It applies all nine patches in order and rejects an unexpected revision. Initialize the submodule with `git submodule update --init ggml` first. The original hardware measurements used a local snapshot of those sources with the gentle/JNI/resume patches already applied; do not apply those twice to that snapshot. Newer native upstream GGML revisions need separate validation before changing this pin.
 

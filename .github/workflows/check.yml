@@ -1,6 +1,7 @@
 name: Check
 
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
@@ -17,6 +18,8 @@ jobs:
           java-version: '17'
       - name: App logic regression tests
         run: bash app/test/run.sh
+      - name: Compatibility process supervision and retest matching
+        run: bash compatlab/test/run.sh
       - name: Android SDK pieces
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
@@ -80,7 +83,9 @@ jobs:
             -fno-pie -no-pie -Ibuild-mobile-source/src engine/context-budget-test.cpp \
             -o /tmp/context-budget-test
           /tmp/context-budget-test
+      - name: Diagnostic harness and numeric references on host CPU
+        run: bash engine/test-compatibility-host.sh build-mobile-source build-compatibility-host
       - name: Helper syntax checks
         run: |
-          bash -n engine/build-portable-android.sh engine/build-mobile-vulkan-test.sh
+          bash -n engine/build-portable-android.sh engine/build-mobile-vulkan-test.sh engine/build-compatibility.sh engine/test-compatibility-host.sh compatlab/build.sh
           python3 -m py_compile tools/check-android-runtime.py tools/android-length-test/*.py

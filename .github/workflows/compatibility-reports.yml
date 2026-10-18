@@ -1,0 +1,29 @@
+name: Compatibility reports and retest results
+on:
+  issues:
+    types: [opened, edited, reopened]
+permissions:
+  contents: read
+concurrency:
+  group: compatibility-report-${{ github.event.issue.number }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    if: startsWith(github.event.issue.title, '[Compatibility]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      statuses: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Validate report and correlate requested retest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_ISSUE: ${{ github.event.issue.number }}
+        run: python3 tools/compatibility/github_flow.py triage --issue "$REPORT_ISSUE"

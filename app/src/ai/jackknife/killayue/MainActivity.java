@@ -2684,24 +2684,13 @@ public class MainActivity extends Activity {
         }, "album-share").start();
     }
 
-    /** Copies what the project needs to know about this phone, and opens the GitHub form for it. */
+    /** A model-free compatibility check, shared with the volunteer test APK. */
     void deviceReport() {
-        final String r = PhoneCheck.report(this);
-        new Lux.Builder(this).setTitle("Device report").setMessage(r + "\nCopy this and paste it into the device report on GitHub. "
-                + "It helps make Killa YuE work on more phones. Nothing is sent by the app.")
-                .setPositiveButton("Copy and open GitHub", new DialogInterface.OnClickListener() {
-                    public void onClick(DialogInterface d, int w) {
-                        ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        cm.setPrimaryClip(ClipData.newPlainText("Killa YuE device report", r));
-                        toast("Copied. Paste it into the form.");
-                        try {
-                            startActivity(new Intent(Intent.ACTION_VIEW,
-                                    Uri.parse("https://github.com/JackKnifeAI/killa-yue/issues/new?template=device-report.yml")));
-                        } catch (Exception e) {
-                            toast("No browser to open the form");
-                        }
-                    }
-                }).setNegativeButton("Close", null).show();
+        if (jobBusy || EngineService.running) {
+            toast("Stop the song engine before running compatibility checks.");
+            return;
+        }
+        startActivity(new Intent(this, ai.jackknife.killayue.compat.CompatibilityActivity.class));
     }
 
     /** A vertical lyric video of the song, for TikTok, Reels and Shorts. */
@@ -3949,7 +3938,7 @@ public class MainActivity extends Activity {
         bgStatus = text("", DIM, 13);
         bgStatus.setShadowLayer(4, 0, 1, 0x99000000);
         c.addView(bgStatus, gap(8));
-        c.addView(chipRow(new String[] {"Allow in background", "Developer options", "Device report"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Allow in background", "Developer options"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     cfg.edit().putBoolean("bg_asked", true).apply();
@@ -3961,6 +3950,9 @@ public class MainActivity extends Activity {
                     Background.openDeveloperOptions(MainActivity.this);
                 }
             },
+        }), gap(4));
+        c.addView(label("Compatibility: check your driver, test calculations, and request support for your phone."));
+        c.addView(chipRow(new String[] {"Driver and compatibility checks"}, new Runnable[] {
             new Runnable() {
                 public void run() {
                     deviceReport();
