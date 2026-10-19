@@ -54,6 +54,7 @@ pub fn write_json(path: &Path, value: &Value) -> io::Result<()> {
 impl Session {
     pub fn create(directory: &Path, cancel: Arc<AtomicBool>) -> io::Result<Self> {
         let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;

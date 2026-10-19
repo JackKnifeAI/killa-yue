@@ -16,11 +16,13 @@ parser.add_argument("output", type=pathlib.Path)
 args = parser.parse_args()
 manifest = str(root / "Cargo.toml")
 subprocess.run(["cargo", "build", "--release", "--locked", "--manifest-path", manifest], check=True)
-# Fetch target-specific license sources too; packaging must not silently omit
-# third-party notices depending on which registry sources were cached locally.
-subprocess.run(["cargo", "fetch", "--locked", "--manifest-path", manifest], check=True)
-metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", manifest]))
 target = next(line.split(": ", 1)[1] for line in subprocess.check_output(["rustc", "-vV"], text=True).splitlines() if line.startswith("host: "))
+# Include every dependency resolved for this package's target, including build
+# dependencies. Unused GNU Windows import libraries are not part of an MSVC,
+# Linux or macOS binary and their old crates omit standalone license files.
+subprocess.run(["cargo", "fetch", "--locked", "--target", target, "--manifest-path", manifest], check=True)
+metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--locked", "--filter-platform", target, "--format-version", "1", "--manifest-path", manifest]))
+resolved = {node["id"] for node in metadata["resolve"]["nodes"]}
 executable = "killa-desktop.exe" if os.name == "nt" else "killa-desktop"
 binary = pathlib.Path(metadata["target_directory"]) / "release" / executable
 args.output.mkdir(parents=True, exist_ok=True)
@@ -33,7 +35,7 @@ with tempfile.TemporaryDirectory() as tmp:
     shutil.copy2(root / "Cargo.lock", folder / "Cargo.lock")
     dependencies = []
     for package in metadata["packages"]:
-        if package["name"] == "killa-desktop":
+        if package["name"] == "killa-desktop" or package["id"] not in resolved:
             continue
         source = pathlib.Path(package["manifest_path"]).parent
         destination = folder / "licenses" / f'{package["name"]}-{package["version"]}'
