@@ -259,3 +259,17 @@ The HAMMER device suite also runs `HammerPlaybackTest`: it polls the real Androi
   stable_audio_tools 0.0.19, litert-torch 0.9.0, jax and jaxlib 0.6.2, numpy 1.26.4), plus `spiece.model` from
   google-t5/t5-base, the model's LICENSE and a NOTICE with "Powered by Stability AI". The model is gated on Hugging
   Face: its licence must be accepted for the account first.
+### Community preview and companion
+
+The community UI retains the project's plain Java 8 style. Both the existing
+dex workflow and the SDK D8 adapter remain available.
+`PREVIEW_SUFFIX=community.1` labels an APK for review
+without changing the manifest's stable version. Preview builds retain that
+manifest's version code and are not automatic upgrades of newer releases.
+
+Build the host network library with `bash net/build.sh host`, and set
+`HAMMER_NETWORK_LIB` to `net/target/release/libkillanet.so` alongside
+`HAMMER_DESKTOP_LIB` to include networking in the downloadable companion.
+See [the community and desktop roadmap](docs/community-and-desktop-roadmap.md)
+and [companion operations](peer/README.md). Run `peer/test/community.sh` after
+the normal HAMMER native build/tests.

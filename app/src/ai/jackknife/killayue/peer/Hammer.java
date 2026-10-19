@@ -264,6 +264,8 @@ public final class Hammer {
         List<Song> changed(String capability, String cursor, long waitMillis) throws Exception;
         default HammerPublic publicObjects() { return null; }
         default HammerDirectory directory() { return null; }
+        default HammerCommunity community() { return null; }
+        default HammerCensus census() { return null; }
     }
     public static final class Vote {
         public String song, key, sig, audience = "public";
@@ -618,6 +620,23 @@ public final class Hammer {
                     out.writeInt(MAGIC);
                     out.writeInt(bytes.length);
                     out.write(bytes);
+                } else if (op == HammerCommunity.LIST) {
+                    require(source.community() != null, "Community unavailable");
+                    List<HammerCommunity.Post> posts = source.community().list(text(in, 16), text(in, 64), token);
+                    out.writeInt(MAGIC); out.writeInt(posts.size());
+                    for (HammerCommunity.Post p : posts) p.write(out);
+                } else if (op == HammerCommunity.POST) {
+                    require(source.community() != null, "Community unavailable");
+                    source.community().post(HammerCommunity.Post.read(in), token); out.writeInt(MAGIC);
+                } else if (op == HammerCommunity.FOLLOW) {
+                    require(token.isEmpty() && source.community() != null, "Use a public artist host");
+                    String pin = hash(s.getSession().getLocalCertificates()[0].getPublicKey().getEncoded());
+                    String invitation = source.community().follow(HammerCommunity.Follow.read(in), pin);
+                    out.writeInt(MAGIC); text(out, invitation, 64);
+                } else if (op == HammerCommunity.COUNT) {
+                    require(token.isEmpty() && source.census() != null, "Counter unavailable");
+                    int count = source.census().count(text(in, 7), text(in, 64), in.readBoolean());
+                    out.writeInt(MAGIC); text(out, HammerCensus.month(), 7); out.writeInt(count);
                 } else if (op == SUBSCRIBE) {
                     source.catalog(token);
                     final String capability = token;

@@ -327,6 +327,10 @@ public final class HammerActivity extends Activity {
                 startActivityForResult(i, 840);
             }
         });
+        group("Community headcount", "An optional monthly count of participating installations.");
+        button(body, "Community headcount settings", new Runnable() {
+            public void run() { startActivity(new Intent(HammerActivity.this, CommunityCountActivity.class)); }
+        });
         group("Privacy", null);
         TextView fine = Ui.text(this,
             "Connect using a trusted peer card. Direct connections need reachable addresses: Wi-Fi, a "
@@ -603,7 +607,7 @@ public final class HammerActivity extends Activity {
             .setTitle(privateCircle ? "Private circle invitation" : "Public peer card")
             .setMessage("A network card finds this phone by its Killa YuE network identity, on any Wi-Fi. Start "
                         + "hosting before someone connects. An address card is for the desktop companion, which "
-                        + "is not on the network yet: then port 8784 must reach this phone.")
+                        + "can also join the network with --network. Address cards need a reachable port 8784.")
             .setView(address)
             .setPositiveButton("Network card", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) { makeCard(null, privateCircle); }
@@ -1073,10 +1077,12 @@ public final class HammerActivity extends Activity {
                 })
             .setItems(new String[] {"Listen · choose the quality",
                                     hit.song.reshare ? "Download / resume" : "Streaming only", "Comments",
-                                    "Up / down votes", "Follow this artist", "Artist profile"},
+                                    "Up / down votes", "Follow this artist", "Artist profile", "Song conversation / remixes"},
                       new DialogInterface.OnClickListener() {
                           public void onClick(DialogInterface d, int which) {
-                              if (which == 0) {
+                              if (which == 6) {
+                                  BackstageActivity.open(HammerActivity.this, hit.peer.card, "track", hit.song.id, false);
+                              } else if (which == 0) {
                                   new Lux.Builder(HammerActivity.this)
                                       .setTitle("Stream quality")
                                       .setItems(
@@ -1158,6 +1164,7 @@ public final class HammerActivity extends Activity {
                     try {
                         store.importPublicMetadata(hit.song, Hammer.comments(hit.peer.card, hit.song.id, job),
                                                    Hammer.votes(hit.peer.card, hit.song.id, job));
+                        store.community.importPublic(hit.song, HammerCommunity.list(hit.peer.card, "track", hit.song.id, job));
                     } catch (Exception e) {
                         ui.post(new Runnable() {
                             public void run() {
@@ -1309,9 +1316,13 @@ public final class HammerActivity extends Activity {
                             .setTitle(h.song.title)
                             .setItems(
                                 new String[] {h.publicSong ? "Move to private circle" : "Publish publicly",
-                                              "Unpublish", "Read / moderate comments"},
+                                              "Unpublish", "Read / moderate comments", "Song conversation / remixes"},
                                 new DialogInterface.OnClickListener() {
                                     public void onClick(DialogInterface d, final int action) {
+                                        if (action == 3) {
+                                            BackstageActivity.open(HammerActivity.this, null, "track", h.song.id, !h.publicSong);
+                                            return;
+                                        }
                                         if (action == 2) {
                                             localComments(h.song);
                                             return;

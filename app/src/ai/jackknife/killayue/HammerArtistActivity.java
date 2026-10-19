@@ -142,6 +142,9 @@ public final class HammerArtistActivity extends Activity {
                 }
             });
         }
+        add("Backstage · artist board", new Runnable() {
+            public void run() { if (ready()) BackstageActivity.open(HammerArtistActivity.this, peer, "board", artist, false); }
+        });
         songs = Ui.column(this);
         body.addView(songs);
         work("Loading artist", new Work() {

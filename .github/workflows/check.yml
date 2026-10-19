@@ -48,12 +48,16 @@ jobs:
           java-version: '17'
       - name: Build and test native streaming, private catalogs and push
         run: bash peer/test/run.sh
+      - name: Community sidecars, invitation privacy and monthly headcount
+        run: bash peer/test/community.sh
       - name: Native descriptor and malformed-media sanitizer tests
         run: bash peer/test/native-safety.sh
       - name: Build downloadable desktop companion
         run: HAMMER_DESKTOP_LIB="$PWD/build-hammer-host/libhammer.so" bash peer/build-companion.sh "$PWD/out"
       - name: Build the pinned libp2p network
         run: bash net/build.sh host
+      - name: Package companion with Rust network transport
+        run: HAMMER_DESKTOP_LIB="$PWD/build-hammer-host/libhammer.so" HAMMER_NETWORK_LIB="$PWD/net/target/release/libkillanet.so" bash peer/build-companion.sh "$PWD/out"
       - name: Network discovery, DHT and relay regression tests
         run: bash peer/test/network.sh
       - uses: actions/upload-artifact@v4

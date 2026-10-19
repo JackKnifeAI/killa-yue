@@ -35,6 +35,13 @@ public final class HammerStore implements Hammer.Source {
     }
     public final File root;
     public final HammerPublic publicObjects;
+    public final HammerCommunity community;
+    public final HammerCensus census;
+    public HammerCommunity community() { return community; }
+    public HammerCensus census() { return census; }
+    public synchronized boolean blocked(String key) throws Exception {
+        return blocked.contains(Hammer.hash(Base64.getDecoder().decode(key)));
+    }
     private final HammerDirectory directory = new HammerDirectory();
     public HammerDirectory directory() { return directory; }
     private final Map<String, Hosted> songs = new LinkedHashMap<String, Hosted>();
@@ -46,6 +53,8 @@ public final class HammerStore implements Hammer.Source {
         this.root = root;
         Hammer.require(root.isDirectory() || root.mkdirs(), "Cannot create HAMMER storage");
         publicObjects = new HammerPublic(this);
+        community = new HammerCommunity(this);
+        census = new HammerCensus(root);
         File cap = new File(root, "circle.key");
         if (cap.isFile()) {
             token = new String(read(cap, 64), StandardCharsets.US_ASCII);

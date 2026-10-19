@@ -1,0 +1,22 @@
+# User service. Replace paths/addresses for the operator's machine.
+[Unit]
+Description=Killa YuE community volunteer companion
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/killa-community/app/hammer-server
+ExecStart=/usr/bin/java -XX:ActiveProcessorCount=2 -Xms32m -Xmx384m -Djava.library.path=native/linux-x86_64 -jar hammer-server.jar --daemon --help-network --community-count --data %h/.local/share/killa-community/state --address 100.73.229.44 --bind 100.73.229.44 --port 8784 --network-port 47291
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+CPUQuota=200%
+MemoryMax=1G
+TasksMax=128
+LimitNOFILE=1024
+
+[Install]
+WantedBy=default.target

@@ -148,7 +148,8 @@ public final class HammerFollowService extends Service {
     private final class Watcher extends Thread {
         final HammerStore.Peer peer;
         volatile boolean done, online;
-        volatile Hammer.Job job;
+        volatile Hammer.Job job, communityJob;
+        Thread communityThread;
         int delay = 2;
         Watcher(HammerStore.Peer peer) {
             super("hammer-live-peer");
@@ -158,10 +159,24 @@ public final class HammerFollowService extends Service {
             done = true;
             if (job != null)
                 job.cancel();
+            if (communityJob != null) communityJob.cancel();
+            if (communityThread != null) communityThread.interrupt();
             interrupt();
         }
         @Override
         public void run() {
+            if (!peer.card.isPrivate()) {
+                communityThread = new Thread(new Runnable() {
+                    public void run() {
+                        while (!done && !stopped) {
+                            communityJob = new Hammer.Job();
+                            try { community(Watcher.this); } catch (Exception unavailable) { /* Old/offline hosts remain valid music peers. */ }
+                            try { Thread.sleep(60000); } catch (InterruptedException ignored) {}
+                        }
+                    }
+                }, "hammer-live-community");
+                communityThread.start();
+            }
             while (!done) {
                 job = new Hammer.Job();
                 if (done) {
@@ -202,6 +217,41 @@ public final class HammerFollowService extends Service {
                 }
                 delay = Math.min(60, delay * 2);
             }
+        }
+    }
+    private void community(Watcher watcher) throws Exception {
+        SharedPreferences p = prefs(this); String artist = watcher.peer.card.pin;
+        if (!p.contains("artist." + artist) || watcher.done || stopped) return;
+        Hammer.Card peer = watcher.peer.card;
+        List<HammerCommunity.Post> posts = HammerCommunity.list(peer, "board", artist, watcher.communityJob);
+        Set<String> ids = new HashSet<String>();
+        for (HammerCommunity.Post post : posts)
+            if (!post.action() && Hammer.hash(Base64.getDecoder().decode(post.key)).equals(artist)) ids.add(post.id);
+        String baseline = "board.seen." + artist;
+        Set<String> before = p.getStringSet(baseline, Collections.<String>emptySet());
+        boolean notify = p.contains(baseline) && !before.containsAll(ids);
+        p.edit().putStringSet(baseline, ids).apply();
+        boolean invitation = false;
+        if (p.contains("community." + artist)) {
+            HammerCommunity.Follow request = new HammerCommunity.Follow(); request.host = artist;
+            request.sign(HammerAndroid.identity());
+            String token = HammerCommunity.follow(peer, request, watcher.communityJob);
+            String digest = token.isEmpty() ? "" : Hammer.hash(token.getBytes("US-ASCII"));
+            invitation = !digest.isEmpty() && !digest.equals(p.getString("circle.seen." + artist, ""));
+            p.edit().putString("circle.seen." + artist, digest).apply();
+        }
+        if ((notify || invitation) && !watcher.done && !stopped) {
+            PendingIntent open = PendingIntent.getActivity(this, artist.hashCode(),
+                new Intent(this, BackstageActivity.class).setData(android.net.Uri.parse("hammer-board:" + artist))
+                    .putExtra("peer", peer.encode()).putExtra("scope", "board").putExtra("target", artist),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification n = new Notification.Builder(this, "hammer-releases")
+                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                .setContentTitle(invitation ? "An artist invited you to their listening circle" : "New artist board post")
+                .setContentText("Open Backstage to read it")
+                .setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).setOnlyAlertOnce(true)
+                .setContentIntent(open).build();
+            ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify("board." + artist, 89, n);
         }
     }
     private synchronized void received(Watcher watcher, List<Hammer.Song> songs) throws Exception {
