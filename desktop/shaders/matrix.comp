@@ -1,0 +1,14 @@
+#version 450
+// A fixed, model-free F32 smoke test. Not GGML, quantization or YuE validation.
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0, std430) buffer Data { float values[]; } data;
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= 128) return;
+    uint row = index % 16;
+    uint column = index / 16;
+    float sum = 0.0;
+    for (uint k = 0; k < 256; ++k)
+        sum += data.values[row * 256 + k] * data.values[4096 + column * 256 + k];
+    data.values[6144 + index] = sum;
+}

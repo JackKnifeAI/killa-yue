@@ -61,6 +61,28 @@ No stable release or phone replacement is part of this branch's deployment.
    Signed packages, reproducible dependency manifests, upgrades/rollback and
    per-platform CI. “All hardware” is a direction, not a support claim.
 
+## Desktop Lab milestone (stacked on the community preview)
+
+Implemented in `desktop/`: Rust CLI/core with CPU/RAM/OS discovery, Vulkan
+inventory in a disposable process, explicit small F32 Vulkan tests, the same
+eight quantized GGML fixture cases as the Android Lab, bounded logs, persistent
+job journals, cancellation and binary hashes. Each operation is a fixed local
+job. Linux DRM inventory remains useful when the Vulkan loader has no working
+driver. Linux/Windows/macOS CI covers CLI builds, tests and preview packaging.
+
+This lays groundwork for a worker's diagnostic queue; it does not implement
+remote job submission, music generation or consent to share private input.
+`capabilities` explicitly advertises no accepted remote job types. Next gates:
+hardware-qualified GGML GPU paths, engine/model bundle validation, resource and
+thermal admission, local generation/cancellation, then an authenticated fixed
+remote task protocol with per-job consent. Accessible UI selection remains
+open. Preserve the current Java companion and pinned network crate until actual
+migration and interoperability tests pass.
+
+See [Desktop Lab instructions](../desktop/README.md) and
+[validation evidence](desktop-lab-validation.md). No changes to generation
+engines, Android GPU selection, model defaults or the existing ops host service.
+
 ## Deliberate boundaries
 
 Private messaging needs its own end-to-end encryption and message-request

@@ -1,5 +1,10 @@
 # HAMMER desktop companion
 
+The separate [Rust Desktop Lab preview](../desktop/README.md) discovers hardware
+and runs local driver/engine checks beside this companion. It has no network
+listener and does not enable remote music generation. See the desktop roadmap
+for the planned full Rust application and volunteer generation worker.
+
 This computer can host the same signed recordings as Killa YuE phones. It serves
 the existing master file, encodes compressed streams in memory, and exchanges
 catalogs, audio, comments and votes through pinned TLS connections. No account,

@@ -285,3 +285,7 @@ The displayed number is participating installations on this node this month, not
 
 ## Volunteer desktop companion
 Save desktop companion in Sharing settings exports a computer package. The preview adds optional peer networking, artist boards, invitations and the monthly counter. Its README explains the daemon flags and limits. The ops volunteer node hosts metadata and performs audio transcoding for hosted tracks. Remote music generation is not available in this milestone. The companion roadmap covers a full Rust desktop music app, tested GPU support and future volunteer generation workers.
+
+## Desktop Lab preview
+The separate Rust Desktop Lab download checks a computer before future generation support. In its terminal, diagnose --output NEW_DIRECTORY records CPU, RAM, OS and Vulkan details and runs a small CPU check. The optional --vulkan-compute flag runs small GPU math tests; it is off by default. An optional --engine-dir points to a trusted, locally built engine test bundle. These controls are on the computer, not the phone.
+Press Ctrl+C or run cancel REPORT_DIRECTORY to stop. Reports and bounded logs stay on that computer; review them before sharing. The tool sends nothing automatically, downloads no models, and changes no engine choice. A passing small test does not establish full song generation or thermal safety. It does not enable remote generation on the volunteer node. See the Desktop Lab README for build instructions and current platform evidence.

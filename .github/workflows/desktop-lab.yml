@@ -1,0 +1,92 @@
+name: Desktop Lab
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  desktop:
+    name: Desktop CLI (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stable Rust
+        run: rustup update stable --no-self-update
+      - name: Use stable toolchain
+        run: rustup default stable
+      - name: Format
+        run: cargo fmt --manifest-path desktop/Cargo.toml -- --check
+      - name: Test local diagnostics and supervision
+        run: cargo test --locked --manifest-path desktop/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --locked --manifest-path desktop/Cargo.toml --all-targets -- -D warnings
+      - name: Package with licenses
+        run: python desktop/package.py out
+      - name: CLI inventory smoke test (no GPU qualification)
+        run: cargo run --locked --manifest-path desktop/Cargo.toml -- diagnose --output desktop-report
+      - name: Validate report and default privacy boundary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path('desktop-report/report.json').read_text())
+          assert report['generation_compatibility'] == 'not_tested'
+          assert not report['capabilities']['remote_generation']
+          assert not report['capabilities']['network_listener']
+          jobs = {j['name']:j for j in report['jobs']}
+          assert jobs['hardware']['outcome'] == 'passed', jobs['hardware']
+          assert jobs['cpu-matrix']['outcome'] == 'passed', jobs['cpu-matrix']
+          assert not any('vulkan-matrix' in j for j in jobs)
+          assert pathlib.Path('desktop-report/provenance.json').is_file()
+          PY
+      - name: Install software Vulkan test driver (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y mesa-vulkan-drivers
+      - name: Exercise Vulkan shader on software driver (not physical GPU certification)
+        if: runner.os == 'Linux'
+        run: |
+          cargo run --locked --manifest-path desktop/Cargo.toml -- diagnose --output software-vulkan-report --vulkan-compute
+          python3 - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path('software-vulkan-report/report.json').read_text())
+          results = [j for j in report['jobs'] if j['name'].startswith('vulkan-matrix-')]
+          assert any(j['outcome'] == 'passed' and j['data']['device']['software_device'] for j in results), results
+          assert report['generation_compatibility'] == 'not_tested'
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-lab-${{ matrix.os }}-preview
+          path: out/killa-desktop-lab-*.zip
+  ggml:
+    name: Desktop engine CPU compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ServeurpersoCom/yue2.cpp
+          ref: 83b65f5d6bf4806557ef17fe763021ff4eead928
+          submodules: true
+          path: build-desktop-source
+      - name: Prepare the same pinned engine as Android
+        run: bash engine/prepare-mobile-source.sh build-desktop-source
+      - name: Build fixed CPU fixture
+        run: bash desktop/build-engine-probe.sh build-desktop-source build-desktop-ggml out/engine-fixture cpu
+      - name: Run through the Rust job supervisor
+        run: cargo run --locked --manifest-path desktop/Cargo.toml -- diagnose --output engine-report --engine-dir out/engine-fixture
+      - name: Require all real engine math tests to pass
+        run: |
+          python3 - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path('engine-report/report.json').read_text())
+          result = next(j for j in report['jobs'] if j['name'] == 'ggml-cpu')
+          assert result['outcome'] == 'passed', result
+          assert len(result['data']['records']) == 16, result
+          PY
