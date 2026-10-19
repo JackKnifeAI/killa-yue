@@ -45,6 +45,16 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Killa Gold** now wears its leather across the whole screen.
 - **Fixes**: karaoke keeps its place through rests.
 
+## 1.7.0: Keys, MIDI effects, recorded instruments and AI
+
+- **Keys**: a playable 88-key piano in ivory, ebony and gold, with an overview map, touch-position velocity, a sustain pedal, one or two rows, and keys that light where notes play.
+- **MIDI effects**, the headline: sixteen chainable effects on every instrument track, live and on playback: arpeggiator, chord, scale lock, harmonizer, note echo, strum, humanize, velocity, transpose, key range, note length, chance, note repeat, random pitch, swing and mono/legato, with ten presets and Print into the notes.
+- **Recording notes** from the screen or a MIDI keyboard, overdub or replace, with input snap and count-in; a new piano roll with draw, resize, velocity and erase.
+- **MIDI files** in and out.
+- **Sounds**: Killa Keys, 808, Pad, Bass, Lead and Drums designed on the phone; fifteen recorded instruments downloaded on request (the Salamander grand with three velocity layers, and VSCO 2 CE upright pianos, organ, strings, harp, woodwinds, brass and mallets).
+- **AI**: Groove (our own drum model, trained on 13.6 hours of real drummers in 18 styles, instant and on the phone), Beat Lab (beats as audio by Stable Audio Open Small, Powered by Stability AI, a few seconds a beat), Speak (Kokoro, 54 voices, eight languages) and Sing (the song engine's voice into a project).
+- **Portable projects**: one .killa file to move a project to another phone or back it up.
+
 ## 1.5.0: Studio expansion
 
 - **Mixer and effects**: groups, sends, editable effect chains, EQ, compressor, limiter, delay, reverb, saturation and filter.
@@ -116,7 +126,7 @@ Plan:
 
 ## Studio tab: delivered and remaining
 
-The Studio now includes stems, arrangement, Play Along recording, sampler pads, mixer effects, automation, mastering and piano-roll instruments. The original scope below remains a reference. Sampled acoustic instrument packs, MIDI recording and MIDI-file import/export, portable project export, and AI voices and beats remain future work. Killa Pluck and Killa Tines are original designed sounds, not acoustic recordings.
+The Studio now includes stems, arrangement, Play Along recording, sampler pads, mixer effects, automation, mastering, the Keys piano with MIDI effects, recorded instruments, MIDI recording and MIDI files, portable projects, and AI voices. Remaining: velocity layers for more of the recorded instruments, and pitch bend and modulation from MIDI keyboards.
 
 - **Stems**: split any song into vocals, drums, bass and the rest with a separation model on the phone's GPU. Every stem becomes an ordinary track you can edit.
 - **Arrange**: audio and instrument tracks; move, trim, split, duplicate and loop clips; crossfades, markers, snap to the beat, and undo.

@@ -878,3 +878,38 @@ https://datatracker.ietf.org/ipr/1526/
 ```
 
 miniaudio 0.11.25 by David Reid, used under MIT No Attribution. The complete dual-license text is included at the end of peer/native/vendor/miniaudio.h; the pinned revision and SHA-256 are in peer/native/vendor/VERSIONS.txt. The source header is included in the desktop companion.
+
+## Studio sound packs (downloaded on request, not inside the app)
+
+The recorded instruments in the Studio's Sounds are downloaded once from the `sounds-v1` release of this
+repository, built by `tools/sounds/build.py` (trimmed, levelled, looped where a note may ring longer than the
+recording, encoded as 16-bit 48 kHz FLAC). Each pack carries its own LICENSE.txt.
+
+- **Grand Piano**: Salamander Grand Piano V3 by Alexander Holm (a Yamaha C5), Creative Commons Attribution 3.0
+  (https://creativecommons.org/licenses/by/3.0/). Source: https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html
+- **Upright Piano, Bright Upright, Organ, String Ensemble, Pizzicato Strings, Harp, Flute, Clarinet, Trumpet, French
+  Horn, Trombone, Marimba, Glockenspiel, Xylophone**: Versilian Studios Chamber Orchestra 2 Community Edition
+  (https://github.com/sgossner/VSCO-2-CE), CC0 1.0 (public domain); the Upright Piano and Organ were sampled by
+  Simon Dalzell of Ivy Audio. Credit to the authors and Versilian Studios is given here gladly.
+
+## Killa Groove (the Studio's drum-groove model, inside the app)
+
+`assets/studio/killa-groove-v2.bin` is a model trained by `tools/groove/train.py` on the Groove MIDI Dataset by Jon
+Gillick, Adam Roberts, Jesse Engel, Mohammad Norouzi and the Magenta team at Google, released under Creative Commons
+Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/; https://magenta.tensorflow.org/datasets/groove). The
+model is our own training on that data; the data itself is not included. Its step representation follows "Learning
+to Groove with Inverse Sequence Transformations" (Gillick et al., ICML 2019).
+
+## Beat Lab (downloaded on request, not inside the app)
+
+`killa-beats-v1.zip` (JackKnifeAI/killa-studio-beats on Hugging Face, and the `studio-ai-v1` release):
+Stable Audio Open Small by Stability AI, under the Stability AI Community License. This Stability AI Model is licensed
+under the Stability AI Community License, Copyright © Stability AI Ltd. All Rights Reserved. **Powered by Stability AI.**
+Converted (not retrained) to LiteRT with Arm's `export_sao.py`; run by Arm's `audiogen` (ARM-software/ML-examples,
+kleidiai-examples/audiogen, Apache-2.0) on LiteRT, XNNPACK and KleidiAI (Apache-2.0). The licence and NOTICE travel
+inside the zip. Use follows Stability AI's Acceptable Use Policy (https://stability.ai/use-policy).
+
+## Speak (downloaded on request, not inside the app)
+
+`killa-voice-v1.zip`: Kokoro-82M v1.0 (hexgrad, Apache-2.0); sherpa-onnx v1.13.8 (k2-fsa, Apache-2.0), which includes
+espeak-ng (GPL-3.0, sources at https://github.com/espeak-ng/espeak-ng) and its data; ONNX Runtime (Microsoft, MIT).

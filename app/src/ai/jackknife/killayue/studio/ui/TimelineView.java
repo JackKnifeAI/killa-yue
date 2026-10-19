@@ -121,8 +121,35 @@ final class TimelineView extends View {
         setMeasuredDimension(MeasureSpec.getSize(w), ruler + Math.max(1, tracks) * lane + Ui.dp(getContext(), 8));
     }
 
+    /** Dragging the playhead: grab it anywhere near its line (or its knob on the ruler) and slide. */
+    private boolean scrubbing;
+    private long lastScrub;
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        if (session.project() != null && e.getPointerCount() == 1) {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN && e.getX() > header) {
+                ai.jackknife.killayue.studio.NativeEngine.Status st = session.status();
+                if (st != null && Math.abs(e.getX() - xAt(st.position)) < Ui.dp(getContext(), 22)) {
+                    scrubbing = true;
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                    return true;
+                }
+            }
+            if (scrubbing) {
+                if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (action == MotionEvent.ACTION_UP || now - lastScrub > 30) {
+                        session.seek(Math.max(0, (long) frameAt(Math.max(header, e.getX()))));
+                        lastScrub = now;
+                    }
+                }
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)
+                    scrubbing = false;
+                return true;
+            }
+        }
         if (editMode != 0 && session.project() != null && e.getPointerCount() == 1) {
             long at = Math.max(0, (long) frameAt(e.getX()));
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN && e.getX() > header && e.getY() > ruler) {

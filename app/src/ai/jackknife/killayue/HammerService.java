@@ -92,6 +92,9 @@ public final class HammerService extends Service {
         }
     }
     static void play(Context c, List<Hammer.Card> peers, Hammer.Song song, int mode) throws Exception {
+        play(c, peers, song, mode, 0);
+    }
+    static void play(Context c, List<Hammer.Card> peers, Hammer.Song song, int mode, int startAt) throws Exception {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         song.write(new DataOutputStream(b));
         ArrayList<String> cards = new ArrayList<String>();
@@ -101,7 +104,7 @@ public final class HammerService extends Service {
                        .setAction("play")
                        .putExtra("song", b.toByteArray())
                        .putStringArrayListExtra("peers", cards)
-                       .putExtra("mode", mode);
+                       .putExtra("mode", mode).putExtra("startAt", Math.max(0, startAt));
         c.startForegroundService(i);
     }
     @Override
@@ -207,7 +210,7 @@ public final class HammerService extends Service {
                                     return;
                                 opening = null;
                                 try {
-                                    begin(peers, song, mode, frames);
+                                    begin(peers, song, mode, frames, intent.getIntExtra("startAt", 0));
                                 } catch (Exception e) {
                                     releasePlayer();
                                     playback = "Could not prepare stream";
@@ -248,7 +251,7 @@ public final class HammerService extends Service {
         } catch (Exception ignored) {
         }
     }
-    private void begin(List<Hammer.Card> peers, final Hammer.Song song, int mode, long frames)
+    private void begin(List<Hammer.Card> peers, final Hammer.Song song, int mode, long frames, final int startAt)
         throws Exception {
         releasePlayer();
         final int generation = ++playerGeneration;
@@ -273,6 +276,7 @@ public final class HammerService extends Service {
                 if (generation != playerGeneration)
                     return;
                 playerReady = true;
+                if (startAt > 0) mp.seekTo(Math.min(startAt, Math.max(0, mp.getDuration() - 1)));
                 if (requestFocus()) {
                     mp.start();
                     playback = "Playing: " + song.title;

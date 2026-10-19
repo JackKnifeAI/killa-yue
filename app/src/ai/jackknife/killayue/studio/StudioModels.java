@@ -22,6 +22,9 @@ public final class StudioModels {
     }
 
     static final String HTDEMUCS = "https://huggingface.co/JackKnifeAI/htdemucs-executorch/resolve/main/";
+    static final String VOICE = "https://huggingface.co/JackKnifeAI/killa-studio-voice/resolve/main/";
+    static final String BEATS = "https://huggingface.co/JackKnifeAI/killa-studio-beats/resolve/main/";
+    static final String STUDIO_AI = "https://github.com/JackKnifeAI/killa-yue/releases/download/studio-ai-v1/";
 
     public static final File[] ALL = {
         // Demucs v4 (Meta, MIT) exported for ExecuTorch with Vulkan, and the ExecuTorch 1.3.1 runtime it runs on
@@ -29,7 +32,19 @@ public final class StudioModels {
                 HTDEMUCS + "htdemucs_vulkan.pte"),
         new File("stems", "libexecutorch_ffi.so", 111533272L, "cb8391689f77d86b9f6d7866985695485d5bc7651243e6ca699764e51c175d71",
                 HTDEMUCS + "libexecutorch_ffi.so"),
+        // Speak: Kokoro-82M v1.0 (Apache-2.0) on sherpa-onnx (Apache-2.0) and ONNX Runtime (MIT), unpacked into voice/
+        new File("voice", "killa-voice-v1.zip", 355131969L, "7b3128b89ba5688ce12e41202df396ea8e18513da56d33c0d426502bd81dac98",
+                VOICE + "killa-voice-v1.zip", STUDIO_AI + "killa-voice-v1.zip"),
+        // Beat Lab: Stable Audio Open Small (Stability AI Community License; Powered by Stability AI), converted to
+        // LiteRT, with Arm's audiogen runner (Apache-2.0); unpacked into beats/
+        new File("beats", "killa-beats-v1.zip", 1014752650L, "8251b4bc23622f73169e05373f3be3536af494fb03f973949625856b8d577a47",
+                BEATS + "killa-beats-v1.zip", STUDIO_AI + "killa-beats-v1.zip"),
     };
+
+    /** A feature whose files are published. */
+    public static boolean available(String feature) {
+        return forFeature(feature).length > 0;
+    }
 
     private StudioModels() {}
 

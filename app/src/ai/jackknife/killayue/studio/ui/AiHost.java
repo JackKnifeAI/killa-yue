@@ -25,7 +25,8 @@ public class AiHost extends Service {
         if (!started) {
             started = true;
             final File dir = new File(in.getStringExtra(JOB));
-            final File runtime = new File(in.getStringExtra(RUNTIME)), model = new File(in.getStringExtra(MODEL));
+            final String runtimePath = in.getStringExtra(RUNTIME);
+            final File runtime = runtimePath == null ? null : new File(runtimePath), model = new File(in.getStringExtra(MODEL));
             final boolean fast = in.getBooleanExtra(FAST, false);
             new Thread(new Runnable() {
                 public void run() {
@@ -34,6 +35,16 @@ public class AiHost extends Service {
                     try {
                         if (job == null) throw new Exception("The job folder is damaged.");
                         job.status("running", 0, null);
+                        if ("voice".equals(job.kind())) {
+                            speak(job, model);
+                            job.status("done", 1, null);
+                            System.exit(0);
+                        }
+                        if ("beats".equals(job.kind())) {
+                            beat(job, model, fast);
+                            job.status("done", 1, null);
+                            System.exit(0);
+                        }
                         NativeStem.load(runtime);
                         final NativeStem stem = new NativeStem(model);
                         final AiJob j = job;
@@ -74,6 +85,97 @@ public class AiHost extends Service {
             }, "ai-job").start();
         }
         return new Binder();
+    }
+
+    static native int nSpeak(String dir, String lang, String text, int voice, float speed, int threads, String out);
+
+    /** Speak: Kokoro through sherpa-onnx, its libraries loaded by full path from the download. */
+    static void speak(AiJob job, File dir) throws Exception {
+        System.load(new File(dir, "libonnxruntime.so").getAbsolutePath());
+        System.load(new File(dir, "libsherpa-onnx-c-api.so").getAbsolutePath());
+        System.load(new File(dir, "libkillavoice.so").getAbsolutePath());
+        job.status("running", .1, null);
+        Object speed = job.get("speed");
+        int n = nSpeak(dir.getAbsolutePath(), (String) job.get("lang"), (String) job.get("text"), job.getInt("voice"),
+                speed instanceof Number ? ((Number) speed).floatValue() : 1f, 4, (String) job.get("out"));
+        if (n <= 0) throw new Exception("The voice could not speak that text.");
+    }
+
+    /**
+     * Beats: Stable Audio Open Small on LiteRT, run by Arm's audiogen (Apache-2.0) as its own program. Progress is
+     * estimated from the steps it prints; cancelling ends the program.
+     */
+    static void beat(AiJob job, File dir, boolean fast) throws Exception {
+        File exe = new File(dir, "audiogen");
+        exe.setExecutable(true, true);
+        java.util.ArrayList<String> cmd = new java.util.ArrayList<String>();
+        cmd.add(exe.getAbsolutePath());
+        cmd.add("-m");
+        cmd.add(dir.getAbsolutePath());
+        cmd.add("-p");
+        cmd.add((String) job.get("prompt"));
+        cmd.add("-t");
+        cmd.add(fast ? "6" : "4");
+        cmd.add("-s");
+        cmd.add(String.valueOf(((Number) job.get("seed")).longValue()));
+        cmd.add("-n");
+        cmd.add(String.valueOf(job.getInt("steps")));
+        cmd.add("-l");
+        cmd.add(String.valueOf((int) Math.ceil(((Number) job.get("seconds")).doubleValue())));
+        cmd.add("-o");
+        cmd.add((String) job.get("out"));
+        if (job.get("input") != null) {
+            File in = new File(new File((String) job.get("out")).getParentFile(), "input.wav");
+            ai.jackknife.killayue.studio.SoundPacks.toBeatInput(new File((String) job.get("input")), in, 11);
+            cmd.add("-i");
+            cmd.add(in.getAbsolutePath());
+            cmd.add("-x");
+            cmd.add(String.valueOf(((Number) job.get("strength")).doubleValue()));
+        }
+        ProcessBuilder pb = new ProcessBuilder(cmd).directory(dir).redirectErrorStream(true);
+        pb.environment().put("LD_LIBRARY_PATH", dir.getAbsolutePath());
+        final java.lang.Process p = pb.start();
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));
+        final StringBuilder tail = new StringBuilder();
+        final java.io.BufferedReader lines = r;
+        Thread reader = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    for (String line; (line = lines.readLine()) != null;)
+                        synchronized (tail) {
+                            tail.append(line).append('\n');
+                            if (tail.length() > 2000) tail.delete(0, tail.length() - 2000);
+                        }
+                } catch (java.io.IOException e) {
+                    // the program ended
+                }
+            }
+        }, "ai-beat-log");
+        reader.start();
+        // about four seconds of loading and decoding plus a sixth of a second a step on an S25: a fair estimate
+        double expected = 4 + .17 * Math.max(1, job.getInt("steps")) * (fast ? 1 : 1.6);
+        long t0 = System.currentTimeMillis();
+        while (true) {
+            try {
+                p.exitValue();
+                break;
+            } catch (IllegalThreadStateException running) {
+                if (job.cancelled()) {
+                    p.destroy();
+                    throw new Exception("Cancelled.");
+                }
+                double s = (System.currentTimeMillis() - t0) / 1000.0;
+                job.status("running", Math.min(.95, s / expected * .9), null);
+                Thread.sleep(250);
+            }
+        }
+        reader.join(2000);
+        File made = new File((String) job.get("out"));
+        if (p.exitValue() != 0 || !made.isFile())
+            synchronized (tail) {
+                throw new Exception("The beat model stopped: " + tail.toString().trim());
+            }
+        ai.jackknife.killayue.studio.SoundPacks.level(made);
     }
 
     @Override

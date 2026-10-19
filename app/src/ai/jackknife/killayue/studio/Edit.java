@@ -78,7 +78,7 @@ public abstract class Edit {
     }
 
     public static Edit addInstrument(String name, int instrument) {
-        if (instrument < 0 || instrument > 1) throw new IllegalArgumentException("Unknown instrument.");
+        if (!Sounds.valid(instrument)) throw new IllegalArgumentException("Unknown instrument.");
         AddTrack edit = new AddTrack(name, "", 0); edit.role = "instrument:" + instrument; return edit;
     }
 

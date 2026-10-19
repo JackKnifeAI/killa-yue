@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * No third-party recording, soundfont, model or sample is used. Apache-2.0, like the application.
  */
 public final class InstrumentSamples {
-    public static final String[] NAMES = {"Killa Pluck", "Killa Tines"};
+    
     private InstrumentSamples() {}
     public static String path(int instrument, int rate, int key) {
         return "audio/instruments-v1/" + rate + "/" + instrument + "-" + key + ".wav";
@@ -19,24 +19,79 @@ public final class InstrumentSamples {
     public interface Progress {
         void at(int done, int total);
     }
-    public static void bank(File dir, int rate, int instrument, Progress progress, AtomicBoolean cancel)
+    public static void bank(File dir, int rate, int instrument, final Progress progress, AtomicBoolean cancel)
         throws IOException {
-        for (int key = MidiNotes.LOW; key <= MidiNotes.HIGH; key++) {
-            if (cancel.get())
-                throw new IOException("Cancelled.");
-            ensure(dir, rate, instrument, key);
-            progress.at(key - MidiNotes.LOW + 1, MidiNotes.HIGH - MidiNotes.LOW + 1);
-        }
+        Sounds.bank(dir, rate, instrument, new Sounds.Progress() {
+            public void at(int done, int total) { progress.at(done, total); }
+        }, cancel);
     }
-    public static synchronized File ensure(File dir, int rate, int instrument, int key) throws IOException {
-        if (instrument < 0 || instrument >= NAMES.length || rate < 8000 || rate > 384000 || key < MidiNotes.LOW
-            || key > MidiNotes.HIGH)
+    public static File ensure(File dir, int rate, int instrument, int key) throws IOException {
+        return ensure(dir, rate, instrument, key, 0);
+    }
+    public static synchronized File ensure(File dir, int rate, int instrument, int key, int layer) throws IOException {
+        Sounds.Sound s = Sounds.get(instrument);
+        if (s == null || s.acoustic() || rate < 8000 || rate > 384000 || key < MidiNotes.LOW || key > MidiNotes.HIGH
+            || layer < 0 || layer >= s.layers)
             throw new IOException("Invalid sampled instrument.");
-        File out = new File(dir, path(instrument, rate, key));
+        File out = new File(dir, Sounds.path(instrument, rate, key, layer));
         if (out.isFile())
             return out;
         if (!out.getParentFile().isDirectory() && !out.getParentFile().mkdirs())
             throw new IOException("Could not create the instrument sample folder.");
+        if (instrument <= 1)
+            return legacy(out, rate, instrument, key);
+        Synth synth = Synth.of(instrument, rate, 440 * Math.pow(2, (key - 69) / 12.0), layer, s.layers);
+        return write(out, rate, synth.stereo ? 2 : 1, (int) (s.seconds * rate), synth);
+    }
+    /** One sample frame at a time; mono writes left only. */
+    interface Generator {
+        void next(float[] frame);
+    }
+    static File write(File out, int rate, int channels, int frames, Generator g) throws IOException {
+        File tmp = File.createTempFile("sample-", ".tmp", out.getParentFile());
+        boolean saved = false;
+        try {
+            FileOutputStream stream = new FileOutputStream(tmp);
+            try {
+                int bytes = frames * 4 * channels;
+                ByteBuffer header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN);
+                header.put("RIFF".getBytes("US-ASCII")).putInt(36 + bytes).put("WAVEfmt ".getBytes("US-ASCII"))
+                    .putInt(16).putShort((short) 3).putShort((short) channels).putInt(rate)
+                    .putInt(rate * 4 * channels).putShort((short) (4 * channels)).putShort((short) 32)
+                    .put("data".getBytes("US-ASCII")).putInt(bytes);
+                stream.write(header.array());
+                ByteBuffer chunk = ByteBuffer.allocate(4096 * 4 * channels).order(ByteOrder.LITTLE_ENDIAN);
+                float[] frame = new float[2];
+                int fadeIn = Math.max(1, rate / 1000), fadeOut = Math.max(1, rate * 8 / 100);
+                for (int at = 0; at < frames;) {
+                    chunk.clear();
+                    int n = Math.min(4096, frames - at);
+                    for (int i = 0; i < n; i++) {
+                        frame[0] = frame[1] = 0;
+                        g.next(frame);
+                        float env = Math.min(1f, (at + i) / (float) fadeIn) * Math.min(1f, (frames - at - i) / (float) fadeOut);
+                        for (int ch = 0; ch < channels; ch++) {
+                            float v = frame[ch] * env;
+                            chunk.putFloat(Float.isNaN(v) || Float.isInfinite(v) ? 0 : Math.max(-1, Math.min(1, v)));
+                        }
+                    }
+                    stream.write(chunk.array(), 0, n * 4 * channels);
+                    at += n;
+                }
+                stream.getFD().sync();
+            } finally {
+                stream.close();
+            }
+            if (!tmp.renameTo(out))
+                throw new IOException("Could not save the instrument sample.");
+            saved = true;
+            return out;
+        } finally {
+            if (!saved)
+                tmp.delete();
+        }
+    }
+    private static File legacy(File out, int rate, int instrument, int key) throws IOException {
         File tmp = File.createTempFile("sample-", ".tmp", out.getParentFile());
         boolean saved = false;
         try {

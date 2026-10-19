@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="ai.jackknife.killayue" android:versionCode="20" android:versionName="1.6.1">
+    package="ai.jackknife.killayue" android:versionCode="21" android:versionName="1.7.0">
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Foreground MIDI discovery only. Legacy permissions remain while the app targets API 28. -->
@@ -51,6 +51,8 @@
                 <data android:scheme="hammer"/>
             </intent-filter>
         </activity>
+        <activity android:name=".BackstageActivity" android:exported="false"/>
+        <activity android:name=".CommunityCountActivity" android:exported="false"/>
         <activity android:name=".HammerArtistActivity" android:exported="false"/>
         <activity android:name=".HammerActivity" android:exported="false"/>
         <service android:name=".HammerCodecService" android:exported="false" android:isolatedProcess="true" android:process=":hammercodec"/>

@@ -31,7 +31,7 @@ public final class InstrumentsProof {
                         "", System.currentTimeMillis());
                     Project p = ProjectStore.load(dir).project;
                     for (int bank = 0; bank < 2; bank++) {
-                        Track t = p.addTrack(InstrumentSamples.NAMES[bank]);
+                        Track t = p.addTrack(Sounds.get(bank).name);
                         t.notes.instrument = bank;
                         for (int step = 0; step < 8; step++) {
                             MidiNotes.Note n = t.notes.add(step, 48 + bank * 12 + new int[] {0, 4, 7, 12}[step % 4]);
