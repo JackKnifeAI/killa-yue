@@ -58,8 +58,12 @@ with tempfile.TemporaryDirectory() as tmp:
     hashes = "".join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(folder).as_posix()}\n' for p in sorted(folder.rglob("*")) if p.is_file())
     (folder / "SHA256SUMS").write_text(hashes)
     archive = args.output / f"killa-desktop-lab-{target}.zip"
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+    # Cargo normalizes some source timestamps to before ZIP's 1980 epoch.
+    # Clamp those timestamps and only expose the finished archive.
+    temporary_archive = archive.with_suffix(".zip.tmp")
+    with zipfile.ZipFile(temporary_archive, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as z:
         for p in sorted(folder.rglob("*")):
             if p.is_file():
                 z.write(p, p.relative_to(pathlib.Path(tmp)).as_posix())
+    temporary_archive.replace(archive)
     print(archive)
