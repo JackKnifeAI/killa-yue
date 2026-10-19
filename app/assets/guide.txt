@@ -260,3 +260,28 @@ Settings > Sharing and hosting > Computer > Save desktop companion writes hammer
 Only explicitly published objects can be requested over HAMMER. Knowing a file hash does not grant access. Audio, artwork and metadata requests check their owner and visibility. Android media workers receive selected read-only descriptors or bounded packets, not directory access or signing keys. Connection and resource limits reduce abuse; no software is immune to attacks.
 HAMMER encrypts transport and pins peer identities. It does not hide IP addresses or traffic timing, encrypt existing master files at rest, prevent compatible third-party clients, or stop recipients recording public streams. Public artist metadata is intended to be discoverable.
 The older Nearby browser download action is a separate temporary local HTTP sharing feature. It does not use HAMMER encryption and is not a fallback for encrypted peer connections.
+
+# Backstage and community
+
+## Song conversations
+Open a shared song in Discover and choose Song conversation / remixes. Hosts store these signed posts beside the track; posting never changes the music file. Earlier comments remain visible. Choose New post or Reply, enter your display name and message, and optionally a timestamp in seconds. Tap Listen at a timestamp to play that part. Refresh reads the latest posts from this host.
+Public conversations can travel with verified downloads. Private conversations are visible only through that host's current circle invitation and are not copied into public track metadata. Hosts can be offline, so a post is only delivered when the host confirms it. There is no offline outgoing message queue in this preview.
+
+## Artist boards
+An artist's public profile opens Backstage · artist board. Artists start topics; fans reply. Artists can Pin, Hide or Lock replies on their threads. Muting an author hides them locally and blocks new posts by that identity on your host. Other hosts and people may retain copies of public posts. Each host's thread holds up to 256 posts and moderation actions in this preview.
+
+## Remix links
+Publish and host your remix first, then open the original track's public conversation and choose Link one of my remixes. Choose your published track and post a message. The original host receives the remix link; your remix also keeps metadata linking to the original song and its host. Links include signed track information, not private invitations. Opening a link contacts the named host. A link does not guarantee that the host is online or that you have permission to copy or remix the music.
+
+## Listening-circle invitations
+Following an artist normally stays local. On the artist's own board, Receive circle invitations separately asks that host to remember your display name and signing identity. This follower list is not public. The artist opens Followers · invite to listening circle and chooses whom to invite. Recipients use Check my invitation and Accept; nothing joins automatically.
+An invitation grants access to all tracks in the artist's existing private circle, not a new separate group. Revoke private invitations in Sharing settings rotates the shared circle access and invalidates old invitations, including grants waiting to be collected. Recipients may already have downloaded copies. Stop receiving invitations removes the registration when the artist's host is reachable.
+If Live Follow is enabled, the visible connection service also checks artist boards and registered invitation inboxes approximately once per minute. The first board read establishes a baseline; new posts and invitations notify you afterward. Delivery waits for connectivity and for the service to run. Registered followers are limited to 512 per host in this preview.
+
+## Community headcount
+Sharing settings → Community headcount settings is off by default. The preview suggests the ops community node; you can save another public counting node while counting is off. Include this installation in the monthly count explicitly enables a check-in when you use the app. Successful check-ins happen once per UTC calendar month; failures back off six hours. Refresh this node's monthly count reads its aggregate total, and includes your installation only if you opted in.
+The node receives a separate monthly token and the month. It does not receive your artist identity, hardware identifiers, songs or listening history. The counter keeps tokens only for the current month, to deduplicate repeated check-ins. A network card joins the peer network; peers can see connection addresses, although the counting service does not retain IP logs. Turning the setting off stops future check-ins and attempts to remove the current token; an unavailable node or an in-flight request can leave it counted until next month.
+The displayed number is participating installations on this node this month, not verified people or all app users. Reinstalls, additional devices and fabricated tokens can inflate it; users who decline are absent. Do not add totals from separate nodes. All music features work without joining the count.
+
+## Volunteer desktop companion
+Save desktop companion in Sharing settings exports a computer package. The preview adds optional peer networking, artist boards, invitations and the monthly counter. Its README explains the daemon flags and limits. The ops volunteer node hosts metadata and performs audio transcoding for hosted tracks. Remote music generation is not available in this milestone. The companion roadmap covers a full Rust desktop music app, tested GPU support and future volunteer generation workers.

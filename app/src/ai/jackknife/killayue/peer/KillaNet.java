@@ -65,8 +65,9 @@ public final class KillaNet {
         RANDOM.nextBytes(TOKEN);
         bridge = new ServerSocket();
         bridge.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 16);
+        final ServerSocket listener = bridge;
         Thread t = new Thread(new Runnable() {
-            public void run() { bridge(); }
+            public void run() { bridge(listener); }
         }, "killanet-bridge");
         t.setDaemon(true);
         t.start();
@@ -119,10 +120,10 @@ public final class KillaNet {
     }
 
     /** Inbound streams: token, PeerId, then the peer's TLS bytes, handed to the HAMMER server. */
-    private static void bridge() {
-        while (!bridge.isClosed())
+    private static void bridge(ServerSocket listener) {
+        while (!listener.isClosed())
             try {
-                final Socket s = bridge.accept();
+                final Socket s = listener.accept();
                 Thread t = new Thread(new Runnable() {
                     public void run() { admit(s); }
                 }, "killanet-in");
@@ -186,6 +187,13 @@ public final class KillaNet {
                                  "1".equals(f[6])));
         }
         return out;
+    }
+
+    /** Stops native networking and its local bridge; desktop shutdown must not leave listeners behind. */
+    public static synchronized void stop() {
+        server = null;
+        if (peerId != null) { nativeStop(); peerId = null; }
+        if (bridge != null) try { bridge.close(); } catch (IOException ignored) {}
     }
 
     /** One line for Settings: whether the node runs and how many peers are connected. */

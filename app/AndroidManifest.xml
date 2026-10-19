@@ -51,6 +51,8 @@
                 <data android:scheme="hammer"/>
             </intent-filter>
         </activity>
+        <activity android:name=".BackstageActivity" android:exported="false"/>
+        <activity android:name=".CommunityCountActivity" android:exported="false"/>
         <activity android:name=".HammerArtistActivity" android:exported="false"/>
         <activity android:name=".HammerActivity" android:exported="false"/>
         <service android:name=".HammerCodecService" android:exported="false" android:isolatedProcess="true" android:process=":hammercodec"/>

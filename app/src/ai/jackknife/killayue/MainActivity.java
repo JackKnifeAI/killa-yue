@@ -430,6 +430,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
+        CommunityCountActivity.onLaunch(this);
         Updates.resume(this);   // back from allowing Killa YuE to install apps
         if (wakeBtn != null) wakeBtn.setText(wakeLabel());
     }

@@ -74,6 +74,7 @@ public final class HammerServer {
                                               directory ? "rwx------" : "rw-------"));
     }
     public void close() {
+        KillaNet.announce(false); KillaNet.serve(null); KillaNet.stop();
         discovery.shutdownNow();
         announceJob.cancel();
         for (Hammer.Job j : subscriptions)
@@ -83,6 +84,11 @@ public final class HammerServer {
     }
     private void announce() {
         try {
+            store.census.rollover();
+            HammerStore.atomic(new File(store.root, "health.txt"),
+                ("updated=" + System.currentTimeMillis() + "\nnetwork=" + KillaNet.status() +
+                 "\nroles=hosting,community,audio-transcode\nremote-generation=disabled\ncount=" + store.census.enabled + "\n").getBytes(StandardCharsets.UTF_8));
+            if (KillaNet.running()) KillaNet.announce(store.census.enabled || !store.catalog("").isEmpty() || store.publicObjects.own() != null);
             if (store.catalog("").isEmpty() && store.publicObjects.own() == null)
                 return;
             HammerPresence p = new HammerPresence();
@@ -104,6 +110,7 @@ public final class HammerServer {
         }
     }
     private Hammer.Card card(boolean circle) throws Exception {
+        if (KillaNet.running()) return Hammer.Card.p2p(KillaNet.peerId(), pin, circle ? store.token() : "");
         return new Hammer.Card(address, server.port(), pin, circle ? store.token() : "");
     }
     private void peers() {
@@ -146,6 +153,9 @@ public final class HammerServer {
         if (!selected.card.isPrivate())
             store.importPublicMetadata(song, Hammer.comments(selected.card, song.id, new Hammer.Job()),
                                        Hammer.votes(selected.card, song.id, new Hammer.Job()));
+        if (!selected.card.isPrivate()) try {
+            store.community.importPublic(song, HammerCommunity.list(selected.card, "track", song.id, new Hammer.Job()));
+        } catch (Exception optionalCommunity) { System.out.println("Community metadata unavailable; audio remains verified."); }
         System.out.println("Verified download: " + target);
     }
     private void help() {
@@ -171,6 +181,12 @@ public final class HammerServer {
             + "  votes SONG_NUMBER                      Read anonymous-display votes\n"
             + "  vote SONG_NUMBER up|down|clear         Vote with a separate key per track/circle\n"
             + "  watch PEER_NUMBER                      Receive live encrypted catalog events\n"
+            + "  board                                 Read this host's public artist board\n"
+            + "  post TEXT                             Start an artist board thread\n"
+            + "  followers                             List followers who requested circle invites\n"
+            + "  invite FOLLOWER_NUMBER                Grant the existing private circle to a follower\n"
+            + "  count                                 Show this node's participating installation count\n"
+            + "  status                                Show node roles and bounded audio compute capabilities\n"
             + "  quit                                  Stop the server\n"
             + "Public sharing is explicit. Private cards grant access; keep them private. No central "
             + "services.\n"
@@ -207,7 +223,25 @@ public final class HammerServer {
             help();
         else if (op.equals("quit"))
             return false;
-        else if (op.equals("card"))
+        else if (op.equals("status")) {
+            System.out.println("Hosting and signed community metadata; native audio/transcode (Opus); remote generation: disabled");
+            System.out.println("Network: " + (KillaNet.running() ? KillaNet.status() : "off"));
+            System.out.println("Monthly counter: " + (store.census.enabled ? "enabled" : "off"));
+        } else if (op.equals("count")) {
+            System.out.println(store.census.count(HammerCensus.month(), "", false) + " participating installations · " + HammerCensus.month());
+        } else if (op.equals("board")) {
+            for (HammerCommunity.Post p : store.community.visible("board", pin, "")) System.out.println(p.id + " | " + p.name + " | " + p.body);
+        } else if (op.equals("post")) {
+            HammerProfile profile = store.publicObjects.own(); Hammer.require(profile != null, "Publish a profile first");
+            HammerCommunity.Post p = new HammerCommunity.Post(); p.scope = "board"; p.target = pin; p.name = profile.name; p.body = a.get(1);
+            p.sign(identity); store.community.post(p, ""); System.out.println("Posted " + p.id);
+        } else if (op.equals("followers")) {
+            List<HammerCommunity.Follower> fs = store.community.followers();
+            for (int k = 0; k < fs.size(); k++) System.out.println(k + ": " + fs.get(k).name + " [" + Hammer.hash(Base64.getDecoder().decode(fs.get(k).key)).substring(0, 12) + "]");
+        } else if (op.equals("invite")) {
+            store.community.invite(store.community.followers().get(Integer.parseInt(a.get(1))).key);
+            System.out.println("Invitation queued for authenticated follower retrieval.");
+        } else if (op.equals("card"))
             System.out.println(card(scope(a.get(1)) == false).encode());
         else if (op.equals("publish")) {
             Hammer.Song s = store.publish(new File(a.get(1)), a.get(3), "", true, scope(a.get(2)), identity);
@@ -376,7 +410,8 @@ public final class HammerServer {
     public static void main(String[] args) throws Exception {
         File data = new File(System.getProperty("user.home"), ".hammer");
         String address = "127.0.0.1", bind = "0.0.0.0";
-        int port = Hammer.PORT;
+        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false;
+        int networkPort = KillaNet.PORT; String entry = "";
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--data"))
                 data = new File(args[++i]);
@@ -386,9 +421,16 @@ public final class HammerServer {
                 bind = args[++i];
             else if (args[i].equals("--port"))
                 port = Integer.parseInt(args[++i]);
+            else if (args[i].equals("--daemon")) daemon = true;
+            else if (args[i].equals("--network")) network = true;
+            else if (args[i].equals("--help-network")) { network = true; helper = true; }
+            else if (args[i].equals("--community-count")) count = true;
+            else if (args[i].equals("--upnp")) upnp = true;
+            else if (args[i].equals("--network-port")) networkPort = Integer.parseInt(args[++i]);
+            else if (args[i].equals("--entry")) entry = args[++i];
             else
                 throw new IllegalArgumentException(
-                    "Use --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --community-count --network-port PORT --entry MULTIADDR --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -397,6 +439,22 @@ public final class HammerServer {
         System.out.println(
             "HAMMER desktop host listening on " + bind + ":" + app.server.port() +
             ". Nothing is public until you publish it.\nPublic card: " + app.card(false).encode());
+        app.store.census.enabled = count;
+        if (network) {
+            try {
+                KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);
+                KillaNet.serve(app.server); app.announce();
+                System.out.println("Network card: " + app.card(false).encode());
+            } catch (Exception e) { app.close(); throw e; }
+        }
+        HammerStore.atomic(new File(data, "public.card"), app.card(false).encode().getBytes(StandardCharsets.US_ASCII));
+        HammerStore.atomic(new File(data, "direct.card"), new Hammer.Card(address, app.server.port(), app.pin, "").encode().getBytes(StandardCharsets.US_ASCII));
+        app.announce();
+        if (daemon) {
+            System.out.println("Community node running: hosting, metadata, audio/transcode; remote generation disabled.");
+            new java.util.concurrent.CountDownLatch(1).await();
+            return;
+        }
         app.help();
         try (BufferedReader in =
                  new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {

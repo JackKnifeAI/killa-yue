@@ -242,3 +242,18 @@ Add the two library paths to `app/local.env`, then run the ordinary app build. T
 The Library/Discover preview requires rebuilding `libhammer.so`: Android now calls the `framesFd` and `encodeFd` JNI entry points from a non-exported isolated service. Do not pair the new Java sources with an older native library. The main process supplies read-only descriptors; artwork decoding and normalization use the same isolated-service boundary. See `peer/DISCOVERY-SECURITY.md` for the remaining desktop isolation and internet discovery work.
 
 The HAMMER device suite also runs `HammerPlaybackTest`: it polls the real Android player throughout asynchronous preparation in all three quality modes, then checks advancing playback, pause, seek, resume and stop. This is a device test, not part of the host JVM suite. Its quiet synthetic fixtures live in an isolated app test directory.
+
+### Community preview and companion
+
+The community UI retains the project's plain Java 8 style. Both the existing
+dex workflow and the SDK D8 adapter remain available.
+`PREVIEW_SUFFIX=community.1` labels an APK for review
+without changing the manifest's stable version. Preview builds retain that
+manifest's version code and are not automatic upgrades of newer releases.
+
+Build the host network library with `bash net/build.sh host`, and set
+`HAMMER_NETWORK_LIB` to `net/target/release/libkillanet.so` alongside
+`HAMMER_DESKTOP_LIB` to include networking in the downloadable companion.
+See [the community and desktop roadmap](docs/community-and-desktop-roadmap.md)
+and [companion operations](peer/README.md). Run `peer/test/community.sh` after
+the normal HAMMER native build/tests.

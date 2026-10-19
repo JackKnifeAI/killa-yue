@@ -14,7 +14,7 @@ STRIP=${STRIP:-llvm-strip}
 DX=${DX:-dalvik-exchange}
 
 rm -rf out && mkdir -p out/gen out/classes out/apk/lib/arm64-v8a
-HAMMER_DESKTOP_LIB="$HAMMER_DESKTOP_LIB" bash ../peer/build-companion.sh "$PWD/out/hammer-assets"
+HAMMER_DESKTOP_LIB="$HAMMER_DESKTOP_LIB" HAMMER_NETWORK_LIB="$HAMMER_NETWORK_LIB" bash ../peer/build-companion.sh "$PWD/out/hammer-assets"
 MANIFEST=AndroidManifest.xml
 JAVA_DIRS="src out/gen"
 LINK_EXTRA=""
@@ -34,6 +34,12 @@ PY
     MANIFEST=out/AndroidManifest.xml
     JAVA_DIRS="$JAVA_DIRS test-src ../studio/native/test/java ../peer/test"
     LINK_EXTRA="--replace-version --version-name $(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' AndroidManifest.xml)-studiotest"
+fi
+# Label review artifacts without changing the release version in the source manifest.
+if [ -n "${PREVIEW_SUFFIX:-}" ]; then
+    [[ "$PREVIEW_SUFFIX" =~ ^[a-zA-Z0-9.-]+$ ]] || { echo "Invalid preview suffix"; exit 1; }
+    [ -z "$STUDIO_TEST" ] || { echo "Choose preview or Studio test mode"; exit 1; }
+    LINK_EXTRA="--replace-version --version-name $(sed -n 's/.*android:versionName="\([^" ]*\)".*/\1/p' AndroidManifest.xml)-$PREVIEW_SUFFIX"
 fi
 aapt2 compile --dir res -o out/res.zip
 aapt2 link -o out/base.apk -I "$ANDROID_JAR" -A assets -A out/hammer-assets --manifest $MANIFEST --java out/gen \

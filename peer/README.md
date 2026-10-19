@@ -18,8 +18,9 @@ The default listener is port 8784 on all interfaces. `--bind 127.0.0.1` restrict
 it to this computer. Set `--address` to the address your listeners can reach;
 this does not configure a router or firewall. A phone hotspot or the same Wi-Fi
 works without internet. Remote listeners need a reachable IPv6 address, a
-forwarded port, or a network you control. Carrier-grade NAT is not bypassed by
-this build. There is no mandatory rendezvous or relay provider.
+forwarded port, or a network you control. In direct-address mode, carrier-grade NAT requires a reachable address or a VPN.
+The optional Rust/libp2p mode below adds peer discovery and relay routing; actual
+reachability depends on reachable peers. There is no mandatory relay provider.
 
 Type `help` for commands. Paths and titles containing spaces must be quoted.
 
@@ -108,6 +109,101 @@ the native package. These are audio implementations, not network services.
 
 `join "hammer://ENTRY:PORT/#PIN"` verifies and remembers a public entry peer. If this host has a numeric public `--address` and published music/profile, it sends signed announcements to remembered public peers, renewed every ten minutes and expiring after thirty. The entry accepts only the address observed on the announcing connection. Directory entries contain no private invitation tokens.
 
-Android Discover searches reachable catalogs and profiles and can follow bounded batches of those announcements. The public directory is not a complete worldwide index. Reachable entry peers must exist; this preview does not configure NAT traversal or deploy relays. LAN-only desktop hosts still need their card supplied or an operating-system mDNS announcement. Android public hosts advertise through NSD automatically.
+Android Discover searches reachable catalogs and profiles and can follow bounded batches of those announcements. The public directory is not a complete worldwide index. Reachable entry peers must exist; these address-based announcements do not provide NAT traversal. The optional
+Rust network mode below uses a separate peer-ID discovery and relay transport. LAN-only desktop hosts still need their card supplied or an operating-system mDNS announcement. Android public hosts advertise through NSD automatically.
 
 See [Discovery and security](DISCOVERY-SECURITY.md) for the publication boundary, Android codec isolation, implemented limits and unfinished internet connectivity work. The desktop codec is not sandboxed by the Android service implementation.
+
+## Community preview: boards, conversations and invitations
+
+Artist profiles now open **Backstage**. Artists start board threads and fans can
+reply. Track menus open **Song conversation / remixes**; posts can carry a
+playback timestamp. The host stores signed records in `community/track-*.bin`
+and `community/board-*.bin`, alongside its other metadata. The WAV/FLAC/MP3 and
+original publication signature never change. Existing comments remain readable.
+
+Public conversation records are fetched with verified downloads and can be
+served by replicas. Private records are scoped to the original circle and are
+never included in that public import. A remix creates a public link on the
+original track's host and an original-track backlink on the remix's host. Both
+retain the signed song metadata and a public host card. These are links, not
+promises that the remote host will remain online or permission to copy a track.
+
+Only the signed artist can start board threads, pin/hide posts or lock replies.
+Local mute uses the existing host block list. Public copies cannot be recalled.
+The first implementation has bounded threads (256 records, including moderation)
+and follower registries (512 entries); pagination/archive is follow-up work.
+
+Following locally remains private. **Receive circle invitations** separately
+registers your name and signing identity with the artist's own host. The artist
+can select registered followers to invite. The follower retrieves the capability
+with a short-lived signed request over pinned TLS and explicitly accepts it.
+Nothing is sent to a public directory or public thread. This reuses the existing
+single circle per host: inviting someone grants access to that whole circle.
+Rotating the circle invalidates outstanding grants. Members can still share a
+capability or keep previously downloaded music.
+
+Live Follow checks boards and invitation inboxes approximately once a minute
+while its visible foreground service is enabled. An initial board read sets a
+baseline; an available circle invitation prompts the recipient. Offline delivery
+waits for both the host and recipient to reconnect. There is no promise of
+background delivery after Android stops the service.
+
+## Opt-in monthly headcount
+
+Sharing settings → Community headcount lets a user select a pinned public node
+and opt in. On app launch, a consenting installation checks in at most once per
+UTC calendar month after a successful response (failed attempts back off six
+hours). The token is derived from an independent random local secret, the month
+and the selected node; it does not reuse an artist key or Android identifier.
+
+A counting node keeps the current month and deduplication tokens only, with a
+100,000-token bound. No IP log, profile, song, version or hardware details are
+stored by the counter. Network connections still expose addresses to peers.
+Old tokens are purged at rollover; the desktop daemon checks every ten minutes
+and every count request. Opting out attempts removal of the current token and
+stops future check-ins. If the node is unavailable, the old token expires at
+rollover. Restoring a backup containing old count files can restore old tokens
+until that rollover check; operators should exclude the count file from backups.
+
+This measures **participating installations on this node this month**, not people,
+worldwide users, or installs across all nodes. Reinstalls and multiple devices can
+count again. A malicious client can fabricate tokens; do not use the count for
+payments, access control or claims of verified audience. Do not add independent
+nodes' totals together. Android identity recovery/linking is future work.
+
+## Always-on volunteer companion
+
+The companion can now start the existing Rust/libp2p transport as well as direct
+TLS. Build `libkillanet.so` with `bash net/build.sh host`, then package with:
+
+```
+HAMMER_DESKTOP_LIB=/path/to/libhammer.so \
+HAMMER_NETWORK_LIB=/path/to/libkillanet.so \
+  bash peer/build-companion.sh /path/to/output
+```
+
+Run `sh run.sh --daemon --network --help-network --community-count --data DIR
+--address REACHABLE_ADDRESS --bind BIND_ADDRESS`. `--network` enables peer-ID
+routing; `--help-network` also volunteers relay/DHT service; `--community-count`
+separately enables the optional counter. No counting is enabled by default.
+`--entry MULTIADDR` supplies an initial reachable peer when needed. UPnP is off
+for the desktop launcher unless `--upnp` is supplied. Direct TLS reachability and
+worldwide libp2p reachability must be tested separately.
+
+The data directory includes `public.card`, `direct.card` and a bounded
+`health.txt` status snapshot. Private keys and circle capabilities stay there;
+never publish that directory. Do not run two companions with the same data
+directory. The interactive commands `post`, `board`, `followers`, `invite`,
+`count` and `status` complement the phone's screens.
+
+This node performs actual audio transcoding for tracks its operator has chosen
+to host. It does **not** accept remote generation jobs, arbitrary uploaded files,
+commands or executable tasks. Use the provided `peer/deploy/ops.service.example`
+as a starting point for CPU/memory/task limits. The desktop codec runs in this
+bounded service, not Android's isolated codec process.
+
+The [community and Rust desktop roadmap](../docs/community-and-desktop-roadmap.md)
+(or `ROADMAP.md` in the companion ZIP) covers the complete desktop music app,
+GPU detection/correctness testing, cross-platform packaging, and separately
+consented volunteer music-generation workers.
