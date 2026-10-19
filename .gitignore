@@ -7,3 +7,7 @@ __pycache__/
 /build-studio-ai/
 
 /build-hammer-*/
+/build-desktop-*/
+/desktop-report/
+/engine-report/
+/software-vulkan-report/
