@@ -19,7 +19,8 @@ key() {
     keytool -genkeypair -alias test -keyalg EC -groupname secp256r1 -dname "CN=HAMMER $1 test only" -validity 2 \
         -storetype PKCS12 -keystore "$tmp/$1.p12" -storepass hammer-test-only -noprompt >/dev/null 2>&1
 }
-run() { java --enable-native-access=ALL-UNNAMED -Djava.library.path="$hammer:$net" -cp "$tmp/classes" \
+# preferIPv6Addresses: the JDK then answers ::1 for the loopback address, as Android always does
+run() { java --enable-native-access=ALL-UNNAMED -Djava.net.preferIPv6Addresses=true -Djava.library.path="$hammer:$net" -cp "$tmp/classes" \
         ai.jackknife.killayue.peer.NetworkTest "$@"; }
 background() {  # name, then NetworkTest arguments; waits for "ready"
     local name=$1; shift

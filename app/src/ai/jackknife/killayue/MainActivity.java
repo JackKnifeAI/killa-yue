@@ -431,6 +431,7 @@ public class MainActivity extends Activity {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
         CommunityCountActivity.onLaunch(this);
+        HammerService.resume(this);  // hosting you left on comes back by itself
         Updates.resume(this);   // back from allowing Killa YuE to install apps
         if (wakeBtn != null) wakeBtn.setText(wakeLabel());
     }
@@ -1412,6 +1413,8 @@ public class MainActivity extends Activity {
                 EngineService.setStage("", 0, 0);
                 Widget.refresh(inst != null ? inst : EngineService.self, true); // the screen may be off and the app closed
                 if (ferr == null) EngineService.announce("Finished. Tap to open.");
+                android.content.Context host = inst != null ? inst : EngineService.self;
+                if (host != null) HammerService.resume(host);  // hosting waited for the song
                 else if (!"Cancelled".equals(ferr)) EngineService.announce("That did not work: " + ferr);
                 final MainActivity a = inst;
                 if (a != null) {
@@ -3760,7 +3763,7 @@ public class MainActivity extends Activity {
         hostBtn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (HammerService.hosting()) {
-                    HammerService.stopHost();
+                    HammerService.stopHost(MainActivity.this);
                 } else if (jobBusy) {
                     toast("A song is being made. Host when it is done.");
                 } else {
