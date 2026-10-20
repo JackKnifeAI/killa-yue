@@ -26,8 +26,27 @@ public final class HammerService extends Service {
     private android.media.AudioFocusRequest focus;
     private final Handler main = new Handler(Looper.getMainLooper());
     static void startHost(Context c) {
+        wanted(c, true);  // remembered: hosting comes back by itself after an update, a crash or a restart
         Intent i = new Intent(c, HammerService.class).setAction("host");
         c.startForegroundService(i);
+    }
+    /** Stopped by the person: hosting stays off until they start it again. */
+    static void stopHost(Context c) {
+        wanted(c, false);
+        stopHost();
+    }
+    static void wanted(Context c, boolean on) {
+        c.getSharedPreferences("hammer", Context.MODE_PRIVATE).edit().putBoolean("hostWanted", on).apply();
+    }
+    /** Starts hosting again if the person left it on and it is not running (app opened, a song finished). */
+    static void resume(Context c) {
+        if (!hosting() && !starting && !MainActivity.jobBusy &&
+            c.getSharedPreferences("hammer", Context.MODE_PRIVATE).getBoolean("hostWanted", false))
+            try {
+                Intent i = new Intent(c, HammerService.class).setAction("host");
+                c.startForegroundService(i);
+            } catch (Exception notNow) { /* Android refuses a foreground start from the background */
+            }
     }
     static void stopHost() {
         HammerService s = instance;

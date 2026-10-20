@@ -94,6 +94,14 @@ public final class HammerActivity extends Activity {
                 store = HammerAndroid.store(HammerActivity.this);
                 HammerAndroid.identity();
                 if (!settingsMode) {
+                    ui.post(new Runnable() {
+                        public void run() {
+                            if (closed)
+                                return;
+                            collect();  // artists found earlier in this session show straight away
+                            render();
+                        }
+                    });
                     loadOwn();
                     try {
                         HammerAndroid.network(HammerActivity.this);
@@ -128,9 +136,9 @@ public final class HammerActivity extends Activity {
                                             if (closed || discovered.size() >= 64)
                                                 return;
                                             try {
-                                                HammerStore.Peer had = discovered.get(HammerStore.peerId(card));
-                                                if (had != null && had.card.isP2p())
-                                                    return; // already reached through the network
+                                                route(card);
+                                                if (discovered.containsKey(HammerStore.peerId(card)))
+                                                    return; // already known; this Wi-Fi route is kept beside it
                                                 discovered.put(
                                                     HammerStore.peerId(card),
                                                     new HammerStore.Peer(card, "Nearby artist", false));
@@ -258,7 +266,7 @@ public final class HammerActivity extends Activity {
         hostToggle.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 if (HammerService.hosting())
-                    HammerService.stopHost();
+                    HammerService.stopHost(HammerActivity.this);
                 else
                     HammerService.startHost(HammerActivity.this);
             }
@@ -389,6 +397,14 @@ public final class HammerActivity extends Activity {
                 hostToggle.setText(HammerService.hosting() ? "Stop hosting" : "Start hosting");
             if (!settingsMode && ++ticks % 6 == 0)
                 networkPeers();
+            // no configuration: keep asking the world for hosts, and re-check everyone now and then
+            if (!settingsMode && ticks % 60 == 0)
+                try {
+                    KillaNet.lookup();
+                } catch (Exception ignored) {
+                }
+            if (!settingsMode && ticks % 120 == 0 && !busy && store != null)
+                refresh();
             if (playerPanel != null) {
                 boolean stopped = "Stopped".equals(HammerService.playback);
                 playerPanel.setVisibility(stopped ? View.GONE : View.VISIBLE);
@@ -421,8 +437,10 @@ public final class HammerActivity extends Activity {
             try {
                 Hammer.Card card = Hammer.Card.p2p(p.id, p.pin, "");
                 String key = HammerStore.peerId(card);
-                HammerStore.Peer had = discovered.get(key);
-                if ((p.local || p.host) && (had == null || !had.card.isP2p())) {
+                if (!(p.local || p.host))
+                    continue;
+                route(card);  // a second way to the same artist, kept beside the direct one
+                if (!discovered.containsKey(key)) {
                     discovered.put(key, new HammerStore.Peer(card, p.local ? "Nearby artist" : "Network artist", false));
                     added = true;
                 }
@@ -537,7 +555,10 @@ public final class HammerActivity extends Activity {
                         busy = false;
                         if (closed)
                             return;
-                        status.setText(message == null ? title + " — done" : title + ": " + message);
+                        if (title.equals("Looking for music"))
+                            status.setText(found());  // who is out there, never a list of failures
+                        else
+                            status.setText(message == null ? title + " — done" : title + ": " + message);
                         if (!settingsMode)
                             render(); // the empty list stops saying it is still looking
                         if (message == null && title.equals("Opening HAMMER") &&
@@ -795,90 +816,183 @@ public final class HammerActivity extends Activity {
             .setNegativeButton("Close", null)
             .show();
     }
+    /**
+     * Every way to reach a peer, by its identity: the network card (PeerId) and the direct address card from this
+     * Wi-Fi, whichever were found. Discover tries the one that last answered first, then the others.
+     */
+    private static final Map<String, List<Hammer.Card>> routes = new java.util.concurrent.ConcurrentHashMap<String, List<Hammer.Card>>();
+    /** What each peer last offered, kept for the life of the app: a refresh that cannot reach a peer keeps them. */
+    private static final Map<String, List<Hit>> songsByPeer = new java.util.concurrent.ConcurrentHashMap<String, List<Hit>>();
+    private static final Map<String, Map<String, ProfileHit>> artistsByPeer =
+        new java.util.concurrent.ConcurrentHashMap<String, Map<String, ProfileHit>>();
+    private static final Map<String, Long> lastSeen = new java.util.concurrent.ConcurrentHashMap<String, Long>();
+    static void route(Hammer.Card card) {
+        String key = HammerStore.peerId(card);
+        List<Hammer.Card> known = routes.get(key);
+        List<Hammer.Card> next = known == null ? new ArrayList<Hammer.Card>() : new ArrayList<Hammer.Card>(known);
+        for (Hammer.Card c : next)
+            if (c.encode().equals(card.encode()))
+                return;
+        next.add(card);
+        routes.put(key, next);
+    }
+    private static void worked(Hammer.Card card) {
+        String key = HammerStore.peerId(card);
+        List<Hammer.Card> known = routes.get(key);
+        if (known == null)
+            return;
+        List<Hammer.Card> next = new ArrayList<Hammer.Card>(known);
+        for (int i = 0; i < next.size(); i++)
+            if (next.get(i).encode().equals(card.encode())) {
+                next.add(0, next.remove(i));
+                break;
+            }
+        routes.put(key, next);
+    }
+    /** Shows everything known: songs and artists from every peer that has answered. */
+    private void collect() {
+        hits.clear();
+        Set<String> seen = new HashSet<String>();
+        for (List<Hit> list : songsByPeer.values())
+            for (Hit h : list)
+                if (seen.add(h.song.key + "/" + h.song.id))
+                    hits.add(h);
+        profiles.clear();
+        for (Map<String, ProfileHit> m : artistsByPeer.values())
+            for (Map.Entry<String, ProfileHit> e : m.entrySet()) {
+                ProfileHit old = profiles.get(e.getKey());
+                if (old == null || e.getValue().profile.revision > old.profile.revision)
+                    profiles.put(e.getKey(), e.getValue());
+            }
+    }
     private void refresh() {
         if (busy) {
             discoveryPending = true;
             return;
         }
         discoveryPending = false;
-        work("Refreshing catalogs", new Work() {
+        work("Looking for music", new Work() {
             public void run() throws Exception {
-                final List<Hit> fresh = new ArrayList<Hit>();
-                int failures = 0;
-                final Map<String, ProfileHit> artists = new LinkedHashMap<String, ProfileHit>();
-                List<HammerStore.Peer> peers = new ArrayList<HammerStore.Peer>(store.followed());
-                peers.addAll(new ArrayList<HammerStore.Peer>(discovered.values()));
-                Set<String> visited = new HashSet<String>();
-                final java.util.concurrent.ScheduledExecutorService timer =
-                    Executors.newSingleThreadScheduledExecutor();
-                final Hammer.Job discoveryJob = job;
-                timer.schedule(new Runnable() {
-                    public void run() { discoveryJob.cancel(); }
-                }, 30, TimeUnit.SECONDS);
+                // live peers (found on the network or this Wi-Fi just now) first, then the ones you follow
+                final List<HammerStore.Peer> peers = new ArrayList<HammerStore.Peer>(discovered.values());
+                for (HammerStore.Peer p : store.followed()) peers.add(p);
+                for (HammerStore.Peer p : peers) route(p.card);
+                final Set<String> visited = java.util.Collections.synchronizedSet(new HashSet<String>());
+                final java.util.concurrent.atomic.AtomicInteger answered = new java.util.concurrent.atomic.AtomicInteger();
+                final java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(6);
+                final java.util.concurrent.ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+                final Hammer.Job whole = job;
                 try {
-                    for (int peerIndex = 0; peerIndex < peers.size() && visited.size() < 32 && !job.cancelled;
-                         peerIndex++) {
-                        HammerStore.Peer p = peers.get(peerIndex);
-                        if (!visited.add(HammerStore.peerId(p.card)))
+                    List<java.util.concurrent.Future<?>> tasks = new ArrayList<java.util.concurrent.Future<?>>();
+                    for (final HammerStore.Peer peer : peers) {
+                        final String key = HammerStore.peerId(peer.card);
+                        if (!visited.add(key) || visited.size() > 48)
                             continue;
-                        job.check();
-                        try {
-                            for (Hammer.Song s : Hammer.catalog(p.card, job))
-                                fresh.add(new Hit(p, s));
-                            if (!p.card.isPrivate())
-                                try {
-                                    List<HammerPresence> hints = Hammer.directory(p.card, job);
-                                    Collections.shuffle(hints);
-                                    int accepted = 0;
-                                    for (HammerPresence hint : hints) {
-                                        if (++accepted > 8 || peers.size() >= 128)
-                                            break;
-                                        if (!visited.contains(HammerStore.peerId(hint.card)))
-                                            peers.add(
-                                                new HammerStore.Peer(hint.card, "Network artist", false));
+                        tasks.add(pool.submit(new Runnable() {
+                            public void run() {
+                                List<Hammer.Card> cards = routes.get(key);
+                                if (cards == null)
+                                    cards = java.util.Collections.singletonList(peer.card);
+                                for (Hammer.Card card : cards) {
+                                    if (whole.cancelled)
+                                        return;
+                                    // each route gets its own twelve seconds; a dead peer never holds up a live one
+                                    final Hammer.Job one = new Hammer.Job();
+                                    java.util.concurrent.ScheduledFuture<?> stop = timer.schedule(new Runnable() {
+                                        public void run() { one.cancel(); }
+                                    }, 12, TimeUnit.SECONDS);
+                                    try {
+                                        HammerStore.Peer via = new HammerStore.Peer(card, peer.label, peer.introduce);
+                                        List<Hit> songs = new ArrayList<Hit>();
+                                        for (Hammer.Song s : Hammer.catalog(card, one))
+                                            songs.add(new Hit(via, s));
+                                        Map<String, ProfileHit> artists = new LinkedHashMap<String, ProfileHit>();
+                                        try {
+                                            for (HammerProfile profile : Hammer.profiles(card, one))
+                                                artists.put(profile.id(), new ProfileHit(via, profile));
+                                        } catch (Exception older) { /* older peers still serve music */
+                                        }
+                                        if (!card.isPrivate())
+                                            try {
+                                                List<HammerPresence> hints = Hammer.directory(card, one);
+                                                Collections.shuffle(hints);
+                                                for (int i = 0; i < hints.size() && i < 8; i++) {
+                                                    final HammerPresence hint = hints.get(i);
+                                                    route(hint.card);
+                                                    ui.post(new Runnable() {
+                                                        public void run() {
+                                                            String k = HammerStore.peerId(hint.card);
+                                                            if (!discovered.containsKey(k) && discovered.size() < 64)
+                                                                try {
+                                                                    discovered.put(k, new HammerStore.Peer(hint.card, "Network artist", false));
+                                                                    discoveryPending = true;
+                                                                } catch (Exception ignored) {
+                                                                }
+                                                        }
+                                                    });
+                                                }
+                                            } catch (Exception unsupported) {
+                                            }
+                                        songsByPeer.put(key, songs);
+                                        artistsByPeer.put(key, artists);
+                                        lastSeen.put(key, System.currentTimeMillis());
+                                        worked(card);
+                                        answered.incrementAndGet();
+                                        ui.post(new Runnable() {
+                                            public void run() {
+                                                if (closed)
+                                                    return;
+                                                collect();
+                                                render();  // each artist appears the moment it answers
+                                            }
+                                        });
+                                        return;
+                                    } catch (Exception tryTheNextRoute) {
+                                    } finally {
+                                        stop.cancel(false);
                                     }
-                                } catch (Exception unsupported) {
                                 }
-                            try {
-                                for (HammerProfile profile : Hammer.profiles(p.card, job)) {
-                                    ProfileHit old = artists.get(profile.id());
-                                    if (old == null || profile.revision > old.profile.revision)
-                                        artists.put(profile.id(), new ProfileHit(p, profile));
-                                }
-                            } catch (Exception unsupported) { /* Older peers still serve music. */
                             }
-                        } catch (Exception e) {
-                            failures++;
-                        }
+                        }));
                     }
+                    for (java.util.concurrent.Future<?> t : tasks)
+                        try {
+                            t.get(40, TimeUnit.SECONDS);
+                        } catch (Exception late) {
+                        }
                 } finally {
+                    pool.shutdownNow();
                     timer.shutdownNow();
                 }
-                final int failed = failures;
                 ui.post(new Runnable() {
                     public void run() {
                         if (closed)
                             return;
-                        hits.clear();
-                        hits.addAll(fresh);
-                        profiles.clear();
-                        profiles.putAll(artists);
+                        collect();
                         render();
                         String wanted = getIntent().getStringExtra("song");
                         if (wanted != null) {
                             getIntent().removeExtra("song");
-                            for (Hit h : fresh)
+                            for (Hit h : hits)
                                 if (h.song.id.equals(wanted)) {
                                     song(h);
                                     break;
                                 }
                         }
-                        Ui.toast(HammerActivity.this,
-                                 fresh.size() + " entries; " + failed + " peers unavailable");
                     }
                 });
             }
         });
+    }
+    /** The status line under the search: who is out there right now, without numbers about failures. */
+    private String found() {
+        int artists = 0;
+        for (List<Hit> l : songsByPeer.values())
+            if (!l.isEmpty())
+                artists++;
+        return hits.isEmpty() ? "Looking for artists on the Killa YuE network…"
+                              : artists + (artists == 1 ? " artist · " : " artists · ") + hits.size() +
+                                    (hits.size() == 1 ? " song" : " songs");
     }
     private void render() {
         if (closed || results == null)
@@ -924,9 +1038,9 @@ public final class HammerActivity extends Activity {
             TextView empty = Ui.text(
                 this,
                 busy ? "Looking for artists on the Killa YuE network…"
-                     : "No one is sharing yet that this phone can see. Artists who share publicly appear here from "
-                       + "anywhere in the world as the network finds them; pull ↻ Refresh in a minute. A friend's "
-                       + "peer card or invitation also works: Settings tab → Sharing and hosting → Peers and artists.",
+                     : "No one is sharing that this phone can see yet. Artists who share publicly appear here by "
+                       + "themselves, from this Wi-Fi or anywhere in the world, as the network finds them; Discover "
+                       + "keeps looking while it is open.",
                 Skin.DIM, 14);
             empty.setPadding(0, Ui.dp(this, 24), 0, 0);
             empty.setGravity(android.view.Gravity.CENTER_HORIZONTAL);

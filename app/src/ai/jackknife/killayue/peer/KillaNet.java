@@ -34,6 +34,20 @@ public final class KillaNet {
     static final String AGENT = "killa-yue/1 hammer-pin/";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final byte[] TOKEN = new byte[32];
+    /**
+     * The bridge's loopback address, IPv4 on both sides: the native node listens on and dials 127.0.0.1, while
+     * InetAddress.getLoopbackAddress() is ::1 on Android, which never meets it.
+     */
+    static final InetAddress LOOPBACK;
+    static {
+        InetAddress a;
+        try {
+            a = InetAddress.getByAddress("localhost", new byte[] {127, 0, 0, 1});
+        } catch (java.net.UnknownHostException e) {
+            throw new AssertionError(e);
+        }
+        LOOPBACK = a;
+    }
     private static volatile String peerId;
     private static volatile Hammer.Server server;
     private static ServerSocket bridge;
@@ -64,7 +78,7 @@ public final class KillaNet {
         }
         RANDOM.nextBytes(TOKEN);
         bridge = new ServerSocket();
-        bridge.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 16);
+        bridge.bind(new InetSocketAddress(LOOPBACK, 0), 16);
         final ServerSocket listener = bridge;
         Thread t = new Thread(new Runnable() {
             public void run() { bridge(listener); }
@@ -112,7 +126,7 @@ public final class KillaNet {
         int port = nativeOpen(peerId, token);
         if (port <= 0)
             throw new IOException("Invalid peer");
-        transport.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), timeoutMillis);
+        transport.connect(new InetSocketAddress(LOOPBACK, port), timeoutMillis);
         transport.setTcpNoDelay(true);
         OutputStream out = transport.getOutputStream();
         out.write(token);
