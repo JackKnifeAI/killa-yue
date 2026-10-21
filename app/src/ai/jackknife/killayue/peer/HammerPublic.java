@@ -1,6 +1,7 @@
 package ai.jackknife.killayue.peer;
 
 import java.io.*;
+import java.security.KeyPair;
 import java.util.*;
 
 /** Explicit public objects. The network can resolve identifiers, never filesystem paths. */
@@ -168,6 +169,31 @@ public final class HammerPublic {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         a.write(new DataOutputStream(b));
         HammerStore.atomic(f, b.toByteArray());
+    }
+    /** Points this artist's albums at songs that were shared again under a new id ({@code moved}: old → new). */
+    public synchronized void moveSongs(Map<String, String> moved, KeyPair pair) throws Exception {
+        File[] files = root.listFiles();
+        if (moved.isEmpty() || files == null)
+            return;
+        String key = Hammer.publicKey(pair.getPublic());
+        for (File f : files) {
+            if (!f.getName().endsWith(".album"))
+                continue;
+            HammerAlbum a = HammerAlbum.read(new DataInputStream(new ByteArrayInputStream(HammerStore.read(f, 16384))));
+            boolean changed = false;
+            for (int i = 0; i < a.songs.size(); i++)
+                if (moved.containsKey(a.songs.get(i))) {
+                    a.songs.set(i, moved.get(a.songs.get(i)));
+                    changed = true;
+                }
+            if (!a.key.equals(key) || !changed)
+                continue;
+            if (moved.containsKey(a.cover))
+                a.cover = moved.get(a.cover);
+            a.revision = Math.max(a.revision + 1, System.currentTimeMillis());
+            a.sign(pair);
+            putAlbum(a);
+        }
     }
     public synchronized void withdrawAlbum(String id) throws Exception {
         File f = object(id, ".album");

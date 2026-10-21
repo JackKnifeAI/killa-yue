@@ -159,6 +159,15 @@ public final class HammerService extends Service {
                     Hammer.Server opened = null;
                     String error = null;
                     try {
+                        // songs shared before 1.8.0 went out as they were; share them again as clean copies
+                        int moved = HammerAndroid.store(HammerService.this)
+                                        .recleanShared(HammerAndroid.identity(), new Hammer.Job());
+                        if (moved > 0)
+                            EngineService.addLog("[Network] Shared " + moved + " songs again without hidden data");
+                    } catch (Exception e) {
+                        EngineService.addLog("[Network] " + e.getMessage());
+                    }
+                    try {
                         opened = new Hammer.Server(
                             Hammer.serverContext(HammerAndroid.identity(), HammerAndroid.certificate()),
                             new InetSocketAddress(Hammer.PORT), HammerAndroid.store(HammerService.this));

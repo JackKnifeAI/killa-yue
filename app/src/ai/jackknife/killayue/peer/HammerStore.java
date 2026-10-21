@@ -300,6 +300,60 @@ public final class HammerStore implements Hammer.Source {
         writeMetadata(song);
         notifyAll();
     }
+    /**
+     * Once per store: this artist's songs shared before cleaning existed (1.7.4 and older) are shared again as clean
+     * copies, with their cover, lyrics and album places moved to the new song. The new song starts its counts again.
+     * Returns how many moved. A song that cannot be cleaned stays as it was and is tried again next time.
+     */
+    public int recleanShared(KeyPair pair, Hammer.Job job) throws Exception {
+        File marker = new File(root, "recleaned-1");
+        if (marker.isFile())
+            return 0;
+        String key = Hammer.publicKey(pair.getPublic());
+        List<Hosted> old = new ArrayList<Hosted>();
+        synchronized (this) {
+            for (Hosted h : songs.values())
+                if (h.song.key.equals(key) && h.file.equals(h.source))
+                    old.add(h);
+        }
+        Map<String, String> moved = new HashMap<String, String>();
+        int failed = 0;
+        for (Hosted h : old) {
+            job.check();
+            Hammer.Song s;
+            try {
+                s = publish(h.source, h.song.title, h.song.tags, h.song.reshare, h.publicSong, pair, job);
+            } catch (IOException e) {
+                job.check();
+                failed++;
+                continue;
+            }
+            if (s.id.equals(h.song.id))
+                continue;  // made in Killa YuE: nothing to remove, same song
+            HammerArt art = publicObjects.localCover(h.song.id);
+            if (art != null && publicObjects.localCover(s.id) == null) {
+                HammerArt a = new HammerArt();
+                a.song = s.id;
+                a.image = art.image;
+                a.sign(pair);
+                publicObjects.cover(s, a);
+            }
+            HammerLyrics lyrics = publicObjects.localLyrics(h.song.id);
+            if (lyrics != null && publicObjects.localLyrics(s.id) == null) {
+                HammerLyrics l = new HammerLyrics();
+                l.song = s.id;
+                l.text = lyrics.text;
+                l.sign(pair);
+                publicObjects.putLyrics(s, l);
+            }
+            unpublish(h.song.id);
+            moved.put(h.song.id, s.id);
+        }
+        publicObjects.moveSongs(moved, pair);
+        if (failed == 0)
+            atomic(marker, new byte[0]);
+        return moved.size();
+    }
     public synchronized void rehost(Hammer.Song song, boolean pub) throws Exception {
         song.validate();
         Hammer.require(song.reshare, "Publisher did not enable rehosting");

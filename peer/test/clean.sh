@@ -123,4 +123,9 @@ echo "publishing through the store"
 java -cp "$tmp/classes" ai.jackknife.killayue.peer.CleanTest --store "$tmp/store" tagged.mp3 killa-made.mp3 | tee store.txt
 check "store checks" "grep -q 'store: all checks passed' store.txt"
 
+echo "songs shared before cleaning, shared again"
+java -cp "$tmp/classes" ai.jackknife.killayue.peer.CleanTest --reclean "$tmp/old" tagged.mp3 killa-made.mp3 \
+    cover-plain.jpg | tee reclean.txt
+check "re-clean checks" "grep -q 'reclean: all checks passed' reclean.txt"
+
 [ $fail = 0 ] && echo "clean.sh: all checks passed" || { echo "clean.sh: FAILED"; exit 1; }

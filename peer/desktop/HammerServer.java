@@ -60,6 +60,9 @@ public final class HammerServer {
         identity = new KeyPair(cert.getPublicKey(), (PrivateKey)keys.getKey("hammer", password));
         pin = Hammer.hash(cert.getPublicKey().getEncoded());
         store = new HammerStore(data);
+        int moved = store.recleanShared(identity, new Hammer.Job());
+        if (moved > 0)
+            System.out.println("Shared " + moved + " songs again without hidden data");
         this.address = address;
         server =
             new Hammer.Server(Hammer.serverContext(identity, cert), new InetSocketAddress(bind, port), store);
