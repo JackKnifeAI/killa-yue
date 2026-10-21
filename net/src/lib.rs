@@ -83,6 +83,7 @@ struct State {
     punched: HashSet<PeerId>, // a relayed connection turned direct by hole punching
     local: HashSet<PeerId>,
     nat: String,
+    worldwide: bool, // confirmed reachable on a public internet address, not only on a LAN or a VPN
     relays: HashSet<PeerId>,
     hosts: HashSet<PeerId>,
 }
@@ -158,6 +159,20 @@ fn dialable(a: &Multiaddr) -> bool {
             Protocol::Ip6(ip) => ip.is_unspecified() || (ip.segments()[0] & 0xffc0) == 0xfe80,
             _ => false,
         })
+}
+
+/// A public internet address: not private, carrier-grade NAT, a VPN such as Tailscale (100.64.0.0/10, fd00::/8),
+/// link-local or loopback. Being reachable only on one of those does not make a phone on mobile data reachable.
+fn worldwide(a: &Multiaddr) -> bool {
+    a.iter().any(|p| match p {
+        Protocol::Ip4(ip) => {
+            let o = ip.octets();
+            !(ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() ||
+              (o[0] == 100 && (o[1] & 0xc0) == 64))
+        }
+        Protocol::Ip6(ip) => (ip.segments()[0] & 0xe000) == 0x2000, // global unicast
+        _ => false,
+    }) && !is_circuit(a)
 }
 
 fn is_circuit(a: &Multiaddr) -> bool {
@@ -494,6 +509,14 @@ impl Node {
                         SwarmEvent::NewListenAddr { address, .. } => {
                             if flags & TEST_REACHABLE != 0 { swarm.add_external_address(address.clone()); }
                             let circuit = is_circuit(&address);
+                            // a public IPv4 address on this machine's own interface (a server, not a phone behind
+                            // NAT): offer it and the relay at once, or nobody could ever meet the first such node to
+                            // confirm it. Peers dial what they find, so a firewalled one only costs a failed dial.
+                            let v4 = address.iter().any(|p| matches!(p, Protocol::Ip4(_)));
+                            if v4 && worldwide(&address) {
+                                swarm.add_external_address(address.clone());
+                                if let Some(p) = udp_port(&address) { public_port.store(p, Ordering::Relaxed); }
+                            }
                             st.lock().unwrap().listen.push(address);
                             if circuit {
                                 // reachable through a relay now: say so in the address record and the host list
@@ -572,17 +595,21 @@ impl Node {
                             let label = match &new {
                                 autonat::NatStatus::Public(a) => {
                                     if let Some(p) = udp_port(a) { public_port.store(p, Ordering::Relaxed); }
+                                    st.lock().unwrap().worldwide = worldwide(a);
                                     "public"
                                 }
                                 autonat::NatStatus::Private => { public_port.store(0, Ordering::Relaxed); "private" }
                                 autonat::NatStatus::Unknown => "unknown",
                             };
+                            if !matches!(new, autonat::NatStatus::Public(_)) { st.lock().unwrap().worldwide = false; }
                             st.lock().unwrap().nat = label.into();
                             reserve(&mut swarm, &st, &hop, relay_only);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Upnp(upnp::Event::NewExternalAddr { external_addr, .. })) => {
                             if let Some(p) = udp_port(&external_addr) { public_port.store(p, Ordering::Relaxed); }
-                            st.lock().unwrap().nat = "public (router opened a port)".into();
+                            let mut s = st.lock().unwrap();
+                            s.nat = "public (router opened a port)".into();
+                            s.worldwide = worldwide(&external_addr);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Dcutr(dcutr::Event { remote_peer_id, result: Ok(_) })) => {
                             st.lock().unwrap().punched.insert(remote_peer_id);
@@ -772,14 +799,15 @@ fn finished(finds: &mut HashMap<kad::QueryId, (PeerId, Waiter, bool)>, id: kad::
     }
 }
 
-/// Unreachable (or relay-only) nodes listen through up to two relays, so peers can always reach them; DCUtR then
-/// tries to turn each relayed connection into a direct one.
+/// Nodes not confirmed reachable from the internet (behind NAT, still unknown, or reachable only on a LAN or a VPN
+/// such as Tailscale) listen through up to two relays, so peers anywhere can reach them; DCUtR then tries to turn
+/// each relayed connection into a direct one.
 fn reserve(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, hop: &HashMap<PeerId, Multiaddr>, relay_only: bool) {
-    let (private, have) = {
+    let (worldwide, have) = {
         let s = st.lock().unwrap();
-        (s.nat == "private", s.relays.len())
+        (s.worldwide, s.relays.len())
     };
-    if !(relay_only || private) || have >= RELAYS {
+    if (worldwide && !relay_only) || have >= RELAYS {
         return;
     }
     let listening: HashSet<PeerId> = swarm
