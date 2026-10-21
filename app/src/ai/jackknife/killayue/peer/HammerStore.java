@@ -232,7 +232,7 @@ public final class HammerStore implements Hammer.Source {
         File part = new File(cleanDir, Hammer.random() + ".part");
         boolean cleaned;
         try {
-            cleaned = HammerClean.clean(source, part, job);
+            cleaned = HammerClean.clean(source, part, artistName(pair), job);
         } catch (Exception e) {
             part.delete();
             throw e;
@@ -244,6 +244,11 @@ public final class HammerStore implements Hammer.Source {
         } finally {
             part.delete();  // gone already when it became the clean copy
         }
+    }
+    /** The name this identity publishes under, which songs carry as their artist; null before it has a profile. */
+    private String artistName(KeyPair pair) throws Exception {
+        HammerProfile own = publicObjects.own();
+        return own != null && own.key.equals(Hammer.publicKey(pair.getPublic())) ? own.name : null;
     }
     private Hammer.Song publishFile(File input, File source, boolean cleaned, File part, File cleanDir, String name,
                                     String type, String title, String tags, boolean reshare, boolean pub,

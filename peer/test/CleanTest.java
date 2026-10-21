@@ -4,10 +4,11 @@ import java.io.File;
 import java.nio.file.Files;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.util.Arrays;
 
 /**
- * Cleans each file given and says whether a clean copy was needed (clean.sh checks the copies). With {@code --store
- * DIR TAGGED OWN}, publishes through HammerStore the way the app does and checks what it hosts.
+ * Cleans each file given and says whether a clean copy was needed (clean.sh checks the copies); {@code --artist NAME}
+ * first gives the artist name the copies carry, else they carry none. With {@code --store DIR TAGGED OWN}, publishes through HammerStore the way the app does and checks what it hosts.
  */
 public final class CleanTest {
     private static int failed;
@@ -26,15 +27,25 @@ public final class CleanTest {
     private static boolean contains(File f, String s) throws Exception {
         return new String(Files.readAllBytes(f.toPath()), "ISO-8859-1").contains(s);
     }
+    /** Also finds text an ID3v2.3 tag stores as UTF-16. */
+    private static boolean containsText(File f, String s) throws Exception {
+        return contains(f, s) || contains(f, new String(s.getBytes("UTF-16BE"), "ISO-8859-1"));
+    }
 
     public static void main(String[] args) throws Exception {
         if (args.length > 0 && args[0].equals("--store")) {
             store(new File(args[1]), new File(args[2]), new File(args[3]));
             return;
         }
-        for (String a : args) {
+        String artist = null;
+        int from = 0;
+        if (args.length > 1 && args[0].equals("--artist")) {
+            artist = args[1];
+            from = 2;
+        }
+        for (String a : Arrays.copyOfRange(args, from, args.length)) {
             File in = new File(a), out = new File(a.replaceFirst("(\\.[a-z0-9]+)$", ".clean$1"));
-            boolean changed = HammerClean.clean(in, out, new Hammer.Job());
+            boolean changed = HammerClean.clean(in, out, artist, new Hammer.Job());
             System.out.println((changed ? "cleaned " : "unchanged ") + in.getName());
         }
     }
@@ -45,6 +56,11 @@ public final class CleanTest {
         KeyPair artist = g.generateKeyPair();
         HammerStore store = new HammerStore(root);
         File clean = new File(root, "clean");
+        HammerProfile profile = new HammerProfile();
+        profile.name = "Ghost Name";
+        profile.revision = 1;
+        profile.sign(artist);
+        store.publicObjects.publishProfile(profile);
 
         Hammer.Song s = store.publish(tagged, "Song Title", "protest", true, true, artist);
         HammerStore.Hosted h = hosted(store, s.id);
@@ -53,6 +69,8 @@ public final class CleanTest {
         check("the song id is the clean copy's hash", h != null && Hammer.hash(h.file).equals(s.id) &&
               h.file.length() == s.size);
         check("the clean copy carries no secrets", h != null && !contains(h.file, "Secret") && !contains(h.file, "GPS"));
+        check("the clean copy carries the artist's Killa YuE name, not the file's",
+              h != null && containsText(h.file, "Ghost Name") && !containsText(h.file, "Stage Name"));
         check("the source is remembered", h != null && h.source.equals(tagged.getCanonicalFile()));
         check("the artist's own file is untouched", contains(tagged, "Secret"));
         check("what a listener downloads is the clean copy", h != null && h.file.equals(store.audio(s.id, "")));

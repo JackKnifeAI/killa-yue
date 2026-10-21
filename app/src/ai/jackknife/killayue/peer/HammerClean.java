@@ -7,12 +7,15 @@ import java.util.*;
 /**
  * Songs leave the phone with what describes the music and nothing that identifies the person. A published copy keeps
  * the title, artist, album, genre, track and disc, BPM and key, the plain and timed lyrics, the "Killa YuE" mark and the
- * cover: everything Killa YuE writes and reads. It drops the rest: comments other programs wrote, dates, the names of
+ * cover: everything Killa YuE writes and reads. The artist fields carry the artist's Killa YuE name instead of what
+ * the file said, since recording software often writes the person's real name there; with no artist name yet they are
+ * dropped. It drops the rest: comments other programs wrote, dates, the names of
  * composers, engineers and owners, ISRC codes, private and custom frames, URLs and embedded files, and from the cover
  * its EXIF (GPS, camera), XMP and colour-profile blocks. A song made in Killa YuE already carries only kept data, so
  * it is published as it is and keeps its id.
  *
- * The result depends only on the input's bytes, so publishing the same file again gives the same song id.
+ * The result depends only on the input's bytes and the artist name, so publishing the same file again gives the same
+ * song id.
  */
 public final class HammerClean {
     private HammerClean() {}
@@ -22,18 +25,23 @@ public final class HammerClean {
     static final Set<String> VORBIS_KEEP = new HashSet<String>(Arrays.asList(
         "TITLE", "ARTIST", "ALBUMARTIST", "ALBUM", "GENRE", "TRACKNUMBER", "TRACKTOTAL", "TOTALTRACKS", "DISCNUMBER",
         "DISCTOTAL", "TOTALDISCS", "BPM", "KEY", "INITIALKEY", "LYRICS", "UNSYNCEDLYRICS"));
+    static final Set<String> ID3_ARTIST = new HashSet<String>(Arrays.asList("TPE1", "TPE2"));
+    static final Set<String> VORBIS_ARTIST = new HashSet<String>(Arrays.asList("ARTIST", "ALBUMARTIST"));
     static final Set<String> RIFF_INFO_KEEP = new HashSet<String>(Arrays.asList("INAM", "IART", "IPRD", "IGNR", "ITRK"));
     static final String MARK = "Killa YuE";
     static final int TAG_LIMIT = 32 << 20;
 
     /**
      * Writes a clean copy of {@code in} to {@code out} and returns true, or returns false (writing nothing) when
-     * {@code in} carries nothing to remove. Throws when the file is not audio this understands.
+     * {@code in} carries nothing to remove. {@code artist} is the name its artist fields get, or null to drop them.
+     * Throws when the file is not audio this understands.
      */
-    public static boolean clean(File in, File out, Hammer.Job job) throws Exception {
+    public static boolean clean(File in, File out, String artist, Hammer.Job job) throws Exception {
         String name = in.getName().toLowerCase(Locale.ROOT);
         try (RandomAccessFile f = new RandomAccessFile(in, "r")) {
-            Plan p = name.endsWith(".flac") ? flac(f) : name.endsWith(".wav") ? wav(f) : mp3(f);
+            Plan p = name.endsWith(".flac")  ? flac(f, artist)
+                     : name.endsWith(".wav") ? wav(f, artist)
+                                             : mp3(f, artist);
             if (p.suffix.length == 0 && p.end == f.length() && p.start == p.prefix.length &&
                 Arrays.equals(p.prefix, read(f, 0, p.prefix.length)))
                 return false;
@@ -100,6 +108,11 @@ public final class HammerClean {
     static void putLe32(byte[] b, int at, long v) {
         for (int i = 0; i < 4; i++)
             b[at + i] = (byte)(v >>> (8 * i));
+    }
+    static byte[] concat(byte[] a, byte[] b) {
+        byte[] c = Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, c, a.length, b.length);
+        return c;
     }
     static void writeLe32(ByteArrayOutputStream o, long v) {
         for (int i = 0; i < 4; i++)
@@ -177,7 +190,7 @@ public final class HammerClean {
 
     // ---- MP3: ID3v2 at the front rebuilt from the kept frames; ID3v1, APE, Lyrics3 and trailing ID3v2 removed
 
-    static Plan mp3(RandomAccessFile f) throws IOException {
+    static Plan mp3(RandomAccessFile f, String artist) throws IOException {
         long start = 0;
         byte[] tag = new byte[0];
         boolean first = true;
@@ -188,7 +201,7 @@ public final class HammerClean {
             long size = 10L + syncsafe(h, 6) + ((h[5] & 0x10) != 0 ? 10 : 0);
             Hammer.require(start + size <= f.length(), "Damaged ID3 tag");
             if (first && size <= TAG_LIMIT)
-                tag = id3(read(f, start, (int)size));
+                tag = id3(read(f, start, (int)size), artist);
             first = false;
             start += size;
         }
@@ -230,7 +243,7 @@ public final class HammerClean {
     }
 
     /** The tag with only the kept frames, in its own version (2.3 or 2.4), or no tag when none are kept. */
-    static byte[] id3(byte[] t) {
+    static byte[] id3(byte[] t, String artist) {
         int major = t[3];
         if (major != 3 && major != 4)
             return new byte[0];  // ID3v2.2 and unknown versions: dropped whole
@@ -258,6 +271,13 @@ public final class HammerClean {
                 continue;  // other programs' software stamps
             if (id.equals("APIC") && (data = apic(data)) == null)
                 continue;
+            if (ID3_ARTIST.contains(id)) {
+                if (artist == null)
+                    continue;
+                if (!artist.equals(text(data)))  // UTF-8 in 2.4; 2.3 has no UTF-8, so UTF-16 with a byte-order mark
+                    data = concat(new byte[] {(byte)(major == 4 ? 3 : 1)},
+                                  artist.getBytes(major == 4 ? StandardCharsets.UTF_8 : StandardCharsets.UTF_16));
+            }
             frames.write(id.getBytes(StandardCharsets.ISO_8859_1), 0, 4);
             if (major == 4) {
                 frames.write((data.length >> 21) & 0x7f);
@@ -342,7 +362,7 @@ public final class HammerClean {
 
     // ---- FLAC: STREAMINFO, SEEKTABLE, the kept Vorbis comments and clean pictures
 
-    static Plan flac(RandomAccessFile f) throws IOException {
+    static Plan flac(RandomAccessFile f, String artist) throws IOException {
         long at = 0;
         while (true) {  // ID3v2 some taggers put in front of FLAC: dropped
             byte[] h = read(f, at, 10);
@@ -365,7 +385,7 @@ public final class HammerClean {
             if (type == 0 || type == 3)  // STREAMINFO, SEEKTABLE
                 data = read(f, p + 4, len);
             else if (type == 4)
-                data = vorbis(read(f, p + 4, len));
+                data = vorbis(read(f, p + 4, len), artist);
             else if (type == 6)
                 data = flacPicture(read(f, p + 4, len));
             if (data != null) {
@@ -389,7 +409,7 @@ public final class HammerClean {
         return new Plan(keep.toByteArray(), p, f.length(), new byte[0]);
     }
     /** Vorbis comments with only the kept fields and an empty vendor string; null when none are kept. */
-    private static byte[] vorbis(byte[] d) {
+    private static byte[] vorbis(byte[] d, String artist) {
         try {
             int vlen = (int)le32(d, 0);
             int i = 4 + vlen, n = (int)le32(d, i);
@@ -402,7 +422,15 @@ public final class HammerClean {
                     break;
                 String s = new String(d, i + 4, len, StandardCharsets.UTF_8);
                 int eq = s.indexOf('=');
-                if (eq > 0 && VORBIS_KEEP.contains(s.substring(0, eq).toUpperCase(Locale.ROOT))) {
+                String key = eq > 0 ? s.substring(0, eq).toUpperCase(Locale.ROOT) : "";
+                if (VORBIS_ARTIST.contains(key)) {
+                    if (artist != null) {
+                        byte[] field = (s.substring(0, eq + 1) + artist).getBytes(StandardCharsets.UTF_8);
+                        writeLe32(fields, field.length);
+                        fields.write(field, 0, field.length);
+                        kept++;
+                    }
+                } else if (VORBIS_KEEP.contains(key)) {
                     fields.write(d, i, 4 + len);
                     kept++;
                 }
@@ -447,7 +475,7 @@ public final class HammerClean {
 
     // ---- WAV: fmt, fact, ds64, the kept INFO fields, and the audio
 
-    static Plan wav(RandomAccessFile f) throws IOException {
+    static Plan wav(RandomAccessFile f, String artist) throws IOException {
         byte[] h = read(f, 0, 12);
         boolean rf64 = is(h, 0, "RF64") || is(h, 0, "BW64");
         Hammer.require((is(h, 0, "RIFF") || rf64) && is(h, 8, "WAVE"), "This is not WAV audio");
@@ -479,7 +507,17 @@ public final class HammerClean {
                             int n = (int)le32(b, i + 4);
                             if (n < 0 || i + 8L + n > b.length)
                                 break;
-                            if (RIFF_INFO_KEEP.contains(new String(b, i, 4, StandardCharsets.US_ASCII))) {
+                            String id4 = new String(b, i, 4, StandardCharsets.US_ASCII);
+                            if (id4.equals("IART")) {
+                                if (artist != null) {  // a zero-terminated string
+                                    byte[] a = concat(artist.getBytes(StandardCharsets.UTF_8), new byte[1]);
+                                    info.write(b, i, 4);
+                                    writeLe32(info, a.length);
+                                    info.write(a, 0, a.length);
+                                    if ((a.length & 1) != 0)
+                                        info.write(0);
+                                }
+                            } else if (RIFF_INFO_KEEP.contains(id4)) {
                                 info.write(b, i, 8 + n);
                                 if ((n & 1) != 0)
                                     info.write(0);

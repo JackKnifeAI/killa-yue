@@ -2,7 +2,8 @@
 # Songs leave the phone without data that identifies the artist (HammerClean). Builds tagged MP3, FLAC and WAV files
 # the way other programs write them, with a cover carrying GPS in its EXIF, then checks every clean copy: the
 # identifying data is gone, the kept tags and the cover are there, and the audio decodes to the same samples.
-# A song made by Killa YuE and a bare WAV must come out unchanged. Needs java, ffmpeg, ffprobe and python3 with PIL.
+# The artist fields carry the artist's Killa YuE name, or nothing before there is one. A song made by Killa YuE and a
+# bare WAV must come out unchanged. Needs java, ffmpeg, ffprobe and python3 with PIL.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 tmp=$(mktemp -d)
@@ -66,11 +67,19 @@ f = frame("TIT2", text("Made in Killa")) + frame("TSSE", text("Killa YuE"))
 f += frame("USLT", b"\x03eng\0" + "line one\nline two\n".encode())
 f += frame("SYLT", b"\x03eng\x02\x01\0" + b"line one\0\0\0\0\0" + b"line two\0\0\0\x07\xd0")
 f += frame("APIC", b"\0image/jpeg\0\x03\0" + cover)
-open("killa-made.mp3", "wb").write(b"ID3\x04\0\0" + ss(len(f)) + f + open("audio-only.mp3", "rb").read())
+audio = open("audio-only.mp3", "rb").read()
+open("killa-made.mp3", "wb").write(b"ID3\x04\0\0" + ss(len(f)) + f + audio)
+# an album export, which also names the artist
+f += frame("TALB", text("Album X")) + frame("TPE1", text("Ghost Name")) + frame("TPE2", text("Ghost Name"))
+open("killa-album.mp3", "wb").write(b"ID3\x04\0\0" + ss(len(f)) + f + audio)
 EOF
+cp tagged.mp3 nameless.mp3
+cp tagged.flac nameless.flac
+cp tagged.wav nameless.wav
 
-java -cp "$tmp/classes" ai.jackknife.killayue.peer.CleanTest tagged.mp3 tagged.flac tagged.wav bare.wav killa-made.mp3 \
-    | tee result.txt
+java -cp "$tmp/classes" ai.jackknife.killayue.peer.CleanTest --artist "Ghost Name" tagged.mp3 tagged.flac tagged.wav \
+    bare.wav killa-made.mp3 killa-album.mp3 | tee result.txt
+java -cp "$tmp/classes" ai.jackknife.killayue.peer.CleanTest nameless.mp3 nameless.flac nameless.wav | tee -a result.txt
 
 pcm() { ffmpeg -v error -i "$1" -map 0:a -f s16le -ac 1 - | md5sum | cut -d' ' -f1; }
 tags() { ffprobe -v error -show_entries format_tags:stream_tags -of default=nw=1 "$1" | tr 'A-Z' 'a-z'; }
@@ -85,7 +94,8 @@ for f in tagged.mp3 tagged.flac tagged.wav; do
     done
     check "same audio samples" "[ \"\$(pcm $f)\" = \"\$(pcm $c)\" ]"
     check "title kept" "tags $c | grep -q 'title=song title'"
-    check "artist kept" "tags $c | grep -q 'artist=stage name'"
+    check "artist is the Killa YuE name" "tags $c | grep -q 'tag:artist=ghost name'"
+    check "no 'Stage Name' from the file" "! grep -aq 'Stage Name' $c && ! grep -aq 'S.t.a.g.e. .N.a.m.e' $c"
     if [ "$f" != tagged.wav ]; then
         check "album kept" "tags $c | grep -q 'album=album x'"
         check "genre kept" "tags $c | grep -q 'genre=protest'"
@@ -96,8 +106,17 @@ for f in tagged.mp3 tagged.flac tagged.wav; do
         check "no $k tag" "! tags $c | grep -q '^$k='"
     done
 done
+for f in nameless.mp3 nameless.flac nameless.wav; do
+    c=${f%.*}.clean.${f##*.}
+    echo "$f, published before there is an artist name"
+    check "no artist tag" "! tags $c | grep -q 'artist='"
+    check "no 'Stage Name'" "! grep -aq 'Stage Name' $c && ! grep -aq 'S.t.a.g.e. .N.a.m.e' $c"
+    check "title kept" "tags $c | grep -q 'title=song title'"
+done
 echo "unchanged files"
 check "Killa YuE's own song is published as it is" "grep -q 'unchanged killa-made.mp3' result.txt"
+check "a Killa YuE album song already naming the artist is published as it is" \
+    "grep -q 'unchanged killa-album.mp3' result.txt"
 check "a bare WAV is published as it is" "grep -q 'unchanged bare.wav' result.txt"
 
 echo "publishing through the store"
