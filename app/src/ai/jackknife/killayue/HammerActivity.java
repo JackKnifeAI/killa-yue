@@ -92,7 +92,8 @@ public final class HammerActivity extends Activity {
     // covers and portraits, fetched one at a time so a peer's admission limit is never hit
     private final ExecutorService art = Executors.newSingleThreadExecutor();
     private final Map<String, android.graphics.Bitmap> pictures = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
-    private final Set<String> asked = new HashSet<String>();
+    private final Set<String> asked = java.util.Collections.synchronizedSet(new HashSet<String>());
+    private final Map<String, List<ImageView>> waiting = new HashMap<String, List<ImageView>>();
     @Override
     public void onCreate(Bundle state) {
         setTheme(Skin.themeFor(this, Skin.id(this)));
@@ -539,7 +540,13 @@ public final class HammerActivity extends Activity {
             return;
         }
         into.setTag(key);
-        if (!asked.add(key) || asked.size() > 48)
+        // Discover redraws its list as artists answer: every view waiting for this picture gets it when it
+        // arrives, not just the one that asked first
+        List<ImageView> list = waiting.get(key);
+        if (list == null)
+            waiting.put(key, list = new ArrayList<ImageView>());
+        list.add(into);
+        if (!asked.add(key) || asked.size() > 300)
             return;
         art.execute(new Runnable() {
             public void run() {
@@ -553,11 +560,16 @@ public final class HammerActivity extends Activity {
                     pictures.put(key, b);
                     ui.post(new Runnable() {
                         public void run() {
-                            if (!closed && key.equals(into.getTag()))
-                                into.setImageBitmap(sizeDp > 0 ? Ui.medallion(HammerActivity.this, b, name, sizeDp) : b);
+                            List<ImageView> views = waiting.remove(key);
+                            if (closed || views == null)
+                                return;
+                            for (ImageView v : views)
+                                if (key.equals(v.getTag()))
+                                    v.setImageBitmap(sizeDp > 0 ? Ui.medallion(HammerActivity.this, b, name, sizeDp) : b);
                         }
                     });
                 } catch (Exception noArt) {
+                    asked.remove(key);  // try again on a later redraw
                 }
             }
         });
