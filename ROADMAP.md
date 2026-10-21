@@ -45,6 +45,13 @@ Killa YuE is free and open source. Everything here runs on the phone, with no ac
 - **Killa Gold** now wears its leather across the whole screen.
 - **Fixes**: karaoke keeps its place through rests.
 
+## 1.7.3: Discover, worldwide
+- **Phones find each other anywhere**, with no setup: relays for phones on mobile data, volunteer helpers that switch on by themselves (Wi-Fi and charging, or a computer), and fixes so every nearby artist is listed however crowded the network.
+- **The Discover player**: cover on a spinning record, the sung line, one-tap votes with counts, download, previous and next, and radio-style play-through.
+- **Lyrics, albums and playlists, charts** (Top voted, Most played, Most downloaded) and **play and download counts**, all counted by the hosts themselves.
+- **Host music from anywhere**: import a folder, share from any app, covers and lyrics from the files; downloaded songs keep playing when the artist is offline.
+- **Follow bell**, artist links, and a **one-line helper** for computers (tools/install-helper.sh).
+
 ## 1.7.0: Keys, MIDI effects, recorded instruments and AI
 
 - **Keys**: a playable 88-key piano in ivory, ebony and gold, with an overview map, touch-position velocity, a sustain pedal, one or two rows, and keys that light where notes play.
