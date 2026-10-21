@@ -280,7 +280,8 @@ final class HammerLibrary {
             .show();
     }
     private static void importAll(final MainActivity a, final List<Uri> uris, final boolean share) {
-        work(a, share ? "Adding and sharing " + uris.size() + " songs" : "Adding " + uris.size() + " songs", new Work() {
+        String count = uris.size() == 1 ? "1 song" : uris.size() + " songs";
+        work(a, (share ? "Adding and sharing " : "Adding ") + count, new Work() {
             public void run() throws Exception {
                 int done = 0, failed = 0;
                 for (Uri u : uris) {
