@@ -33,6 +33,15 @@ public final class DiscoverProbe {
             try {
                 List<Hammer.Song> songs = Hammer.catalog(Hammer.Card.p2p(target.split("#")[0], target.split("#")[1], ""), new Hammer.Job());
                 System.out.println("target: " + songs.size() + " songs in " + (System.currentTimeMillis() - t) + " ms");
+                Hammer.Card card = Hammer.Card.p2p(target.split("#")[0], target.split("#")[1], "");
+                for (HammerAlbum al : Hammer.albums(card, new Hammer.Job()))
+                    System.out.println("  album: " + al.title + " (" + al.songs.size() + " songs)");
+                for (Hammer.Song s : songs.subList(0, Math.min(3, songs.size()))) {
+                    HammerLyrics l = Hammer.lyrics(card, s, new Hammer.Job());
+                    long[] n = Hammer.stats(card, s.id, new Hammer.Job());
+                    System.out.println("  " + s.title + ": " + (l == null ? "no lyrics" : l.lines().size() + " lyric lines" +
+                                       (l.lines().get(0).ms >= 0 ? ", timed" : "")) + (n == null ? "" : "; " + n[0] + " plays, " + n[1] + " downloads"));
+                }
             } catch (Exception e) {
                 System.out.println("target FAILED after " + (System.currentTimeMillis() - t) + " ms: " + e);
             }

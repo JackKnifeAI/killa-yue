@@ -92,7 +92,57 @@ public final class HammerServer {
         Hammer.Song s = store.publish(f, title, e.genre, true, pub, identity);
         if (store.publicObjects.localCover(s.id) == null)
             attachCover(s, e);
+        if (!e.lyrics.isEmpty() && store.publicObjects.localLyrics(s.id) == null)
+            try {
+                HammerLyrics l = new HammerLyrics();
+                l.song = s.id;
+                l.text = e.lyrics;
+                l.sign(identity);
+                store.publicObjects.putLyrics(s, l);
+            } catch (Exception unusableLyrics) {
+            }
         return s;
+    }
+    /**
+     * Publishes the albums the songs' own tags describe: every album tag shared by two or more public hosted songs
+     * becomes a signed album, in file-name order (track order for most tools), with the first song's cover.
+     */
+    private int albumsFromTags() throws Exception {
+        Map<String, List<HammerStore.Hosted>> byAlbum = new TreeMap<String, List<HammerStore.Hosted>>();
+        for (HammerStore.Hosted h : store.hosted()) {
+            if (!h.publicSong)
+                continue;
+            String album = EmbeddedArt.read(h.file).album;
+            if (album.isEmpty())
+                continue;
+            if (!byAlbum.containsKey(album))
+                byAlbum.put(album, new ArrayList<HammerStore.Hosted>());
+            byAlbum.get(album).add(h);
+        }
+        int n = 0;
+        for (Map.Entry<String, List<HammerStore.Hosted>> e : byAlbum.entrySet()) {
+            List<HammerStore.Hosted> songs = e.getValue();
+            if (songs.size() < 2 || songs.size() > HammerAlbum.SONGS)
+                continue;  // a single, or a whole catalogue tagged as one (a month of Suno songs) is no album
+            Collections.sort(songs, new Comparator<HammerStore.Hosted>() {
+                public int compare(HammerStore.Hosted a, HammerStore.Hosted b) { return a.file.getName().compareTo(b.file.getName()); }
+            });
+            HammerAlbum a = new HammerAlbum();
+            a.title = e.getKey();
+            for (HammerStore.Hosted h : songs.subList(0, Math.min(HammerAlbum.SONGS, songs.size()))) {
+                a.songs.add(h.song.id);
+                if (a.cover.isEmpty() && store.publicObjects.localCover(h.song.id) != null)
+                    a.cover = h.song.id;
+            }
+            a.revision = System.currentTimeMillis();
+            a.sign(identity);
+            try {
+                store.publicObjects.putAlbum(a);
+                n++;
+            } catch (Exception full) {
+            }
+        }
+        return n;
     }
     /** Signs and stores a song's cover from its embedded or neighbouring art. False when there is none. */
     private boolean attachCover(Hammer.Song s, EmbeddedArt e) {
@@ -137,8 +187,13 @@ public final class HammerServer {
                     break;  // the host is full
             }
         }
-        if (done > 0)
+        if (done > 0) {
+            try {
+                albumsFromTags();  // a folder's albums come along
+            } catch (Exception noAlbums) {
+            }
             announce();
+        }
         return new int[] {done, failed};
     }
     private static void collect(File dir, List<File> out, int depth) {
@@ -238,7 +293,11 @@ public final class HammerServer {
             + "  publish PATH public|private [TITLE]   Serve an existing WAV/FLAC/MP3; downloads enabled; the cover,\n"
             + "                                        title and genre inside the file come along\n"
             + "  publish-folder DIR public|private     Publish every song in a folder (and its folders) not yet hosted\n"
-            + "  covers                                Attach the art inside hosted songs that have no cover yet\n"
+            + "  covers                                Attach the art and lyrics inside hosted songs that lack them\n"
+            + "  lyrics                                Offer the lyrics inside or beside each hosted song again\n"
+            + "  albums                                Publish the albums named in the songs' own tags\n"
+            + "  album TITLE SONG_HASH...              Publish an album or playlist of hosted songs, in order\n"
+            + "  stats                                 Plays and downloads served per song\n"
             + "  profile NAME BIO TAGS                  Publish signed public artist metadata\n"
             + "  withdraw-profile                      Remove this host public artist profile\n"
             + "  join CARD                             Join a public entry peer and announce this host\n"
@@ -326,11 +385,60 @@ public final class HammerServer {
             int[] n = publishFolder(new File(a.get(1)), scope(a.get(2)), true);
             System.out.println("Published " + n[0] + " new songs" + (n[1] > 0 ? "; " + n[1] + " could not be published" : ""));
         } else if (op.equals("covers")) {
-            int n = 0;
-            for (HammerStore.Hosted h : store.hosted())
-                if (store.publicObjects.localCover(h.song.id) == null && attachCover(h.song, EmbeddedArt.read(h.file)))
+            int n = 0, words = 0;
+            for (HammerStore.Hosted h : store.hosted()) {
+                EmbeddedArt e = EmbeddedArt.read(h.file);
+                if (store.publicObjects.localCover(h.song.id) == null && attachCover(h.song, e))
                     n++;
-            System.out.println("Covers attached: " + n);
+                if (store.publicObjects.localLyrics(h.song.id) == null && !e.lyrics.isEmpty())
+                    try {
+                        HammerLyrics l = new HammerLyrics();
+                        l.song = h.song.id;
+                        l.text = e.lyrics;
+                        l.sign(identity);
+                        store.publicObjects.putLyrics(h.song, l);
+                        words++;
+                    } catch (Exception unusable) {
+                    }
+            }
+            System.out.println("Covers attached: " + n + "; lyrics attached: " + words);
+        } else if (op.equals("lyrics")) {  // lyrics again from the files, replacing what was offered
+            int words = 0;
+            for (HammerStore.Hosted h : store.hosted()) {
+                EmbeddedArt e = EmbeddedArt.read(h.file);
+                if (e.lyrics.isEmpty())
+                    continue;
+                try {
+                    HammerLyrics l = new HammerLyrics();
+                    l.song = h.song.id;
+                    l.text = e.lyrics;
+                    l.sign(identity);
+                    store.publicObjects.putLyrics(h.song, l);
+                    words++;
+                } catch (Exception unusable) {
+                }
+            }
+            System.out.println("Lyrics attached: " + words);
+        } else if (op.equals("albums")) {
+            System.out.println("Albums published: " + albumsFromTags());
+        } else if (op.equals("album")) {
+            HammerAlbum al = new HammerAlbum();
+            al.title = a.get(1);
+            for (String id : a.subList(2, a.size())) {
+                Hammer.require(store.audio(id, "") != null, "Not a public hosted song: " + id);
+                al.songs.add(id);
+                if (al.cover.isEmpty() && store.publicObjects.localCover(id) != null)
+                    al.cover = id;
+            }
+            al.revision = System.currentTimeMillis();
+            al.sign(identity);
+            store.publicObjects.putAlbum(al);
+            System.out.println("Album published: " + al.title + " (" + al.songs.size() + " songs)");
+        } else if (op.equals("stats")) {
+            for (HammerStore.Hosted h : store.hosted()) {
+                long[] n = store.stats(h.song.id, h.publicSong ? "" : store.token());
+                System.out.println(n[0] + " plays | " + n[1] + " downloads | " + h.song.title);
+            }
         } else if (op.equals("profile")) {
             HammerProfile p = new HammerProfile();
             p.name = a.get(1);

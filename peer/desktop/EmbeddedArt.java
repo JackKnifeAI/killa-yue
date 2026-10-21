@@ -13,7 +13,7 @@ import java.util.Iterator;
  * ("Song.jpg", "cover.jpg", "folder.jpg"). Covers are made into a small JPEG that fits HAMMER's artwork limit.
  */
 final class EmbeddedArt {
-    String title = "", genre = "";
+    String title = "", genre = "", album = "", lyrics = "", uslt = "";
     byte[] picture;  // the original embedded or neighbouring image, any format ImageIO reads
 
     static EmbeddedArt read(File audio) {
@@ -22,6 +22,15 @@ final class EmbeddedArt {
             a.id3(audio);
         } catch (Exception unreadableTag) {
         }
+        String stem = audio.getName().replaceFirst("\\.[^.]+$", "");
+        File lrc = new File(audio.getParentFile(), stem + ".lrc");  // timed lyrics beside the song win
+        if (lrc.isFile() && lrc.length() <= HammerLyrics.LIMIT)
+            try {
+                a.lyrics = new String(java.nio.file.Files.readAllBytes(lrc.toPath()), StandardCharsets.UTF_8)
+                               .replace("\uFEFF", "").trim();
+            } catch (IOException ignored) {
+            }
+        a.lyrics = aligned(a.lyrics, a.uslt);
         if (a.picture == null) {
             String base = audio.getName().replaceFirst("\\.[^.]+$", "");
             for (String name : new String[] {base + ".jpg", base + ".jpeg", base + ".png", "cover.jpg", "cover.png",
@@ -65,6 +74,10 @@ final class EmbeddedArt {
                     break;
                 if (id.equals("TIT2"))
                     title = text(tag, body, len);
+                else if (id.equals("TALB"))
+                    album = text(tag, body, len);
+                else if (id.equals("USLT") && uslt.isEmpty())
+                    uslt = uslt(tag, body, len);
                 else if (id.equals("TCON"))
                     genre = text(tag, body, len).replaceAll("^\\(\\d+\\)", "");
                 else if (id.equals("APIC") && picture == null)
@@ -89,6 +102,88 @@ final class EmbeddedArt {
         String s = new String(b, o + 1, len - 1, cs);
         int zero = s.indexOf('\0');
         return (zero >= 0 ? s.substring(0, zero) : s).replace("​", "").trim();
+    }
+
+    /**
+     * Lyrics timed word by word (Suno's .lrc) laid over the plain lyrics' real lines: each sung line starts when its
+     * first word is sung. Line-timed or plain lyrics come back as they are; with no timing, the plain lyrics.
+     */
+    static String aligned(String lrc, String plain) {
+        if (lrc.isEmpty())
+            return plain;
+        java.util.regex.Pattern stamp = java.util.regex.Pattern.compile("^\\[(\\d{1,3}):(\\d{2})(?:[.:](\\d{1,3}))?\\](.*)$");
+        java.util.List<Long> times = new java.util.ArrayList<Long>();
+        java.util.List<String> words = new java.util.ArrayList<String>();
+        int single = 0;
+        boolean tag = false;
+        for (String raw : lrc.split("\r?\n")) {
+            java.util.regex.Matcher m = stamp.matcher(raw.trim());
+            if (!m.matches())
+                continue;
+            String frac = m.group(3) == null ? "0" : m.group(3);
+            long ms = Long.parseLong(m.group(1)) * 60000 + Long.parseLong(m.group(2)) * 1000 +
+                      Long.parseLong(frac) * (frac.length() == 1 ? 100 : frac.length() == 2 ? 10 : 1);
+            StringBuilder kept = new StringBuilder();
+            for (char ch : m.group(4).toCharArray()) {
+                if (ch == '[') tag = true;
+                else if (ch == ']') tag = false;
+                else if (!tag) kept.append(ch);
+            }
+            String w = kept.toString().trim();
+            if (!w.contains(" "))
+                single++;
+            for (String part : w.split("\\s+"))
+                if (!norm(part).isEmpty()) {
+                    times.add(ms);
+                    words.add(norm(part));
+                }
+        }
+        if (plain.isEmpty() || words.size() < 12 || single * 10 < times.size() * 7)
+            return lrc;  // already line-timed, or nothing to lay it over
+        StringBuilder out = new StringBuilder();
+        int at = 0;
+        for (String raw : plain.split("\r?\n")) {
+            String line = raw.replaceAll("\\[[^\\]]*\\]", "").trim();
+            java.util.List<String> lw = new java.util.ArrayList<String>();
+            for (String part : line.split("\\s+"))
+                if (!norm(part).isEmpty())
+                    lw.add(norm(part));
+            if (lw.isEmpty() || at >= words.size())
+                continue;
+            int found = -1;  // the line's first word, a little ahead of where the last line ended
+            for (int j = at; j < Math.min(words.size(), at + 24) && found < 0; j++)
+                if (words.get(j).equals(lw.get(0)) || words.get(j).startsWith(lw.get(0)) || lw.get(0).startsWith(words.get(j)))
+                    found = j;
+            int start = found >= 0 ? found : at;
+            long ms = times.get(start);
+            out.append(String.format(java.util.Locale.ROOT, "[%02d:%02d.%02d]", ms / 60000, ms / 1000 % 60, ms % 1000 / 10))
+               .append(line).append('\n');
+            at = start + lw.size();
+        }
+        return out.length() > 0 ? out.toString().trim() : lrc;
+    }
+    private static String norm(String w) {
+        return w.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", "");
+    }
+
+    /** Unsynchronised lyrics: encoding, language, a description, then the words. */
+    private static String uslt(byte[] b, int o, int len) {
+        int end = o + len, enc = b[o], at = o + 4;
+        if (enc == 1 || enc == 2) {
+            while (at + 1 < end && (b[at] != 0 || b[at + 1] != 0)) at += 2;
+            at += 2;
+        } else {
+            while (at < end && b[at] != 0) at++;
+            at++;
+        }
+        if (at >= end)
+            return "";
+        java.nio.charset.Charset cs = enc == 1 ? StandardCharsets.UTF_16 : enc == 2 ? StandardCharsets.UTF_16BE
+                                    : enc == 3 ? StandardCharsets.UTF_8 : StandardCharsets.ISO_8859_1;
+        if (enc == 1 && at + 1 < end && !((b[at] & 0xff) == 0xff || (b[at] & 0xff) == 0xfe))
+            cs = StandardCharsets.UTF_16LE;  // a description's byte-order mark carries over
+        String s = new String(b, at, end - at, cs).replace("\u200b", "").replace("\uFEFF", "").trim();
+        return s.getBytes(StandardCharsets.UTF_8).length <= HammerLyrics.LIMIT ? s : "";
     }
 
     /** An attached picture: encoding, MIME type, picture type, description, then the image bytes. */

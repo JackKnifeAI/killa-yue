@@ -37,6 +37,13 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- "Share → Killa YuE" from any app: a song made anywhere joins the Library and the network -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="audio/*"/>
+            </intent-filter>
             <!-- "Open in Killa YuE" on a friend's model-sharing page: killayue://models?from=<their address> -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>

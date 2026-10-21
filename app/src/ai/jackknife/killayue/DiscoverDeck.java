@@ -55,7 +55,7 @@ public class DiscoverDeck extends View {
 
     @Override
     protected void onMeasure(int w, int h) {
-        setMeasuredDimension(MeasureSpec.getSize(w), (int)(122 * dp));
+        setMeasuredDimension(MeasureSpec.getSize(w), (int)(118 * dp));
     }
 
     private float trackY() { return 58 * dp; }
@@ -161,14 +161,20 @@ public class DiscoverDeck extends View {
             }
             if (round != null)
                 c.drawBitmap(round, null, new RectF(bx[i] - br[i], by - br[i], bx[i] + br[i], by + br[i]), bmp);
-            glyph(c, i, bx[i], by + (down ? dp : 0), br[i] * 0.36f, lit);
-            if (i <= DOWN && (i == UP ? up : this.down) >= 0) {
-                String n = String.valueOf(i == UP ? up : this.down);
-                txt.setTypeface(Skin.text());
-                txt.setTextSize(10 * dp);
-                txt.setColor(lit ? Skin.HI : Skin.DIM);
-                c.drawText(n, bx[i] - txt.measureText(n) / 2, by + br[i] + 11 * dp, txt);
-            }
+            int count = i == UP ? up : i == DOWN ? this.down : -1;
+            if (count >= 0) {
+                // the count sits on the button itself, under a smaller arrow
+                float press = down ? dp : 0;
+                glyph(c, i, bx[i], by - 4 * dp + press, br[i] * 0.27f, lit);
+                String n = count > 999 ? (count / 1000) + "k" : String.valueOf(count);
+                txt.setTypeface(Typeface.DEFAULT_BOLD);
+                txt.setTextSize(9.5f * dp);
+                txt.setColor(lit ? 0xFFFFFFFF : Skin.HI);
+                txt.setShadowLayer(2 * dp, 0, dp * 0.5f, 0xCC000000);
+                c.drawText(n, bx[i] - txt.measureText(n) / 2, by + 8.5f * dp + press, txt);
+                txt.clearShadowLayer();
+            } else
+                glyph(c, i, bx[i], by + (down ? dp : 0), br[i] * 0.36f, lit);
         }
 
         if (playing || energy > 0.01f || scrubbing || pressed >= 0 || moving)

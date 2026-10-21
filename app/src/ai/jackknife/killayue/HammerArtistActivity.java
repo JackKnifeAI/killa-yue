@@ -63,7 +63,7 @@ public final class HammerArtistActivity extends Activity {
         status.setPadding(0, Ui.dp(this, 6), 0, 0);
         body.addView(status);
         name = Ui.edit(this, "Artist name", 1);
-        bio = Ui.edit(this, "About your music", 5);
+        bio = Ui.edit(this, "About your music, and your links: website, Bandcamp, socials", 5);
         tags = Ui.edit(this, "Genres and search tags", 2);
         if (own) {
             // the name under the portrait follows the field as it is typed
@@ -131,6 +131,10 @@ public final class HammerArtistActivity extends Activity {
             body.addView(note);
         } else {
             shownBio = Ui.text(this, "", Skin.TEXT, 15);
+            // an artist's links open in the browser; nothing is fetched until tapped
+            shownBio.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
+            shownBio.setLinkTextColor(Skin.ACCENT);
+            shownBio.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
             shownBio.setPadding(0, Ui.dp(this, 14), 0, 0);
             body.addView(shownBio);
             Button follow = Ui.button(this, "Follow & get new songs", true);

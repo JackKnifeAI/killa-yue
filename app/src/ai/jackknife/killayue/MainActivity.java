@@ -1711,6 +1711,11 @@ public class MainActivity extends Activity {
             if (result == RESULT_OK && data != null && data.getData() != null) HammerLibrary.imported(this, data.getData());
             return;
         }
+        if (code == HammerLibrary.IMPORT_FOLDER) {
+            if (result == RESULT_OK && data != null && data.getData() != null)
+                HammerLibrary.importMany(this, HammerLibrary.folderSongs(this, data.getData()));
+            return;
+        }
         if (result != RESULT_OK || data == null || data.getData() == null) return;
         if (code == PICK_ADAPTER) {
             importAdapterFile(data.getData());
@@ -1917,8 +1922,9 @@ public class MainActivity extends Activity {
     void showLibrary(LibData d) {
         libraryBox.removeAllViews();
         // hosting and sharing settings live on the Settings tab; the Library only says what each song shares
-        libraryBox.addView(chipRow(new String[] {"Import audio"}, new Runnable[] {
-            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } }
+        libraryBox.addView(chipRow(new String[] {"Import audio", "Import a folder"}, new Runnable[] {
+            new Runnable() { public void run() { HammerLibrary.importAudio(MainActivity.this); } },
+            new Runnable() { public void run() { HammerLibrary.importFolder(MainActivity.this); } }
         }));
         ArrayList<File> metas = d.metas;
         if (metas.size() == 0) {
@@ -2549,6 +2555,21 @@ public class MainActivity extends Activity {
     public static final String SING_LYRICS = "singLyrics", SING_STYLE = "singStyle";
 
     void handleLink(Intent in) {
+        // "Share → Killa YuE" from any app: songs made anywhere join the Library and, if wanted, the network
+        if (in != null && (Intent.ACTION_SEND.equals(in.getAction()) || Intent.ACTION_SEND_MULTIPLE.equals(in.getAction()))) {
+            ArrayList<Uri> shared = new ArrayList<Uri>();
+            if (Intent.ACTION_SEND.equals(in.getAction())) {
+                Uri one = in.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (one != null) shared.add(one);
+            } else {
+                ArrayList<Uri> many = in.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                if (many != null) shared.addAll(many);
+            }
+            in.setAction(Intent.ACTION_MAIN);  // once
+            showTab(TAB_LIBRARY);
+            HammerLibrary.importMany(this, shared);
+            return;
+        }
         if (in != null && in.getStringExtra(SING_LYRICS) != null) {
             lyrics.setText(in.getStringExtra(SING_LYRICS));
             if (in.getStringExtra(SING_STYLE) != null) style.setText(in.getStringExtra(SING_STYLE));
