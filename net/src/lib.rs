@@ -86,6 +86,7 @@ struct State {
     worldwide: bool, // confirmed reachable on a public internet address, not only on a LAN or a VPN
     helping: bool,   // volunteers as a relay and DHT server (a computer, or a phone on Wi-Fi and charging)
     test_reachable: bool,
+    interface_public: bool, // a public IPv4 address on the machine's own interface: a server, whatever AutoNAT says
     relays: HashSet<PeerId>,
     hosts: HashSet<PeerId>,
 }
@@ -506,6 +507,9 @@ impl Node {
                         if minutes == 1 || minutes % 5 == 0 {
                             let _ = swarm.behaviour_mut().kad.bootstrap();
                             swarm.behaviour_mut().kad.get_providers(hosts_key.clone());
+                            // offer this host again: the first offer, made at start-up, reached only the few
+                            // nodes known then, and the network changes; a stale offer expires by itself
+                            if announcing { let _ = swarm.behaviour_mut().kad.start_providing(hosts_key.clone()); }
                             save_remembered(&peers_file, &remembered);
                         }
                     }
@@ -570,6 +574,7 @@ impl Node {
                                 let helping = {
                                     let mut s = st.lock().unwrap();
                                     s.worldwide = true;
+                                    s.interface_public = true;
                                     s.helping
                                 };
                                 if helping { swarm.add_external_address(address.clone()); }
@@ -676,7 +681,10 @@ impl Node {
                                 autonat::NatStatus::Private => { public_port.store(0, Ordering::Relaxed); "private" }
                                 autonat::NatStatus::Unknown => "unknown",
                             };
-                            if !matches!(new, autonat::NatStatus::Public(_)) { st.lock().unwrap().worldwide = false; }
+                            if !matches!(new, autonat::NatStatus::Public(_)) {
+                                let mut s = st.lock().unwrap();
+                                s.worldwide = s.interface_public;  // too few AutoNAT servers must not demote a server
+                            }
                             reachable_as(&mut swarm, &st);
                             st.lock().unwrap().nat = label.into();
                             reserve(&mut swarm, &st, &hop, relay_only);
@@ -836,16 +844,27 @@ impl Node {
 /// and is confirmed reachable from the internet. A node behind NAT, or reachable only on a LAN or a VPN, never
 /// offers relay spots that nobody outside could use; its own addresses still go into its DHT record and identify.
 fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
-    let direct = {
+    let (direct, test) = {
         let s = st.lock().unwrap();
-        s.test_reachable || (s.worldwide && s.helping)
+        (s.test_reachable || (s.worldwide && s.helping), s.test_reachable)
     };
-    let mine: Vec<Multiaddr> = swarm.listeners().filter(|a| is_circuit(a) || (direct && dialable(a))).cloned().collect();
-    if !direct {
-        let stale: Vec<Multiaddr> = swarm.external_addresses().filter(|a| !is_circuit(a)).cloned().collect();
-        for a in stale {
-            swarm.remove_external_address(&a);
-        }
+    // only internet addresses are confirmed (tests use loopback): never Docker, VM or VPN bridges, which nobody
+    // else can reach and which would bloat identify past its size limit
+    let mine: Vec<Multiaddr> = swarm
+        .listeners()
+        .filter(|a| is_circuit(a) || (direct && dialable(a) && (test || worldwide(a))))
+        .cloned()
+        .collect();
+    // take back only addresses this function confirms (own listeners); a router's UPnP mapping and the tests'
+    // loopback stay
+    let listening: Vec<Multiaddr> = swarm.listeners().filter(|a| dialable(a)).cloned().collect();
+    let stale: Vec<Multiaddr> = swarm
+        .external_addresses()
+        .filter(|a| !is_circuit(a) && !mine.contains(a) && listening.contains(a) && !test)
+        .cloned()
+        .collect();
+    for a in stale {
+        swarm.remove_external_address(&a);
     }
     for a in mine {
         swarm.add_external_address(a);
