@@ -11,7 +11,7 @@ net="${KILLANET_HOST_BUILD:-$PWD/net/target/release}"
 tmp=$(mktemp -d)
 pids=()
 cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; rm -rf "$tmp"; }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 mkdir -p "$tmp/classes"
 javac -Xlint:-options --release 8 -d "$tmp/classes" app/src/ai/jackknife/killayue/peer/*.java \
     peer/test/HammerIntegration.java peer/test/NetworkTest.java

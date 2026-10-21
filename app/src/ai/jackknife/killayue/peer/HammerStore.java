@@ -143,6 +143,52 @@ public final class HammerStore implements Hammer.Source {
         return true;
     }
     public synchronized List<Hosted> hosted() { return new ArrayList<Hosted>(songs.values()); }
+    // plays and whole downloads served per song: counted here, on the host, never who listened
+    private Map<String, long[]> counts;
+    private long countsSaved;
+    private Map<String, long[]> counts() {
+        if (counts == null) {
+            counts = new HashMap<String, long[]>();
+            File f = new File(root, "stats.txt");
+            try {
+                for (String line : new String(read(f, 1 << 20), StandardCharsets.UTF_8).split("\n")) {
+                    String[] p = line.split(" ");
+                    if (p.length == 3 && Hammer.digest(p[0]))
+                        counts.put(p[0], new long[] {Long.parseLong(p[1]), Long.parseLong(p[2])});
+                }
+            } catch (Exception none) {
+            }
+        }
+        return counts;
+    }
+    @Override
+    public synchronized void counted(String id, int kind) {
+        if (!songs.containsKey(id) || kind < 0 || kind > 1)
+            return;
+        long[] n = counts().get(id);
+        if (n == null)
+            counts().put(id, n = new long[2]);
+        n[kind]++;
+        if (System.currentTimeMillis() - countsSaved > 30000) {
+            countsSaved = System.currentTimeMillis();
+            StringBuilder b = new StringBuilder();
+            for (Map.Entry<String, long[]> e : counts().entrySet())
+                if (songs.containsKey(e.getKey()))
+                    b.append(e.getKey()).append(' ').append(e.getValue()[0]).append(' ').append(e.getValue()[1]).append('\n');
+            try {
+                atomic(new File(root, "stats.txt"), b.toString().getBytes(StandardCharsets.UTF_8));
+            } catch (IOException ignored) {
+            }
+        }
+    }
+    @Override
+    public long[] stats(String id, String capability) throws Exception {
+        Hammer.require(audio(id, capability) != null, "Song unavailable");
+        synchronized (this) {
+            long[] n = counts().get(id);
+            return n == null ? new long[] {0, 0} : n.clone();
+        }
+    }
     public synchronized List<Hammer.Song> catalog(String capability) throws Exception {
         boolean privateAccess = member(capability);
         List<Hammer.Song> out = new ArrayList<Hammer.Song>();

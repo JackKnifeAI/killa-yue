@@ -72,9 +72,37 @@ final class HammerAndroid {
             multicast.setReferenceCounted(false);
             multicast.acquire();
         }
-        // a phone helps the network (relays for others, answers DHT queries) only on Wi-Fi while charging
+        // a phone helps the network (relays for others, answers DHT queries) only on Wi-Fi while charging, and
+        // starts or stops helping as that changes
         int flags = helper(c) ? KillaNet.HELP : 0;
-        return KillaNet.start(new File(c.getFilesDir(), "network"), pin(), flags, KillaNet.PORT, "");
+        String id = KillaNet.start(new File(c.getFilesDir(), "network"), pin(), flags, KillaNet.PORT, "");
+        watchHelping(c.getApplicationContext());
+        return id;
+    }
+    private static boolean watching;
+    private static void watchHelping(final Context c) {
+        if (watching)
+            return;
+        watching = true;
+        final Runnable check = new Runnable() {
+            public void run() { KillaNet.help(helper(c)); }
+        };
+        android.content.IntentFilter power = new android.content.IntentFilter();
+        power.addAction(android.content.Intent.ACTION_POWER_CONNECTED);
+        power.addAction(android.content.Intent.ACTION_POWER_DISCONNECTED);
+        c.registerReceiver(new android.content.BroadcastReceiver() {
+            public void onReceive(Context x, android.content.Intent i) { check.run(); }
+        }, power);
+        try {
+            ((android.net.ConnectivityManager)c.getSystemService(Context.CONNECTIVITY_SERVICE))
+                .registerDefaultNetworkCallback(new android.net.ConnectivityManager.NetworkCallback() {
+                    public void onCapabilitiesChanged(android.net.Network n, android.net.NetworkCapabilities caps) {
+                        check.run();
+                    }
+                    public void onLost(android.net.Network n) { check.run(); }
+                });
+        } catch (Exception noCallback) {
+        }
     }
     static boolean helper(Context c) {
         try {

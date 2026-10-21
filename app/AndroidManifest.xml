@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="ai.jackknife.killayue" android:versionCode="23" android:versionName="1.7.2">
+    package="ai.jackknife.killayue" android:versionCode="24" android:versionName="1.7.3">
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- Foreground MIDI discovery only. Legacy permissions remain while the app targets API 28. -->
@@ -36,6 +36,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- "Share → Killa YuE" from any app: a song made anywhere joins the Library and the network -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="audio/*"/>
             </intent-filter>
             <!-- "Open in Killa YuE" on a friend's model-sharing page: killayue://models?from=<their address> -->
             <intent-filter>

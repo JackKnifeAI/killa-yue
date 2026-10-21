@@ -17,7 +17,7 @@ public final class Hammer {
     public static final long MAX_AUDIO = 1024L * 1024 * 1024;
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
-                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15;
+                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22;
     public static String hex(byte[] bytes) {
         StringBuilder b = new StringBuilder();
         for (byte v : bytes)
@@ -266,6 +266,10 @@ public final class Hammer {
         default HammerDirectory directory() { return null; }
         default HammerCommunity community() { return null; }
         default HammerCensus census() { return null; }
+        /** A play (the first stream segment) or a whole download was served: kind 0 or 1. */
+        default void counted(String id, int kind) {}
+        /** {plays, downloads} served for a visible song, or null when not counted. */
+        default long[] stats(String id, String capability) throws Exception { return null; }
     }
     public static final class Vote {
         public String song, key, sig, audience = "public";
@@ -529,6 +533,8 @@ public final class Hammer {
                     out.writeInt(length);
                     text(out, hash(bytes), 64);
                     out.write(bytes);
+                    if (offset + length == f.length())
+                        source.counted(id, 1);  // the last piece of a download
                 } else if (op == COMMENTS) {
                     String id = text(in, 64);
                     List<Comment> cs = source.comments(id, token);
@@ -563,6 +569,8 @@ public final class Hammer {
                     require(f != null, "Song unavailable");
                     byte[] bytes = HammerMedia.codec.encode(f, id, segment, bitrate);
                     require(source.audio(id, token) != null, "Song withdrawn");
+                    if (segment == 0)
+                        source.counted(id, 0);  // a listen starts
                     out.writeInt(MAGIC);
                     out.writeInt(bytes.length);
                     text(out, hash(bytes), 64);
@@ -609,6 +617,30 @@ public final class Hammer {
                     out.writeBoolean(art != null);
                     if (art != null)
                         art.write(out);
+                } else if (op == LYRICS) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Lyrics unavailable");
+                    HammerLyrics lyrics = objects.lyrics(text(in, 64), token);
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(lyrics != null);
+                    if (lyrics != null)
+                        lyrics.write(out);
+                } else if (op == ALBUMS) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Albums unavailable");
+                    List<HammerAlbum> albums = objects.albums(token);
+                    out.writeInt(MAGIC);
+                    out.writeInt(albums.size());
+                    for (HammerAlbum a : albums)
+                        a.write(out);
+                } else if (op == STATS) {
+                    long[] n = source.stats(text(in, 64), token);
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(n != null);
+                    if (n != null) {
+                        out.writeLong(n[0]);
+                        out.writeLong(n[1]);
+                    }
                 } else if (op == IMAGE) {
                     HammerPublic objects = source.publicObjects();
                     require(objects != null, "Artwork unavailable");
@@ -779,6 +811,42 @@ public final class Hammer {
             HammerArt a = HammerArt.read(c.in);
             require(a.song.equals(song.id) && a.key.equals(song.key), "Cover publisher differs");
             return a;
+        }
+    }
+    /** A song's signed lyrics, or null when it has none (an older host refuses the request). */
+    public static HammerLyrics lyrics(Card p, Song song, Job job) throws Exception {
+        try (Connection c = new Connection(p, LYRICS, job)) {
+            text(c.out, song.id, 64);
+            c.reply();
+            if (!c.in.readBoolean())
+                return null;
+            HammerLyrics l = HammerLyrics.read(c.in);
+            require(l.song.equals(song.id) && l.key.equals(song.key), "Lyrics publisher differs");
+            return l;
+        }
+    }
+    /** The host's albums and playlists. */
+    public static List<HammerAlbum> albums(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, ALBUMS, job)) {
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= 64, "Invalid album count");
+            List<HammerAlbum> out = new ArrayList<HammerAlbum>();
+            for (int i = 0; i < n; i++)
+                out.add(HammerAlbum.read(c.in));
+            return out;
+        }
+    }
+    /** {plays, downloads} the host has served for a song, or null when it does not count. */
+    public static long[] stats(Card p, String song, Job job) throws Exception {
+        try (Connection c = new Connection(p, STATS, job)) {
+            text(c.out, song, 64);
+            c.reply();
+            if (!c.in.readBoolean())
+                return null;
+            long plays = c.in.readLong(), downloads = c.in.readLong();
+            require(plays >= 0 && downloads >= 0, "Invalid counts");
+            return new long[] {plays, downloads};
         }
     }
     public static byte[] image(Card p, String owner, String hash, boolean profile, Job job) throws Exception {

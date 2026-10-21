@@ -25,6 +25,7 @@ public final class KillaNet {
                                              int port, String entry);
     private static native void nativeAnnounce(boolean on);
     private static native void nativeLookup();
+    private static native void nativeHelp(boolean on);
     private static native int nativeOpen(String peerId, byte[] token);
     private static native String nativePeers();
     private static native String nativeStatus();
@@ -88,6 +89,7 @@ public final class KillaNet {
         dataDir.mkdirs();
         String id = nativeStart(dataDir.getAbsolutePath(), AGENT + pin, bridge.getLocalPort(), TOKEN, flags, port,
                                 entry == null ? "" : entry);
+        helping = (flags & HELP) != 0;
         if (id == null || id.startsWith("error")) {
             try {
                 bridge.close();
@@ -108,6 +110,18 @@ public final class KillaNet {
             nativeAnnounce(on);
     }
 
+    /**
+     * Volunteer as a relay and DHT server, or stop. A helper serves as a relay only once it is confirmed reachable
+     * from the internet, so a phone behind NAT never offers relay spots nobody could use.
+     */
+    public static synchronized void help(boolean on) {
+        // Android reports network changes every few seconds (signal strength); switch only on a real change
+        if (running() && (helping == null || helping != on)) {
+            helping = on;
+            nativeHelp(on);
+        }
+    }
+    private static Boolean helping;
     /** Ask the DHT for public hosts now; they are connected to and appear in peers() as hosts. */
     public static void lookup() {
         if (peerId != null)
