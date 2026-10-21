@@ -370,11 +370,10 @@ public final class HammerActivity extends Activity {
         });
         group("Privacy", null);
         TextView fine = Ui.text(this,
-            "Connect using a trusted peer card. Direct connections need reachable addresses: Wi-Fi, a "
-            + "hotspot, or a reachable internet/VPN endpoint. No global tracker or NAT relay is bundled. "
-            + "Lossless/original mode transfers the existing file unchanged; an MP3 master cannot regain "
-            + "lost detail. Public metadata is public; encryption does not hide peer IP addresses. Search "
-            + "words stay here.", Skin.DIM, 12);
+            "Streams are encrypted, but encryption does not hide addresses: people who connect to you can see "
+            + "your internet address, and you see theirs. Shared songs leave without hidden data: only what "
+            + "describes the music, like title, your artist name, album, lyrics and cover, stays in the file. Titles, tags and "
+            + "profiles you publish are public. Search words stay here.", Skin.DIM, 12);
         body.addView(fine);
         if (section != ALL)
             scroll.post(new Runnable() {
@@ -844,8 +843,8 @@ public final class HammerActivity extends Activity {
             new Lux.Builder(this)
                 .setTitle("Host “" + title + "”")
                 .setMessage(
-                    "Only this audio, title and the tags you enter are shared. The existing audio file is "
-                    + "served directly; no second master is kept. Downloaded copies can outlive this host.")
+                    "Only this audio, title and the tags you enter are shared; hidden data in the file is removed "
+                    + "first. Downloaded copies can outlive this host. " + HammerLibrary.ADDRESS_VISIBLE)
                 .setView(v)
                 .setPositiveButton("Publish",
                                    new DialogInterface.OnClickListener() {

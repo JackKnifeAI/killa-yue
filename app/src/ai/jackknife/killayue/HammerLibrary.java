@@ -72,6 +72,8 @@ final class HammerLibrary {
             return null;
         }
     }
+    /** Said wherever a song is shared: hosting is direct, so listeners see this phone's address. */
+    static final String ADDRESS_VISIBLE = "People who connect to you can see your internet address.";
     static String state(Context c, JSONObject meta) {
         try {
             File f = audio(c, meta);
@@ -118,7 +120,7 @@ final class HammerLibrary {
             .setTitle("Sharing · " + meta.optString("_title", "Untitled"))
             .setMessage(
                 "Share this recording and its cover. Prompts, projects and other files stay on your device. "
-                + "Publishing starts hosting. Copies already downloaded cannot be recalled.")
+                + "Publishing starts hosting. Copies already downloaded cannot be recalled. " + ADDRESS_VISIBLE)
             .setView(view)
             .setPositiveButton(
                 "Apply",
@@ -266,10 +268,10 @@ final class HammerLibrary {
             .setMessage(uris.size() == 1
                             ? "It goes into your Library. Share it on the Killa YuE network too, and anyone can find, "
                               + "play and download it from Discover, with the cover and title inside the file. "
-                              + "Share only music you made or may share."
+                              + "Share only music you made or may share. " + ADDRESS_VISIBLE
                             : "They go into your Library. Share them on the Killa YuE network too, and anyone can find, "
                               + "play and download them from Discover, with the cover and title inside each file. "
-                              + "Share only music you made or may share.")
+                              + "Share only music you made or may share. " + ADDRESS_VISIBLE)
             .setPositiveButton("Add and share", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) { importAll(a, uris, true); }
             })
