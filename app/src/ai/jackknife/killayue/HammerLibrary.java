@@ -263,9 +263,13 @@ final class HammerLibrary {
         }
         new Lux.Builder(a)
             .setTitle(uris.size() == 1 ? "Add this song?" : "Add " + uris.size() + " songs?")
-            .setMessage("They go into your Library. Share them on the Killa YuE network too, and anyone can find, "
-                        + "play and download them from Discover, with the cover and title inside each file. "
-                        + "Share only music you made or may share.")
+            .setMessage(uris.size() == 1
+                            ? "It goes into your Library. Share it on the Killa YuE network too, and anyone can find, "
+                              + "play and download it from Discover, with the cover and title inside the file. "
+                              + "Share only music you made or may share."
+                            : "They go into your Library. Share them on the Killa YuE network too, and anyone can find, "
+                              + "play and download them from Discover, with the cover and title inside each file. "
+                              + "Share only music you made or may share.")
             .setPositiveButton("Add and share", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) { importAll(a, uris, true); }
             })
