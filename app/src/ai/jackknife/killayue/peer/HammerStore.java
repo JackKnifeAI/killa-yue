@@ -13,11 +13,14 @@ public final class HammerStore implements Hammer.Source {
         public final boolean publicSong;
         public final File file;
         public final long modified;
-        Hosted(Hammer.Song song, boolean publicSong, File file, long modified) {
+        /** The artist's own file this was published from; {@code file} is its clean copy, or the same file. */
+        public final File source;
+        Hosted(Hammer.Song song, boolean publicSong, File file, long modified, File source) {
             this.song = song;
             this.publicSong = publicSong;
             this.file = file;
             this.modified = modified;
+            this.source = source;
         }
     }
     public static final class Peer {
@@ -73,7 +76,8 @@ public final class HammerStore implements Hammer.Source {
                     Hammer.require(f.getName().equals(s.id + ".song"), "Invalid publication filename");
                     File audio = new File(Hammer.text(in, 4096));
                     long modified = in.readLong();
-                    songs.put(s.id, new Hosted(s, pub, audio, modified));
+                    File source = in.available() > 0 ? new File(Hammer.text(in, 4096)) : audio;
+                    songs.put(s.id, new Hosted(s, pub, audio, modified, source));
                     Hammer.require(songs.size() <= Hammer.MAX_SONGS, "Too many hosted songs");
                 }
             }
@@ -213,14 +217,37 @@ public final class HammerStore implements Hammer.Source {
     }
     public Hammer.Song publish(File input, String title, String tags, boolean reshare, boolean pub,
                                KeyPair pair, Hammer.Job job) throws Exception {
-        input = input.getCanonicalFile();
-        Hammer.require(input.isFile() && input.length() > 0 && input.length() <= Hammer.MAX_AUDIO,
+        File source = input.getCanonicalFile();
+        Hammer.require(source.isFile() && source.length() > 0 && source.length() <= Hammer.MAX_AUDIO,
                        "Choose an audio file up to 1 GiB");
-        String name = input.getName().toLowerCase(Locale.ROOT);
+        String name = source.getName().toLowerCase(Locale.ROOT);
         String type = name.endsWith(".wav")    ? "audio/wav"
                       : name.endsWith(".flac") ? "audio/flac"
                                                : "audio/mpeg";
         Hammer.require(name.matches(".*\\.(wav|mp3|flac)"), "Choose WAV, FLAC or MP3 audio");
+        // what leaves the phone is a copy without the data that could identify the artist (see HammerClean)
+        long sourceModified = source.lastModified();
+        File cleanDir = new File(root, "clean");
+        Hammer.require(cleanDir.isDirectory() || cleanDir.mkdirs(), "Cannot prepare the song");
+        File part = new File(cleanDir, Hammer.random() + ".part");
+        boolean cleaned;
+        try {
+            cleaned = HammerClean.clean(source, part, job);
+        } catch (Exception e) {
+            part.delete();
+            throw e;
+        }
+        Hammer.require(source.lastModified() == sourceModified, "Source changed while publishing");
+        try {
+            return publishFile(cleaned ? part : source, source, cleaned, part, cleanDir, name, type, title, tags,
+                               reshare, pub, pair, job);
+        } finally {
+            part.delete();  // gone already when it became the clean copy
+        }
+    }
+    private Hammer.Song publishFile(File input, File source, boolean cleaned, File part, File cleanDir, String name,
+                                    String type, String title, String tags, boolean reshare, boolean pub,
+                                    KeyPair pair, Hammer.Job job) throws Exception {
         long size = input.length(), modified = input.lastModified();
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (InputStream in = new FileInputStream(input)) {
@@ -234,6 +261,15 @@ public final class HammerStore implements Hammer.Source {
         String id = Hammer.hex(digest.digest());
         Hammer.require(input.length() == size && input.lastModified() == modified,
                        "Source changed while publishing");
+        if (cleaned) {
+            File done = new File(cleanDir, id + name.substring(name.lastIndexOf('.')));
+            if (!part.renameTo(done)) {
+                done.delete();
+                Hammer.require(part.renameTo(done), "Cannot save the song");
+            }
+            input = done;
+            modified = done.lastModified();
+        }
         Hammer.Song song = new Hammer.Song(id, title, tags, type, size, reshare);
         song.sign(pair);
         song.validate();
@@ -241,19 +277,21 @@ public final class HammerStore implements Hammer.Source {
             job.check();
             Hammer.require(songs.containsKey(song.id) || songs.size() < Hammer.MAX_SONGS,
                            "This host holds at most 256 songs");
-            save(song, pub, input, modified);
+            save(song, pub, input, modified, source);
         }
         return song;
     }
-    private void save(Hammer.Song song, boolean pub, File file, long modified) throws Exception {
+    private void save(Hammer.Song song, boolean pub, File file, long modified, File source) throws Exception {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(b);
         out.writeBoolean(pub);
         song.write(out);
         Hammer.text(out, file.getCanonicalPath(), 4096);
         out.writeLong(modified);
+        if (!source.equals(file))
+            Hammer.text(out, source.getCanonicalPath(), 4096);  // older versions stop reading before this
         atomic(new File(root, song.id + ".song"), b.toByteArray());
-        songs.put(song.id, new Hosted(song, pub, file, modified));
+        songs.put(song.id, new Hosted(song, pub, file, modified, source));
         writeMetadata(song);
         notifyAll();
     }
@@ -265,18 +303,20 @@ public final class HammerStore implements Hammer.Source {
         File f = downloadFile(song);
         Hammer.require(f.isFile() && f.length() == song.size && Hammer.hash(f).equals(song.id),
                        "Download must finish and verify before hosting");
-        save(song, pub, f, f.lastModified());
+        save(song, pub, f, f.lastModified(), f);
     }
     public synchronized void visibility(String id, boolean pub) throws Exception {
         Hosted h = songs.get(id);
         Hammer.require(h != null, "Unknown song");
-        save(h.song, pub, h.file, h.modified);
+        save(h.song, pub, h.file, h.modified, h.source);
     }
     public synchronized void unpublish(String id) throws IOException {
         Hammer.require(Hammer.digest(id), "Invalid song");
         File f = new File(root, id + ".song");
         Hammer.require(!f.exists() || f.delete(), "Cannot unpublish");
-        songs.remove(id);
+        Hosted h = songs.remove(id);
+        if (h != null && !h.file.equals(h.source) && new File(root, "clean").equals(h.file.getParentFile()))
+            h.file.delete();  // our clean copy; the artist's own file stays
         notifyAll();
         // Keep the verified local copy: unpublishing is not deleting a person's music.
     }
@@ -322,7 +362,7 @@ public final class HammerStore implements Hammer.Source {
         atomic(new File(root, song.id + ".download"), b.toByteArray());
         Hosted h = songs.get(song.id);
         if (h != null)
-            save(song, h.publicSong, file, file.lastModified());
+            save(song, h.publicSong, file, file.lastModified(), file);
     }
     public static String peerId(Hammer.Card card) {
         return card.pin + (card.isPrivate() ? ":private" : ":public");

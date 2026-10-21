@@ -112,7 +112,7 @@ public final class HammerServer {
         for (HammerStore.Hosted h : store.hosted()) {
             if (!h.publicSong)
                 continue;
-            String album = EmbeddedArt.read(h.file).album;
+            String album = EmbeddedArt.read(h.source.isFile() ? h.source : h.file).album;
             if (album.isEmpty())
                 continue;
             if (!byAlbum.containsKey(album))
@@ -168,7 +168,7 @@ public final class HammerServer {
         Hammer.require(dir.isDirectory(), "Choose a folder");
         Set<String> hosted = new HashSet<String>();
         for (HammerStore.Hosted h : store.hosted())
-            hosted.add(h.file.getCanonicalPath());
+            hosted.add(h.source.getCanonicalPath());
         List<File> found = new ArrayList<File>();
         collect(dir, found, 0);
         Collections.sort(found);
@@ -387,7 +387,7 @@ public final class HammerServer {
         } else if (op.equals("covers")) {
             int n = 0, words = 0;
             for (HammerStore.Hosted h : store.hosted()) {
-                EmbeddedArt e = EmbeddedArt.read(h.file);
+                EmbeddedArt e = EmbeddedArt.read(h.source.isFile() ? h.source : h.file);
                 if (store.publicObjects.localCover(h.song.id) == null && attachCover(h.song, e))
                     n++;
                 if (store.publicObjects.localLyrics(h.song.id) == null && !e.lyrics.isEmpty())
@@ -405,7 +405,7 @@ public final class HammerServer {
         } else if (op.equals("lyrics")) {  // lyrics again from the files, replacing what was offered
             int words = 0;
             for (HammerStore.Hosted h : store.hosted()) {
-                EmbeddedArt e = EmbeddedArt.read(h.file);
+                EmbeddedArt e = EmbeddedArt.read(h.source.isFile() ? h.source : h.file);
                 if (e.lyrics.isEmpty())
                     continue;
                 try {

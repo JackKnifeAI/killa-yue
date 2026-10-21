@@ -76,7 +76,7 @@ final class HammerLibrary {
         try {
             File f = audio(c, meta);
             for (HammerStore.Hosted h : HammerAndroid.store(c).hosted())
-                if (h.file.getCanonicalFile().equals(f))
+                if (h.source.getCanonicalFile().equals(f))
                     return h.publicSong ? "Public" : "Private circle";
         } catch (Exception ignored) {
         }
@@ -103,7 +103,7 @@ final class HammerLibrary {
         try {
             File f = audio(a, meta);
             for (HammerStore.Hosted h : HammerAndroid.store(a).hosted())
-                if (h.file.getCanonicalFile().equals(f)) {
+                if (h.source.getCanonicalFile().equals(f)) {
                     tags.setText(h.song.tags);
                     copies.setChecked(h.song.reshare);
                 }
@@ -133,7 +133,7 @@ final class HammerLibrary {
                                 File file = audio(a, meta);
                                 HammerStore.Hosted existing = null;
                                 for (HammerStore.Hosted h : store.hosted())
-                                    if (h.file.getCanonicalFile().equals(file))
+                                    if (h.source.getCanonicalFile().equals(file))
                                         existing = h;
                                 if (scope == 0) {
                                     if (existing != null) {
