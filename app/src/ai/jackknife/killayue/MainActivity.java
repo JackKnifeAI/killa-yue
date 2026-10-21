@@ -1379,6 +1379,7 @@ public class MainActivity extends Activity {
         }
         jobPreview = preview;
         jobBusy = true;
+        ai.jackknife.killayue.peer.KillaNet.help(false);  // a song being made gets the phone to itself
         jobCancel = false;
         jobError = "";
         Songwriter.cancel();
@@ -1408,6 +1409,7 @@ public class MainActivity extends Activity {
                 final String ferr = err;
                 Eta.end();
                 jobBusy = false;
+                ai.jackknife.killayue.peer.KillaNet.help(HammerAndroid.helper(getApplicationContext()));
                 jobId = null;
                 jobError = ferr == null ? "" : ferr;
                 EngineService.setStage("", 0, 0);

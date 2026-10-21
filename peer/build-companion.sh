@@ -8,7 +8,7 @@ dest="$(cd "$dest" && pwd)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/classes" "$tmp/package"
-javac --release 8 -d "$tmp/classes" app/src/ai/jackknife/killayue/peer/*.java peer/desktop/HammerServer.java
+javac --release 8 -d "$tmp/classes" app/src/ai/jackknife/killayue/peer/*.java peer/desktop/HammerServer.java peer/desktop/EmbeddedArt.java
 jar cfe "$tmp/package/hammer-server.jar" ai.jackknife.killayue.peer.HammerServer -C "$tmp/classes" .
 cp peer/README.md "$tmp/package/README.md"
 cp docs/community-and-desktop-roadmap.md "$tmp/package/ROADMAP.md"

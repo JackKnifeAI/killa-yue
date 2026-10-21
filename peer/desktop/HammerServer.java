@@ -82,6 +82,79 @@ public final class HammerServer {
         server.close();
         Arrays.fill(password, '\0');
     }
+    /** Publishes one file with what it already carries: title (else the file name), genre and cover. */
+    private Hammer.Song publishFile(File f, boolean pub, String title) throws Exception {
+        EmbeddedArt e = EmbeddedArt.read(f);
+        if (title.isEmpty())
+            title = e.title;
+        if (title.isEmpty())  // "Song name [a1b2c3d4].mp3" → "Song name"
+            title = f.getName().replaceFirst("\\.[^.]+$", "").replaceFirst("\\s*\\[[0-9a-fA-F]{6,}\\]$", "").trim();
+        Hammer.Song s = store.publish(f, title, e.genre, true, pub, identity);
+        if (store.publicObjects.localCover(s.id) == null)
+            attachCover(s, e);
+        return s;
+    }
+    /** Signs and stores a song's cover from its embedded or neighbouring art. False when there is none. */
+    private boolean attachCover(Hammer.Song s, EmbeddedArt e) {
+        try {
+            byte[] jpeg = e.coverJpeg();
+            if (jpeg == null)
+                return false;
+            HammerArt art = new HammerArt();
+            art.song = s.id;
+            art.image = store.publicObjects.putImage(jpeg);
+            art.sign(identity);
+            store.publicObjects.cover(s, art);
+            return true;
+        } catch (Exception noRoom) {
+            return false;
+        }
+    }
+    /**
+     * Publishes every WAV, FLAC and MP3 under {@code dir} (three folders deep) that is not hosted yet, so an artist
+     * brings a whole catalogue in one step. Returns {published, failed}.
+     */
+    private int[] publishFolder(File dir, boolean pub, boolean say) throws Exception {
+        Hammer.require(dir.isDirectory(), "Choose a folder");
+        Set<String> hosted = new HashSet<String>();
+        for (HammerStore.Hosted h : store.hosted())
+            hosted.add(h.file.getCanonicalPath());
+        List<File> found = new ArrayList<File>();
+        collect(dir, found, 0);
+        Collections.sort(found);
+        int done = 0, failed = 0;
+        for (File f : found) {
+            if (hosted.contains(f.getCanonicalPath()))
+                continue;
+            try {
+                publishFile(f, pub, "");
+                done++;
+            } catch (Exception e) {
+                failed++;
+                if (say)
+                    System.out.println("  " + f.getName() + ": " + e.getMessage());
+                if (String.valueOf(e.getMessage()).contains("at most"))
+                    break;  // the host is full
+            }
+        }
+        if (done > 0)
+            announce();
+        return new int[] {done, failed};
+    }
+    private static void collect(File dir, List<File> out, int depth) {
+        File[] fs = dir.listFiles();
+        if (fs == null || depth > 3)
+            return;
+        for (File f : fs) {
+            String n = f.getName().toLowerCase(Locale.ROOT);
+            if (n.startsWith("."))
+                continue;
+            if (f.isDirectory())
+                collect(f, out, depth + 1);
+            else if (n.matches(".*\\.(mp3|wav|flac)"))
+                out.add(f);
+        }
+    }
     private void announce() {
         try {
             store.census.rollover();
@@ -162,7 +235,10 @@ public final class HammerServer {
         System.out.println(
             "Commands (quote paths or names containing spaces):\n"
             + "  card public|private                   Show this host's peer card\n"
-            + "  publish PATH public|private TITLE     Serve an existing WAV/FLAC/MP3; downloads enabled\n"
+            + "  publish PATH public|private [TITLE]   Serve an existing WAV/FLAC/MP3; downloads enabled; the cover,\n"
+            + "                                        title and genre inside the file come along\n"
+            + "  publish-folder DIR public|private     Publish every song in a folder (and its folders) not yet hosted\n"
+            + "  covers                                Attach the art inside hosted songs that have no cover yet\n"
             + "  profile NAME BIO TAGS                  Publish signed public artist metadata\n"
             + "  withdraw-profile                      Remove this host public artist profile\n"
             + "  join CARD                             Join a public entry peer and announce this host\n"
@@ -244,8 +320,17 @@ public final class HammerServer {
         } else if (op.equals("card"))
             System.out.println(card(scope(a.get(1)) == false).encode());
         else if (op.equals("publish")) {
-            Hammer.Song s = store.publish(new File(a.get(1)), a.get(3), "", true, scope(a.get(2)), identity);
+            Hammer.Song s = publishFile(new File(a.get(1)), scope(a.get(2)), a.size() > 3 ? a.get(3) : "");
             System.out.println("Published " + s.id);
+        } else if (op.equals("publish-folder")) {
+            int[] n = publishFolder(new File(a.get(1)), scope(a.get(2)), true);
+            System.out.println("Published " + n[0] + " new songs" + (n[1] > 0 ? "; " + n[1] + " could not be published" : ""));
+        } else if (op.equals("covers")) {
+            int n = 0;
+            for (HammerStore.Hosted h : store.hosted())
+                if (store.publicObjects.localCover(h.song.id) == null && attachCover(h.song, EmbeddedArt.read(h.file)))
+                    n++;
+            System.out.println("Covers attached: " + n);
         } else if (op.equals("profile")) {
             HammerProfile p = new HammerProfile();
             p.name = a.get(1);
@@ -411,7 +496,7 @@ public final class HammerServer {
         File data = new File(System.getProperty("user.home"), ".hammer");
         String address = "127.0.0.1", bind = "0.0.0.0";
         int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false;
-        int networkPort = KillaNet.PORT; String entry = "";
+        int networkPort = KillaNet.PORT; String entry = "", watch = ""; boolean watchPrivate = false;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--data"))
                 data = new File(args[++i]);
@@ -428,9 +513,11 @@ public final class HammerServer {
             else if (args[i].equals("--upnp")) upnp = true;
             else if (args[i].equals("--network-port")) networkPort = Integer.parseInt(args[++i]);
             else if (args[i].equals("--entry")) entry = args[++i];
+            else if (args[i].equals("--watch")) watch = args[++i];
+            else if (args[i].equals("--watch-private")) watchPrivate = true;
             else
                 throw new IllegalArgumentException(
-                    "Use --daemon --network --help-network --community-count --network-port PORT --entry MULTIADDR --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -450,6 +537,31 @@ public final class HammerServer {
         HammerStore.atomic(new File(data, "public.card"), app.card(false).encode().getBytes(StandardCharsets.US_ASCII));
         HammerStore.atomic(new File(data, "direct.card"), new Hammer.Card(address, app.server.port(), app.pin, "").encode().getBytes(StandardCharsets.US_ASCII));
         app.announce();
+        if (!watch.isEmpty()) {  // keep a music folder published: new songs appear on the network by themselves
+            final File folder = new File(watch);
+            final boolean pub = !watchPrivate;
+            Thread t = new Thread(new Runnable() {
+                public void run() {
+                    while (true) {
+                        try {
+                            int[] n = app.publishFolder(folder, pub, false);
+                            if (n[0] > 0)
+                                System.out.println("Published " + n[0] + " new songs from " + folder);
+                        } catch (Exception e) {
+                            System.out.println("Watching " + folder + ": " + e.getMessage());
+                        }
+                        try {
+                            Thread.sleep(5 * 60 * 1000);
+                        } catch (InterruptedException stop) {
+                            return;
+                        }
+                    }
+                }
+            }, "watch-folder");
+            t.setDaemon(true);
+            t.start();
+            System.out.println("Publishing every song in " + folder + (pub ? " (public)" : " (private)") + ", checking every five minutes.");
+        }
         if (daemon) {
             System.out.println("Community node running: hosting, metadata, audio/transcode; remote generation disabled.");
             new java.util.concurrent.CountDownLatch(1).await();

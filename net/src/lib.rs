@@ -84,6 +84,8 @@ struct State {
     local: HashSet<PeerId>,
     nat: String,
     worldwide: bool, // confirmed reachable on a public internet address, not only on a LAN or a VPN
+    helping: bool,   // volunteers as a relay and DHT server (a computer, or a phone on Wi-Fi and charging)
+    test_reachable: bool,
     relays: HashSet<PeerId>,
     hosts: HashSet<PeerId>,
 }
@@ -96,6 +98,7 @@ enum Cmd {
     Dial(Vec<Multiaddr>),
     Announce(bool),
     Lookup,
+    Help(bool),
 }
 
 pub struct Node {
@@ -298,7 +301,10 @@ impl Node {
                     };
                     Ok(Behaviour {
                         relay_client,
-                        relay: Toggle::from((flags & HELP != 0).then(|| relay::Behaviour::new(me, relay_config))),
+                        // always present, but it serves only while this node helps and is reachable from the
+                        // internet: the relay library serves exactly when there are confirmed external addresses,
+                        // and reachable_as only confirms direct ones then
+                        relay: Toggle::from(Some(relay::Behaviour::new(me, relay_config))),
                         dcutr: dcutr::Behaviour::new(me),
                         autonat: autonat::Behaviour::new(
                             me,
@@ -346,7 +352,8 @@ impl Node {
         }
         let control = swarm.behaviour().stream.new_control();
         let mut incoming = control.clone().accept(HAMMER).map_err(|e| format!("stream protocol: {e}"))?;
-        let state = Arc::new(Mutex::new(State { nat: "unknown".into(), ..Default::default() }));
+        let state = Arc::new(Mutex::new(State { nat: "unknown".into(), helping: flags & HELP != 0,
+                                                   test_reachable: flags & TEST_REACHABLE != 0, ..Default::default() }));
         let (cmd, mut cmds) = mpsc::unbounded_channel::<Cmd>();
         let stop = Arc::new(AtomicBool::new(false));
 
@@ -496,6 +503,11 @@ impl Node {
                             announcing = on;
                         }
                         Cmd::Lookup => { swarm.behaviour_mut().kad.get_providers(hosts_key.clone()); }
+                        Cmd::Help(on) => {
+                            st.lock().unwrap().helping = on;
+                            swarm.behaviour_mut().kad.set_mode(Some(if on { kad::Mode::Server } else { kad::Mode::Client }));
+                            reachable_as(&mut swarm, &st);
+                        }
                     },
                     event = swarm.select_next_some() => { match &event {
                         SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => debug!("connected {peer_id} via {}", endpoint.get_remote_address()),
@@ -514,7 +526,12 @@ impl Node {
                             // confirm it. Peers dial what they find, so a firewalled one only costs a failed dial.
                             let v4 = address.iter().any(|p| matches!(p, Protocol::Ip4(_)));
                             if v4 && worldwide(&address) {
-                                swarm.add_external_address(address.clone());
+                                let helping = {
+                                    let mut s = st.lock().unwrap();
+                                    s.worldwide = true;
+                                    s.helping
+                                };
+                                if helping { swarm.add_external_address(address.clone()); }
                                 if let Some(p) = udp_port(&address) { public_port.store(p, Ordering::Relaxed); }
                             }
                             st.lock().unwrap().listen.push(address);
@@ -602,6 +619,7 @@ impl Node {
                                 autonat::NatStatus::Unknown => "unknown",
                             };
                             if !matches!(new, autonat::NatStatus::Public(_)) { st.lock().unwrap().worldwide = false; }
+                            reachable_as(&mut swarm, &st);
                             st.lock().unwrap().nat = label.into();
                             reserve(&mut swarm, &st, &hop, relay_only);
                         }
@@ -701,6 +719,11 @@ impl Node {
         let _ = self.cmd.send(Cmd::Lookup);
     }
 
+    /// Volunteer as a relay and DHT server, or stop; the app switches it as the phone plugs in or leaves Wi-Fi.
+    pub fn help(&self, on: bool) {
+        let _ = self.cmd.send(Cmd::Help(on));
+    }
+
     /// One line per peer: PeerId, identify agent, on this network, connected, ever through a relay, a public host,
     /// hole-punched to a direct connection (0/1 each); tab separated.
     pub fn peers(&self) -> String {
@@ -749,16 +772,22 @@ impl Node {
     }
 }
 
-/// The addresses other peers are told to use, which also go into this host's DHT entries: relay circuits always
-/// (a reservation is proof of reachability through that relay), and this node's own interface addresses unless
-/// AutoNAT has found it behind NAT.
+/// The addresses this node confirms to others (which also makes a helper's relay serve): relay circuits always (a
+/// reservation is proof of reachability through that relay), and its own interface addresses only while it helps
+/// and is confirmed reachable from the internet. A node behind NAT, or reachable only on a LAN or a VPN, never
+/// offers relay spots that nobody outside could use; its own addresses still go into its DHT record and identify.
 fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
-    let private = st.lock().unwrap().nat == "private";
-    let mine: Vec<Multiaddr> = swarm
-        .listeners()
-        .filter(|a| is_circuit(a) || (!private && dialable(a)))
-        .cloned()
-        .collect();
+    let direct = {
+        let s = st.lock().unwrap();
+        s.test_reachable || (s.worldwide && s.helping)
+    };
+    let mine: Vec<Multiaddr> = swarm.listeners().filter(|a| is_circuit(a) || (direct && dialable(a))).cloned().collect();
+    if !direct {
+        let stale: Vec<Multiaddr> = swarm.external_addresses().filter(|a| !is_circuit(a)).cloned().collect();
+        for a in stale {
+            swarm.remove_external_address(&a);
+        }
+    }
     for a in mine {
         swarm.add_external_address(a);
     }
@@ -921,6 +950,13 @@ mod jni_api {
     pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeAnnounce(_env: JNIEnv, _c: JClass, on: jboolean) {
         if let Some(n) = NODE.lock().unwrap().as_ref() {
             n.announce(on != 0);
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeHelp(_env: JNIEnv, _c: JClass, on: jboolean) {
+        if let Some(n) = NODE.lock().unwrap().as_ref() {
+            n.help(on != 0);
         }
     }
 

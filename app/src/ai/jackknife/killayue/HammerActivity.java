@@ -14,9 +14,8 @@ import java.util.concurrent.*;
 /** Explicit sharing, on-device catalog search and peer playback. No account or bootstrap service. */
 public final class HammerActivity extends Activity {
     private LinearLayout body, results, playerPanel;
-    private TextView status, playerStatus;
+    private TextView status;
     private EditText query;
-    private SeekBar seek;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile Hammer.Job job;
@@ -60,10 +59,19 @@ public final class HammerActivity extends Activity {
         c.startActivity(new Intent(c, HammerActivity.class).putExtra("publish", song.toString()));
     }
     private ScrollView scroll;
-    private Button hostToggle, playPause;
+    private Button hostToggle;
     private ImageView ownPortrait;
-    private TextView ownName, playerTitle;
-    private Hit playing;
+    private TextView ownName;
+    private Hit playing, bound;
+    // the Discover player: one tap to vote or keep a song, and the list plays on like a radio
+    private DiscoverDeck deck;
+    private final List<Hit> shown = new ArrayList<Hit>();
+    private String advancedFor;
+    private boolean userStopped;
+    /** Up, down and this phone's own vote for each song, kept for the life of the app. */
+    private static final Map<String, int[]> tallies = new java.util.concurrent.ConcurrentHashMap<String, int[]>();
+    private static final Map<String, Long> counted = new java.util.concurrent.ConcurrentHashMap<String, Long>();
+    private final ExecutorService voting = Executors.newFixedThreadPool(2);
     // covers and portraits, fetched one at a time so a peer's admission limit is never hit
     private final ExecutorService art = Executors.newSingleThreadExecutor();
     private final Map<String, android.graphics.Bitmap> pictures = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
@@ -212,45 +220,38 @@ public final class HammerActivity extends Activity {
         body.addView(status);
         results = Ui.column(this);
         body.addView(results);
-        // now playing: a framed bar under the list
+        // now playing: the gold deck under the list, with the song's votes and a download
         playerPanel = Ui.column(this);
         playerPanel.setBackground(new LuxFrame(16, 8));
-        playerPanel.setPadding(in, Ui.dp(this, 10), in, Ui.dp(this, 10));
-        LinearLayout bar = Ui.row(this);
-        LinearLayout now = Ui.column(this);
-        playerTitle = Ui.text(this, "", Skin.TEXT, 15);
-        playerTitle.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
-        playerTitle.setSingleLine(true);
-        playerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        now.addView(playerTitle);
-        playerStatus = Ui.text(this, "Stopped", Skin.DIM, 12);
-        playerStatus.setSingleLine(true);
-        playerStatus.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        now.addView(playerStatus);
-        bar.addView(now, Ui.weight());
-        playPause = Ui.chip(this, "❚❚");
-        bar.addView(playPause);
-        playPause.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { HammerService.pause(); }
-        });
-        Button stop = Ui.chip(this, "■");
-        bar.addView(stop);
-        stop.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { HammerService.stopPlayback(); }
-        });
-        playerPanel.addView(bar);
-        seek = new SeekBar(this);
-        playerPanel.addView(seek, Ui.gap(this, 4));
-        seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar b, int p, boolean user) {
-                if (user)
-                    HammerService.seek(p);
+        playerPanel.setPadding(Ui.dp(this, 4), Ui.dp(this, 6), Ui.dp(this, 4), Ui.dp(this, 4));
+        deck = new DiscoverDeck(this, new DiscoverDeck.Listener() {
+            public void press(int b) {
+                if (b == DiscoverDeck.UP)
+                    tapVote(1);
+                else if (b == DiscoverDeck.DOWN)
+                    tapVote(-1);
+                else if (b == DiscoverDeck.PREV)
+                    skip(-1);
+                else if (b == DiscoverDeck.NEXT)
+                    skip(1);
+                else if (b == DiscoverDeck.PLAY) {
+                    if (HammerService.playback.startsWith("Finished") && playing != null)
+                        stream(playing, streamMode);  // play the finished song again
+                    else
+                        HammerService.pause();
+                } else if (b == DiscoverDeck.KEEP && playing != null) {
+                    if (playing.song.reshare)
+                        download(playing);
+                    else
+                        Ui.toast(HammerActivity.this, "The artist shares this song for streaming only");
+                } else if (b == DiscoverDeck.MORE && playing != null)
+                    song(playing);
             }
-            public void onStartTrackingTouch(SeekBar b) {}
-            public void onStopTrackingTouch(SeekBar b) {}
+            public void seek(int ms) { HammerService.seek(ms); }
         });
+        playerPanel.addView(deck, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, -2);
-        plp.leftMargin = plp.rightMargin = Ui.dp(this, 10);
+        plp.leftMargin = plp.rightMargin = Ui.dp(this, 8);
         plp.bottomMargin = Ui.dp(this, 8);
         root.addView(playerPanel, plp);
     }
@@ -409,13 +410,27 @@ public final class HammerActivity extends Activity {
                 boolean stopped = "Stopped".equals(HammerService.playback);
                 playerPanel.setVisibility(stopped ? View.GONE : View.VISIBLE);
                 if (!stopped) {
-                    playerTitle.setText(playing == null ? "Now playing"
-                                                        : playing.song.title + " · " + artistName(playing.song.key));
-                    playerStatus.setText(HammerService.playback + " · " + HammerService.bufferStatus());
-                    playPause.setText("Playing".equals(HammerService.playback) ? "❚❚" : "▶");
-                    seek.setMax(HammerService.duration());
-                    if (!seek.isPressed())
-                        seek.setProgress(HammerService.position());
+                    if (playing != bound)
+                        bindPlayer();
+                    deck.title = playing == null ? "Now playing" : playing.song.title;
+                    String state = HammerService.playback;
+                    deck.line = busy && job != null && job.total > 0
+                                    ? "Downloading " + (job.done * 100 / job.total) + "%"
+                                    : playing == null ? state
+                                    : state.startsWith("Playing") ? artistName(playing.song.key)
+                                    : artistName(playing.song.key) + " · " + state.replaceFirst(":.*", "");
+                    deck.playing = state.startsWith("Playing");
+                    deck.position = HammerService.position();
+                    deck.duration = HammerService.duration();
+                    if (playing != null && deck.cover == null)
+                        deck.cover = pictures.get(coverKey(playing));
+                    deck.invalidate();
+                }
+                // like a radio: when a song ends by itself, the next one in Discover plays
+                if (playing != null && HammerService.playback.startsWith("Finished") && !userStopped &&
+                    !playing.song.id.equals(advancedFor)) {
+                    advancedFor = playing.song.id;
+                    skip(1);
                 }
             }
             if (busy && job != null && job.total > 0)
@@ -521,9 +536,163 @@ public final class HammerActivity extends Activity {
     private interface Fetch {
         byte[] get(Hammer.Job job) throws Exception;
     }
+    private String coverKey(Hit hit) { return "s:" + HammerStore.peerId(hit.peer.card) + hit.song.id; }
+    private static String audience(Hit hit) {
+        try {
+            return hit.peer.card.isPrivate() ? Hammer.hash(hit.peer.card.token.getBytes("US-ASCII")) : "public";
+        } catch (Exception e) {
+            return "public";
+        }
+    }
+    private static String tallyKey(Hit hit) { return hit.song.id + "/" + audience(hit); }
+    /** Shows the playing song in the deck: its cover, and its votes with this phone's own lit up. */
+    private void bindPlayer() {
+        bound = playing;
+        deck.cover = playing == null ? null : pictures.get(coverKey(playing));
+        deck.votable = playing != null;
+        deck.keepable = playing != null && playing.song.reshare;
+        deck.up = deck.down = -1;
+        deck.mine = 0;
+        if (playing == null)
+            return;
+        showVotes();
+        tally(playing, null);
+    }
+    private void showVotes() {
+        if (playing == null || deck == null)
+            return;
+        int[] t = tallies.get(tallyKey(playing));
+        deck.up = t == null ? -1 : t[0];
+        deck.down = t == null ? -1 : t[1];
+        deck.mine = t == null ? 0 : t[2];
+        deck.invalidate();
+    }
+    /** Plays the song before or after this one in Discover, as listed now. */
+    private void skip(int by) {
+        if (shown.isEmpty())
+            return;
+        int at = -1;
+        for (int i = 0; playing != null && i < shown.size(); i++)
+            if (shown.get(i).song.id.equals(playing.song.id))
+                at = i;
+        int next = at + by;
+        if (next < 0 || next >= shown.size()) {
+            if (by > 0 && at >= 0)
+                Ui.toast(this, "That was the last song in Discover");
+            return;
+        }
+        stream(shown.get(next), streamMode);
+    }
+    /**
+     * Counts a song's signed votes in the background (never blocking a download), and remembers whether this phone
+     * voted. {@code line} is a song card's vote line, or null for the player.
+     */
+    private void tally(final Hit hit, final TextView line) {
+        counted.put(tallyKey(hit), System.currentTimeMillis());
+        voting.execute(new Runnable() {
+            public void run() {
+                try {
+                    if (closed)
+                        return;
+                    List<Hammer.Vote> list = Hammer.votes(hit.peer.card, hit.song.id, new Hammer.Job());
+                    int up = 0, down = 0;
+                    for (Hammer.Vote v : list) {
+                        if (v.value == 1)
+                            up++;
+                        if (v.value == -1)
+                            down++;
+                    }
+                    int mine = (int)getSharedPreferences("hammer-votes", 0).getLong("mine." + tallyKey(hit), 0);
+                    tallies.put(tallyKey(hit), new int[] {up, down, mine});
+                    ui.post(new Runnable() {
+                        public void run() {
+                            if (closed)
+                                return;
+                            if (line != null && hit.song.id.equals(line.getTag()))
+                                voteLine(line, hit);
+                            if (playing != null && tallyKey(playing).equals(tallyKey(hit)))
+                                showVotes();
+                        }
+                    });
+                } catch (Exception olderHostOrOffline) {
+                }
+            }
+        });
+    }
+    private void voteLine(TextView line, Hit hit) {
+        int[] t = tallies.get(tallyKey(hit));
+        line.setText(t == null ? "" : "▲ " + t[0] + "   ▼ " + t[1]);
+        line.setVisibility(t == null ? View.GONE : View.VISIBLE);
+    }
+    /** One tap: vote, or tap the lit one again to take the vote back. Shows at once; signs and sends behind. */
+    private void tapVote(int value) {
+        final Hit hit = playing;
+        if (hit == null)
+            return;
+        int[] t = tallies.get(tallyKey(hit));
+        int up = t == null ? 0 : t[0], down = t == null ? 0 : t[1], mine = t == null ? 0 : t[2];
+        final int now = mine == value ? 0 : value;
+        if (mine == 1) up--;
+        if (mine == -1) down--;
+        if (now == 1) up++;
+        if (now == -1) down++;
+        tallies.put(tallyKey(hit), new int[] {Math.max(0, up), Math.max(0, down), now});
+        showVotes();
+        voting.execute(new Runnable() {
+            public void run() {
+                try {
+                    sendVote(hit, now, Hammer.votes(hit.peer.card, hit.song.id, new Hammer.Job()), new Hammer.Job());
+                    tally(hit, null);  // the host's count, now including this vote
+                } catch (final Exception e) {
+                    ui.post(new Runnable() {
+                        public void run() {
+                            if (closed)
+                                return;
+                            Ui.toast(HammerActivity.this, "Vote not sent: the artist is out of reach right now");
+                            tally(hit, null);
+                        }
+                    });
+                }
+            }
+        });
+    }
+    /** Signs a vote with this song's own key (no profile name) and sends it to every host of the song. */
+    private void sendVote(Hit hit, int value, List<Hammer.Vote> list, Hammer.Job job) throws Exception {
+        Hammer.Vote v = new Hammer.Vote();
+        v.song = hit.song.id;
+        v.audience = audience(hit);
+        v.value = value;
+        java.security.KeyPair key = HammerAndroid.voteIdentity(v.song, v.audience);
+        String pub = Hammer.publicKey(key.getPublic());
+        String seq = "vote." + v.song + "." + v.audience;
+        long last = getSharedPreferences("hammer-votes", 0).getLong(seq, 0);
+        for (Hammer.Vote old : list)
+            if (old.key.equals(pub) && old.audience.equals(v.audience))
+                last = Math.max(last, old.sequence);
+        v.sequence = last + 1;
+        v.sign(key);
+        Hammer.vote(hit.peer.card, v, job);
+        getSharedPreferences("hammer-votes", 0)
+            .edit()
+            .putLong(seq, v.sequence)
+            .putLong("mine." + tallyKey(hit), value)
+            .apply();
+        if (!hit.peer.card.isPrivate())
+            for (Hammer.Card p : hosts(hit)) {
+                job.check();
+                if (p == hit.peer.card)
+                    continue;
+                try {
+                    Hammer.vote(p, v, job);
+                } catch (Exception ignored) {
+                }
+            }
+    }
     private void stream(Hit hit, int mode) {
         streamMode = mode;
         playing = hit;
+        userStopped = false;
+        advancedFor = null;
         try {
             HammerService.play(HammerActivity.this, hosts(hit), hit.song, streamMode);
             Ui.toast(this, "Opening “" + hit.song.title + "”");
@@ -1015,6 +1184,7 @@ public final class HammerActivity extends Activity {
             }
         }
         Set<String> displayed = new HashSet<String>();
+        shown.clear();
         boolean first = true;
         for (final Hit hit : hits)
             if ((artistFilter == null || artistFilter.equals(shortAuthorFull(hit.song.key))) &&
@@ -1026,6 +1196,7 @@ public final class HammerActivity extends Activity {
                     results.addView(heading("Songs"));
                     first = false;
                 }
+                shown.add(hit);
                 results.addView(songCard(hit), Ui.gap(this, 8));
             }
         TextView n = Ui.text(this,
@@ -1099,23 +1270,34 @@ public final class HammerActivity extends Activity {
         card.setBackground(new LuxFrame(14, 8));
         int in = Ui.dp(this, 12);
         card.setPadding(in, in, in, in);
-        final ImageView cover = new ImageView(this);
+        // the cover takes its place only when there is one, so a song without art starts at the left
+        final ImageView cover = new ImageView(this) {
+            @Override
+            public void setImageBitmap(android.graphics.Bitmap b) {
+                super.setImageBitmap(b);
+                setVisibility(b == null ? View.GONE : View.VISIBLE);
+            }
+        };
         cover.setScaleType(ImageView.ScaleType.CENTER_CROP);
         cover.setBackground(Ui.box(this, Skin.PILL, 8));
         cover.setClipToOutline(true);
-        card.addView(cover, new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)));
-        fetch("s:" + HammerStore.peerId(hit.peer.card) + hit.song.id, cover, 0, null, new Fetch() {
+        cover.setVisibility(View.GONE);
+        LinearLayout.LayoutParams coverAt = new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64));
+        coverAt.rightMargin = Ui.dp(this, 12);
+        card.addView(cover, coverAt);
+        fetch(coverKey(hit), cover, 0, null, new Fetch() {
             public byte[] get(Hammer.Job j) throws Exception {
                 HammerArt a = Hammer.cover(hit.peer.card, hit.song, j);
                 return a == null ? null : Hammer.image(hit.peer.card, hit.song.id, a.image, false, j);
             }
         });
         LinearLayout words = Ui.column(this);
-        words.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 6), 0);
-        TextView title = Ui.text(this, hit.song.title, Skin.TEXT, 16);
+        words.setPadding(0, 0, Ui.dp(this, 6), 0);
+        PanText title = new PanText(this);  // long titles glide to and fro instead of ending in "…"
+        title.setText(hit.song.title);
+        title.setTextColor(Skin.TEXT);
+        title.setTextSize(16);
         title.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
-        title.setSingleLine(true);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         words.addView(title);
         TextView by = Ui.text(this, artistName(hit.song.key) + (hit.peer.card.isPrivate() ? " · private circle" : ""),
                               Skin.ACCENT, 13);
@@ -1128,6 +1310,13 @@ public final class HammerActivity extends Activity {
             tags.setEllipsize(android.text.TextUtils.TruncateAt.END);
             words.addView(tags);
         }
+        TextView votes = Ui.text(this, "", Skin.DIM, 12);
+        votes.setTag(hit.song.id);
+        voteLine(votes, hit);
+        words.addView(votes);
+        Long when = counted.get(tallyKey(hit));
+        if (when == null || System.currentTimeMillis() - when > 5 * 60 * 1000)
+            tally(hit, votes);  // counted at most every five minutes per song
         card.addView(words, Ui.weight());
         Button play = Ui.chip(this, "▶");
         card.addView(play);
@@ -1738,40 +1927,8 @@ public final class HammerActivity extends Activity {
                                         final int value = n == 0 ? 1 : n == 1 ? -1 : 0;
                                         work("Saving anonymous-display vote", new Work() {
                                             public void run() throws Exception {
-                                                Hammer.Vote v = new Hammer.Vote();
-                                                v.song = hit.song.id;
-                                                v.audience = hit.peer.card.isPrivate()
-                                                                 ? Hammer.hash(hit.peer.card.token.getBytes(
-                                                                       "US-ASCII"))
-                                                                 : "public";
-                                                v.value = value;
-                                                java.security.KeyPair key =
-                                                    HammerAndroid.voteIdentity(v.song, v.audience);
-                                                String pub = Hammer.publicKey(key.getPublic());
-                                                String seq = "vote." + v.song + "." + v.audience;
-                                                long last =
-                                                    getSharedPreferences("hammer-votes", 0).getLong(seq, 0);
-                                                for (Hammer.Vote old : list)
-                                                    if (old.key.equals(pub) &&
-                                                        old.audience.equals(v.audience))
-                                                        last = Math.max(last, old.sequence);
-                                                v.sequence = last + 1;
-                                                v.sign(key);
-                                                Hammer.vote(hit.peer.card, v, job);
-                                                getSharedPreferences("hammer-votes", 0)
-                                                    .edit()
-                                                    .putLong(seq, v.sequence)
-                                                    .apply();
-                                                if (!hit.peer.card.isPrivate())
-                                                    for (Hammer.Card p : hosts(hit)) {
-                                                        job.check();
-                                                        if (p == hit.peer.card)
-                                                            continue;
-                                                        try {
-                                                            Hammer.vote(p, v, job);
-                                                        } catch (Exception ignored) {
-                                                        }
-                                                    }
+                                                sendVote(hit, value, list, job);
+                                                tally(hit, null);
                                             }
                                         });
                                     }
@@ -1813,6 +1970,7 @@ public final class HammerActivity extends Activity {
             job.cancel();
         worker.shutdownNow();
         art.shutdownNow();
+        voting.shutdownNow();
         super.onDestroy();
     }
 }
