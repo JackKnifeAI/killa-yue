@@ -178,6 +178,27 @@ fn worldwide(a: &Multiaddr) -> bool {
     }) && !is_circuit(a)
 }
 
+/// Lower is more useful to a peer elsewhere: 0 internet, 1 home network, 2 VPN (Tailscale), 3 container and VM
+/// bridges (172.16.0.0/12, 192.168.122.0/24), which no other machine can reach.
+fn usefulness(a: &Multiaddr) -> u8 {
+    for p in a.iter() {
+        match p {
+            Protocol::Ip4(ip) => {
+                let o = ip.octets();
+                return if (o[0] == 172 && (o[1] & 0xf0) == 16) || (o[0] == 192 && o[1] == 168 && o[2] == 122) { 3 }
+                       else if o[0] == 100 && (o[1] & 0xc0) == 64 { 2 }
+                       else if ip.is_private() { 1 } else { 0 };
+            }
+            Protocol::Ip6(ip) => {
+                let first = ip.segments()[0];
+                return if (first & 0xe000) == 0x2000 { 0 } else if (first & 0xfe00) == 0xfc00 { 2 } else { 1 };
+            }
+            _ => {}
+        }
+    }
+    1
+}
+
 fn is_circuit(a: &Multiaddr) -> bool {
     a.iter().any(|p| matches!(p, Protocol::P2pCircuit))
 }
@@ -204,7 +225,10 @@ fn publish_addrs(swarm: &mut Swarm<Behaviour>, key: &identity::Keypair) {
     // the same network, or when the router lets them through but nothing has confirmed it yet)
     let mut addrs: Vec<Multiaddr> = swarm.external_addresses().cloned().collect();
     addrs.extend(swarm.listeners().filter(|a| is_circuit(a)).cloned());
-    addrs.extend(swarm.listeners().filter(|a| !is_circuit(a) && dialable(a)).cloned());
+    // the record holds eight: internet addresses before home-network ones, and Docker, VM and VPN bridges last
+    let mut own: Vec<Multiaddr> = swarm.listeners().filter(|a| !is_circuit(a) && dialable(a)).cloned().collect();
+    own.sort_by_key(|a| usefulness(a));
+    addrs.extend(own);
     let mut seen = HashSet::new();
     addrs.retain(|a| seen.insert(a.clone()));
     if addrs.is_empty() {
@@ -319,6 +343,11 @@ impl Node {
                         kad: kad::Behaviour::with_config(me, store, kc),
                         identify: identify::Behaviour::new(
                             identify::Config::new(IDENTIFY.into(), key.public())
+                                // only confirmed addresses: a computer listens on dozens (Docker and VM bridges,
+                                // IPv6, VPNs, relays), and an identify message over 4096 bytes is dropped, leaving
+                                // a connected peer unnamed and unlisted. Neighbours learn every address by mDNS,
+                                // others from the DHT address record.
+                                .with_hide_listen_addrs(true)
                                 .with_agent_version(agent)
                                 .with_cache_size(256),
                         ),
@@ -455,6 +484,11 @@ impl Node {
         let relay_only = flags & RELAY_ONLY != 0;
         rt.spawn(async move {
             let mut dialled: HashSet<PeerId> = HashSet::new();
+            // neighbours on this network have their own budget, so dead hosts lingering in the DHT's host list
+            // (provider records live 48 hours) can never use up the dials before the artist next door is found
+            let mut dialled_local: HashSet<PeerId> = HashSet::new();
+            // a peer whose dial failed is left alone for ten minutes, not dialled again on every lookup
+            let mut failed: HashMap<PeerId, std::time::Instant> = HashMap::new();
             // DHT lookups for a peer's addresses: who, who is waiting, and whether to dial once found
             let mut finds: HashMap<kad::QueryId, (PeerId, Waiter, bool)> = HashMap::new();
             let mut hop: HashMap<PeerId, Multiaddr> = HashMap::new(); // relays and an address we reached them on
@@ -504,9 +538,16 @@ impl Node {
                         }
                         Cmd::Lookup => { swarm.behaviour_mut().kad.get_providers(hosts_key.clone()); }
                         Cmd::Help(on) => {
-                            st.lock().unwrap().helping = on;
-                            swarm.behaviour_mut().kad.set_mode(Some(if on { kad::Mode::Server } else { kad::Mode::Client }));
-                            reachable_as(&mut swarm, &st);
+                            let changed = {
+                                let mut s = st.lock().unwrap();
+                                let changed = s.helping != on;  // only a real change: Android reports often
+                                s.helping = on;
+                                changed
+                            };
+                            if changed {
+                                swarm.behaviour_mut().kad.set_mode(Some(if on { kad::Mode::Server } else { kad::Mode::Client }));
+                                reachable_as(&mut swarm, &st);
+                            }
                         }
                     },
                     event = swarm.select_next_some() => { match &event {
@@ -557,22 +598,38 @@ impl Node {
                                 s.addrs.entry(peer_id).or_default().insert(addr);
                             }
                         }
+                        SwarmEvent::OutgoingConnectionError { peer_id: Some(peer), .. } => {
+                            if !st.lock().unwrap().connected.contains(&peer) {
+                                // free its place; it is tried again when found again, after a rest
+                                dialled.remove(&peer);
+                                dialled_local.remove(&peer);
+                                failed.insert(peer, std::time::Instant::now());
+                            }
+                        }
                         SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
                             if num_established == 0 {
                                 let mut s = st.lock().unwrap();
                                 s.connected.remove(&peer_id);
+                                dialled.remove(&peer_id);  // found again later, it is dialled again
+                                dialled_local.remove(&peer_id);
                             }
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(found))) => {
+                            // learn every address first, then dial: a computer answers with one address per
+                            // interface (Docker and VM bridges too), and a dial made on the first one alone
+                            // could fail and never be tried again
+                            let mut fresh = Vec::new();
                             for (peer, addr) in found {
                                 swarm.add_peer_address(peer, addr.clone());
                                 swarm.behaviour_mut().kad.add_address(&peer, addr.clone());
-                                {
-                                    let mut s = st.lock().unwrap();
-                                    s.addrs.entry(peer).or_default().insert(addr);
-                                    s.local.insert(peer);
-                                }
-                                if dialled.len() < AUTO_DIALS && dialled.insert(peer) {
+                                let mut s = st.lock().unwrap();
+                                s.addrs.entry(peer).or_default().insert(addr);
+                                s.local.insert(peer);
+                                if !s.connected.contains(&peer) && !fresh.contains(&peer) { fresh.push(peer); }
+                            }
+                            for peer in fresh {
+                                failed.remove(&peer);  // just heard from: worth a try
+                                if dialled_local.len() < AUTO_DIALS * 2 && dialled_local.insert(peer) {
                                     let _ = swarm.dial(peer);
                                 }
                             }
@@ -584,6 +641,7 @@ impl Node {
                                 if s.addrs.get(&peer).map_or(true, |a| a.is_empty()) {
                                     s.local.remove(&peer);
                                     dialled.remove(&peer);
+                                    dialled_local.remove(&peer);
                                 }
                             }
                         }
@@ -660,7 +718,8 @@ impl Node {
                                     if p == me { continue; }
                                     st.lock().unwrap().hosts.insert(p);
                                     let connected = st.lock().unwrap().connected.contains(&p);
-                                    if !connected && dialled.len() < AUTO_DIALS * 2 && dialled.insert(p) {
+                                    let resting = failed.get(&p).map_or(false, |t| t.elapsed() < Duration::from_secs(600));
+                                    if !connected && !resting && dialled.len() < AUTO_DIALS * 2 && dialled.insert(p) {
                                         // try what the swarm knows, and look up its signed address record too
                                         let _ = swarm.dial(p);
                                         let q = swarm.behaviour_mut().kad.get_record(addr_key(&p));

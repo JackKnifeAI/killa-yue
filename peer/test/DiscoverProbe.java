@@ -23,8 +23,20 @@ public final class DiscoverProbe {
         X509Certificate cert = (X509Certificate)keys.getCertificate("test");
         String pin = Hammer.hash(cert.getPublicKey().getEncoded());
         long t0 = System.currentTimeMillis(), until = t0 + Long.parseLong(args[2]) * 1000;
-        String id = KillaNet.start(new File(args[1], "network"), pin, 0, 0, "");
+        int flags = Integer.parseInt(System.getenv().getOrDefault("FLAGS", "0"));  // 1 = a helper
+        String id = KillaNet.start(new File(args[1], "network"), pin, flags, 0, "");
         System.out.println("node " + id + " up in " + (System.currentTimeMillis() - t0) + " ms");
+        String target = System.getenv("TARGET");  // PEERID#PIN: read this host's catalogue directly as well
+        if (target != null) {
+            Thread.sleep(5000);
+            long t = System.currentTimeMillis();
+            try {
+                List<Hammer.Song> songs = Hammer.catalog(Hammer.Card.p2p(target.split("#")[0], target.split("#")[1], ""), new Hammer.Job());
+                System.out.println("target: " + songs.size() + " songs in " + (System.currentTimeMillis() - t) + " ms");
+            } catch (Exception e) {
+                System.out.println("target FAILED after " + (System.currentTimeMillis() - t) + " ms: " + e);
+            }
+        }
         java.util.HashSet<String> tried = new java.util.HashSet<String>();
         for (int round = 0; System.currentTimeMillis() < until; round++) {
             if (round % 10 == 0)
@@ -56,6 +68,9 @@ public final class DiscoverProbe {
             }
             Thread.sleep(500);
         }
+        for (KillaNet.Peer p : KillaNet.peers())
+            System.out.println("peer " + p.id + (p.local ? " local" : "") + (p.connected ? " connected" : "") +
+                               (p.host ? " host" : "") + (p.relayed ? " relayed" : ""));
         System.out.println(KillaNet.status());
         System.exit(0);
     }
