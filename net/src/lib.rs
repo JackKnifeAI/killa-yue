@@ -509,6 +509,14 @@ impl Node {
                         SwarmEvent::NewListenAddr { address, .. } => {
                             if flags & TEST_REACHABLE != 0 { swarm.add_external_address(address.clone()); }
                             let circuit = is_circuit(&address);
+                            // a public IPv4 address on this machine's own interface (a server, not a phone behind
+                            // NAT): offer it and the relay at once, or nobody could ever meet the first such node to
+                            // confirm it. Peers dial what they find, so a firewalled one only costs a failed dial.
+                            let v4 = address.iter().any(|p| matches!(p, Protocol::Ip4(_)));
+                            if v4 && worldwide(&address) {
+                                swarm.add_external_address(address.clone());
+                                if let Some(p) = udp_port(&address) { public_port.store(p, Ordering::Relaxed); }
+                            }
                             st.lock().unwrap().listen.push(address);
                             if circuit {
                                 // reachable through a relay now: say so in the address record and the host list
