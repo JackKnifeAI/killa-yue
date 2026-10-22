@@ -71,7 +71,9 @@ RestartSec=10
 WantedBy=default.target
 EOF
     systemctl --user daemon-reload
-    systemctl --user enable --now killa-yue-helper.service
+    systemctl --user enable killa-yue-helper.service
+    # restart, not start: run again over an earlier install, the new version must replace the one still running
+    systemctl --user restart killa-yue-helper.service
     loginctl enable-linger "$(id -un)" 2>/dev/null || say "(It runs while you are logged in; 'sudo loginctl enable-linger $(id -un)' keeps it running always.)"
     cat > "$HOME_DIR/uninstall.sh" <<EOF
 systemctl --user disable --now killa-yue-helper.service
