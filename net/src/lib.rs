@@ -636,7 +636,9 @@ impl Node {
                                 let mut s = st.lock().unwrap();
                                 s.listen.retain(|a| !addresses.contains(a));
                                 if let Some(relay) = circuits.remove(&listener_id) {
-                                    s.relays.remove(&relay);
+                                    if !circuits.values().any(|r| *r == relay) {
+                                        s.relays.remove(&relay);
+                                    }
                                 }
                             }
                             // a relay spot ends with its connection (the relay restarted, or this phone moved):
@@ -736,7 +738,17 @@ impl Node {
                             if relay_peer {
                                 // a relay on the home network, a VPN or a container bridge is no use to a phone
                                 // on mobile data: only an internet address (tests run on loopback)
-                                let reach = addrs.iter().find(|a| !is_circuit(a) && (relay_only || worldwide(a))).cloned();
+                                // without a trailing /p2p/<relay>: reserve() adds it, and a doubled one is malformed
+                                let reach = addrs
+                                    .iter()
+                                    .find(|a| !is_circuit(a) && (relay_only || worldwide(a)))
+                                    .map(|a| {
+                                        let mut a = a.clone();
+                                        if matches!(a.iter().last(), Some(Protocol::P2p(_))) {
+                                            a.pop();
+                                        }
+                                        a
+                                    });
                                 if let Some(a) = reach { hop.insert(peer_id, a); }
                             }
                             reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
@@ -1028,16 +1040,15 @@ fn reserve(
     if (worldwide && !relay_only) || have >= RELAYS {
         return;
     }
-    let listening: HashSet<PeerId> = swarm
-        .listeners()
-        .flat_map(|a| a.iter().filter_map(|p| if let Protocol::P2p(id) = p { Some(id) } else { None }).collect::<Vec<_>>())
-        .collect();
-    let mut asked = listening.len();
+    // relays holding a spot for us or asked for one: a spot still being asked for is not among the listeners yet,
+    // and asking again would open a second listener at the same relay on every identify
+    let asked_at: HashSet<PeerId> = circuits.values().copied().collect();
+    let mut asked = asked_at.len();
     for (relay, addr) in hop {
         if asked >= RELAYS {
             break;
         }
-        if listening.contains(relay) {
+        if asked_at.contains(relay) {
             continue;
         }
         let circuit = addr.clone().with(Protocol::P2p(*relay)).with(Protocol::P2pCircuit);
