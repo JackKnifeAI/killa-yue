@@ -80,6 +80,23 @@ final class HammerAndroid {
         return id;
     }
     private static boolean watching;
+    private static String network = "";
+    /**
+     * Tells the node about a real change of network or address. Android follows every new default network with this
+     * report, and repeats it often, so only a different network or address set counts.
+     */
+    private static synchronized void moved(android.net.Network n, android.net.LinkProperties p) {
+        StringBuilder now = new StringBuilder(n.toString());
+        for (android.net.LinkAddress a : p.getLinkAddresses())
+            now.append(' ').append(a.getAddress().getHostAddress());
+        String seen = now.toString();
+        if (seen.equals(network))
+            return;
+        boolean first = network.isEmpty();
+        network = seen;
+        if (!first)
+            KillaNet.moved();
+    }
     private static void watchHelping(final Context c) {
         if (watching)
             return;
@@ -100,6 +117,11 @@ final class HammerAndroid {
                         check.run();
                     }
                     public void onLost(android.net.Network n) { check.run(); }
+                    // a new default network (Wi-Fi to mobile data and back) or new addresses on it (a carrier
+                    // handing out another address): the node reconnects now, not when old connections time out
+                    public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties p) {
+                        moved(n, p);
+                    }
                 });
         } catch (Exception noCallback) {
         }

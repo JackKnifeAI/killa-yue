@@ -80,8 +80,10 @@ public class Wake extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context c, Intent in) {
-        // the phone restarted or the app was updated: both forget alarms
+        // the phone restarted or the app was updated: both forget alarms and stop the host
         SharedPreferences s = cfg(c);
         if (s.getBoolean("wake_on", false)) at(c, next(s.getInt("wake_h", 7), s.getInt("wake_m", 0)));
+        // hosting left on comes back by itself after a restart or an update
+        HammerService.resume(c);
     }
 }

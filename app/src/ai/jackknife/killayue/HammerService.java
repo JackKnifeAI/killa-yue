@@ -9,7 +9,12 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.util.*;
 
-/** Explicit, non-sticky phone host and peer player. No boot receiver, polling or permanent wake lock. */
+/**
+ * The phone host and peer player. Hosting, once the person turns it on, does not stop until they turn it off: Android
+ * restarting the service, a reboot, an update, deep sleep and moving between Wi-Fi and mobile data all leave it
+ * running. While hosting it holds a partial wake lock (keep-alives to the relay must run with the screen off, or the
+ * carrier forgets the phone) and a Wi-Fi lock; neither is held when hosting is off.
+ */
 public final class HammerService extends Service {
     static volatile HammerService instance;
     static volatile String status = "Hosting off", playback = "Stopped";
@@ -25,10 +30,18 @@ public final class HammerService extends Service {
     private boolean destroyed;
     private android.media.AudioFocusRequest focus;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private PowerManager.WakeLock awake;
+    private android.net.wifi.WifiManager.WifiLock wifi;
     static void startHost(Context c) {
         wanted(c, true);  // remembered: hosting comes back by itself after an update, a crash or a restart
         Intent i = new Intent(c, HammerService.class).setAction("host");
         c.startForegroundService(i);
+        // battery optimisation cuts a sleeping phone off the network; Android's own dialog, asked once per start
+        if (c instanceof Activity && !Background.exempt(c))
+            Background.askExemption((Activity)c);
+    }
+    static boolean wanted(Context c) {
+        return c.getSharedPreferences("hammer", Context.MODE_PRIVATE).getBoolean("hostWanted", false);
     }
     /** Stopped by the person: hosting stays off until they start it again. */
     static void stopHost(Context c) {
@@ -53,6 +66,7 @@ public final class HammerService extends Service {
         if (s != null) {
             s.hostGeneration++;
             starting = false;
+            s.letSleep();
             KillaNet.serve(null);
             KillaNet.announce(false);
             if (s.host != null)
@@ -135,13 +149,17 @@ public final class HammerService extends Service {
                                                             NotificationManager.IMPORTANCE_LOW));
     }
     @Override
-    public int onStartCommand(final Intent intent, int flags, int id) {
+    public int onStartCommand(Intent received, int flags, int id) {
+        // Android restarting the service after killing it delivers no intent: carry on hosting if it was on
+        final Intent intent = received != null ? received
+                            : wanted(this) ? new Intent(this, HammerService.class).setAction("host") : null;
         if (intent == null) {
             stopSelf();
             return START_NOT_STICKY;
         }
         startForeground(84, notification());
         if ("stop".equals(intent.getAction())) {
+            wanted(this, false);  // the person stopped it from the notification: off until they start it again
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -194,6 +212,8 @@ public final class HammerService extends Service {
                             starting = false;
                             host = ready;
                             status = ready == null ? message : "Hosting published music";
+                            if (ready != null)
+                                stayAwake();
                             advertise();
                             update();
                         }
@@ -262,7 +282,29 @@ public final class HammerService extends Service {
         }
         if (host != null)
             advertise();
-        return START_NOT_STICKY;
+        // sticky while hosting is wanted, so Android brings the host back if it ever has to kill the service
+        return wanted(this) ? START_STICKY : START_NOT_STICKY;
+    }
+    /** Hosting needs the CPU and Wi-Fi awake with the screen off: keep-alives hold the relay spot and the NAT open. */
+    private void stayAwake() {
+        if (awake == null) {
+            awake = ((PowerManager)getSystemService(POWER_SERVICE))
+                        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KillaYuE:Hosting");
+            awake.setReferenceCounted(false);
+        }
+        awake.acquire();
+        if (wifi == null) {
+            wifi = ((android.net.wifi.WifiManager)getApplicationContext().getSystemService(WIFI_SERVICE))
+                       .createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "KillaYuE:Hosting");
+            wifi.setReferenceCounted(false);
+        }
+        wifi.acquire();
+    }
+    private void letSleep() {
+        if (awake != null && awake.isHeld())
+            awake.release();
+        if (wifi != null && wifi.isHeld())
+            wifi.release();
     }
     private void advertise() {
         try {
@@ -443,6 +485,7 @@ public final class HammerService extends Service {
             announcement = null;
         }
         destroyed = true;
+        letSleep();
         if (host != null)
             host.close();
         host = null;

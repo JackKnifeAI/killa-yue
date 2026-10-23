@@ -70,6 +70,11 @@ public final class NetworkTest {
             String id = KillaNet.start(new File(root, "network"), pin, flags, 0, entry);
             host(pair, cert, root, out);
             KillaNet.announce(true);
+            String move = System.getenv("MOVE_AFTER");  // seconds: then act as if the phone changed networks
+            if (move != null) {
+                Thread.sleep(Long.parseLong(move) * 1000);
+                KillaNet.moved();
+            }
             System.out.println("ready " + id);
             Thread.sleep(600000);
             return;

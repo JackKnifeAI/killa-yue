@@ -30,6 +30,8 @@ public final class KillaNet {
     private static native String nativePeers();
     private static native String nativeStatus();
     private static native void nativeStop();
+    private static native void nativeMoved();
+    private static native boolean nativeAlive();
 
     /** Identify's agent string carries the HAMMER pin, so peers found nearby can be dialled with a full card. */
     static final String AGENT = "killa-yue/1 hammer-pin/";
@@ -98,7 +100,65 @@ public final class KillaNet {
             throw new IOException("Network did not start" + (id == null ? "" : ": " + id.substring(5).trim()));
         }
         peerId = id;
+        started = new Object[] {dataDir, pin, flags, port, entry};
+        watch();
         return id;
+    }
+
+    /** What the running node was started with, so the watchdog can start it again the same way. */
+    private static Object[] started;
+    private static Thread watchdog;
+    private static volatile Boolean announced;
+
+    /**
+     * The node must never stay dead: every 20 seconds, if its network thread has ended (a panic in a library, or
+     * anything else), a new node starts with the same key and settings, and serves, announces and helps as before.
+     */
+    private static void watch() {
+        if (watchdog != null)
+            return;
+        watchdog = new Thread(new Runnable() {
+            public void run() {
+                while (true) {
+                    try {
+                        Thread.sleep(20000);
+                        restartIfDead();
+                    } catch (InterruptedException e) {
+                        return;
+                    } catch (Throwable keepWatching) {
+                    }
+                }
+            }
+        }, "killanet-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+    }
+    private static synchronized void restartIfDead() throws IOException {
+        if (peerId == null || started == null || nativeAlive())
+            return;
+        Object[] a = started;
+        Hammer.Server keep = server;
+        Boolean help = helping, offer = announced;
+        stop();
+        int flags = (Integer)a[2];
+        if (help != null)
+            flags = help ? flags | HELP : flags & ~HELP;
+        start((File)a[0], (String)a[1], flags, (Integer)a[3], (String)a[4]);
+        server = keep;
+        if (offer != null && offer)
+            nativeAnnounce(true);
+        restarts++;
+    }
+    /** How many times the watchdog brought the node back (shown in the network status line). */
+    public static volatile int restarts;
+
+    /**
+     * The phone moved to another network (Wi-Fi to mobile data, a new carrier address): reconnect and take a new
+     * relay spot now instead of when the old connections time out.
+     */
+    public static void moved() {
+        if (peerId != null)
+            nativeMoved();
     }
 
     /** The HAMMER server that inbound streams are handed to, or null to refuse them (hosting off). */
@@ -106,6 +166,7 @@ public final class KillaNet {
 
     /** Offer this host in the worldwide public host list (the DHT), or stop offering it. Public hosts only. */
     public static void announce(boolean on) {
+        announced = on;
         if (peerId != null)
             nativeAnnounce(on);
     }
@@ -220,6 +281,7 @@ public final class KillaNet {
     /** Stops native networking and its local bridge; desktop shutdown must not leave listeners behind. */
     public static synchronized void stop() {
         server = null;
+        started = null;
         if (peerId != null) { nativeStop(); peerId = null; }
         if (bridge != null) try { bridge.close(); } catch (IOException ignored) {}
     }

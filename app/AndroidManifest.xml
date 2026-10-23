@@ -74,7 +74,7 @@
         <!-- the wake-up song rings here, over the lock screen -->
         <activity android:name=".WakeActivity" android:exported="false" android:screenOrientation="portrait"
             android:launchMode="singleInstance" android:excludeFromRecents="true" android:taskAffinity=""/>
-        <!-- sets the wake-up song again after a restart or an update -->
+        <!-- sets the wake-up song again, and brings hosting back, after a restart or an update -->
         <receiver android:name=".Wake" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED"/>

@@ -17,6 +17,7 @@
 use futures::StreamExt;
 use libp2p::{
     autonat, dcutr, identify, identity, kad, mdns, multiaddr::Protocol, noise, ping, relay,
+    core::transport::ListenerId,
     swarm::{behaviour::toggle::Toggle, NetworkBehaviour, SwarmEvent},
     tcp, upnp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm,
 };
@@ -100,6 +101,7 @@ enum Cmd {
     Announce(bool),
     Lookup,
     Help(bool),
+    Moved,
 }
 
 pub struct Node {
@@ -108,6 +110,7 @@ pub struct Node {
     state: Arc<Mutex<State>>,
     cmd: mpsc::UnboundedSender<Cmd>,
     stop: Arc<AtomicBool>,
+    alive: Arc<AtomicBool>,
     pub peer_id: PeerId,
 }
 
@@ -413,8 +416,10 @@ impl Node {
 
         // first contact through the Mainline DHT: find reachable Killa YuE nodes, announce ourselves when reachable
         let public_port = Arc::new(AtomicU16::new(0));
+        // set when the phone moves to another network: the meeting point is asked again at once
+        let kick = Arc::new(AtomicBool::new(false));
         if flags & NO_MAINLINE == 0 {
-            let (tx, port, halt) = (cmd.clone(), public_port.clone(), stop.clone());
+            let (tx, port, halt, again) = (cmd.clone(), public_port.clone(), stop.clone(), kick.clone());
             std::thread::Builder::new()
                 .name("killanet-mainline".into())
                 .spawn(#[allow(deprecated)] // the blocking API is right for its own thread
@@ -448,10 +453,14 @@ impl Node {
                             let r = dht.announce_peer(meeting, Some(p));
                             debug!("mainline: announced port {p}: {}", r.is_ok());
                         }
-                        // look again in ten minutes (announcements expire after about thirty)
+                        // look again in ten minutes (announcements expire after about thirty), or at once after a
+                        // move to another network
                         for _ in 0..600 {
                             if halt.load(Ordering::Relaxed) {
                                 return;
+                            }
+                            if again.swap(false, Ordering::Relaxed) {
+                                break;
                             }
                             std::thread::sleep(Duration::from_secs(1));
                         }
@@ -485,7 +494,8 @@ impl Node {
         let halt = stop.clone();
         let peers_file = o.peers_file.clone();
         let relay_only = flags & RELAY_ONLY != 0;
-        rt.spawn(async move {
+        let alive = Arc::new(AtomicBool::new(true));
+        let task = rt.spawn(async move {
             let mut dialled: HashSet<PeerId> = HashSet::new();
             // neighbours on this network have their own budget, so dead hosts lingering in the DHT's host list
             // (provider records live 48 hours) can never use up the dials before the artist next door is found
@@ -495,6 +505,12 @@ impl Node {
             // DHT lookups for a peer's addresses: who, who is waiting, and whether to dial once found
             let mut finds: HashMap<kad::QueryId, (PeerId, Waiter, bool)> = HashMap::new();
             let mut hop: HashMap<PeerId, Multiaddr> = HashMap::new(); // relays and an address we reached them on
+            let mut circuits: HashMap<ListenerId, PeerId> = HashMap::new(); // our relay spots, by listener
+            // a lost relay spot is asked for again after a pause that doubles while asking fails (1 s up to a
+            // minute), never in a loop: a spot that cannot be had at once would otherwise be asked for hundreds of
+            // times a second
+            let mut retry: Option<tokio::time::Instant> = None;
+            let mut backoff = Duration::from_secs(1);
             let mut announcing = false;
             // the first round runs five seconds in, once the listeners are up
             let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(5), Duration::from_secs(60));
@@ -502,6 +518,10 @@ impl Node {
             let hosts_key = kad::RecordKey::new(&HOSTS_KEY);
             loop {
                 tokio::select! {
+                    _ = tokio::time::sleep_until(retry.unwrap_or_else(tokio::time::Instant::now)), if retry.is_some() => {
+                        retry = None;
+                        reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
+                    }
                     _ = tick.tick() => {
                         if halt.load(Ordering::Relaxed) { break; }
                         minutes += 1;
@@ -543,6 +563,25 @@ impl Node {
                             announcing = on;
                         }
                         Cmd::Lookup => { swarm.behaviour_mut().kad.get_providers(hosts_key.clone()); }
+                        Cmd::Moved => {
+                            // the phone moved to another network (Wi-Fi to mobile data, a new carrier address):
+                            // connections made on the old one are dead, though they look alive until they time out.
+                            // Drop the relay links and their spots, take new ones, and ask everyone again now.
+                            for (id, relay) in circuits.drain() {
+                                swarm.remove_listener(id);
+                                let _ = swarm.disconnect_peer_id(relay);
+                            }
+                            st.lock().unwrap().relays.clear();
+                            failed.clear();  // a peer unreachable from the old network may answer on this one
+                            // new spots in a second, once the old connections are gone
+                            backoff = Duration::from_secs(1);
+                            retry = Some(tokio::time::Instant::now() + backoff);
+                            // the address record is published again when the new relay spot is granted, not now:
+                            // now it would name no way in
+                            let _ = swarm.behaviour_mut().kad.bootstrap();
+                            swarm.behaviour_mut().kad.get_providers(hosts_key.clone());
+                            kick.store(true, Ordering::Relaxed);
+                        }
                         Cmd::Help(on) => {
                             let changed = {
                                 let mut s = st.lock().unwrap();
@@ -592,6 +631,21 @@ impl Node {
                             }
                         }
                         SwarmEvent::ExpiredListenAddr { address, .. } => st.lock().unwrap().listen.retain(|a| a != &address),
+                        SwarmEvent::ListenerClosed { listener_id, addresses, .. } => {
+                            {
+                                let mut s = st.lock().unwrap();
+                                s.listen.retain(|a| !addresses.contains(a));
+                                if let Some(relay) = circuits.remove(&listener_id) {
+                                    s.relays.remove(&relay);
+                                }
+                            }
+                            // a relay spot ends with its connection (the relay restarted, or this phone moved):
+                            // take another soon
+                            if retry.is_none() {
+                                retry = Some(tokio::time::Instant::now() + backoff);
+                                backoff = (backoff * 2).min(Duration::from_secs(60));
+                            }
+                        }
                         SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                             let addr = endpoint.get_remote_address().clone();
                             let mut s = st.lock().unwrap();
@@ -628,8 +682,8 @@ impl Node {
                                 };
                                 dialled.remove(&peer_id);  // found again later, it is dialled again
                                 dialled_local.remove(&peer_id);
-                                if lost_relay {
-                                    reserve(&mut swarm, &st, &hop, relay_only);
+                                if lost_relay && retry.is_none() {
+                                    retry = Some(tokio::time::Instant::now() + backoff);
                                 }
                             }
                         }
@@ -685,7 +739,7 @@ impl Node {
                                 let reach = addrs.iter().find(|a| !is_circuit(a) && (relay_only || worldwide(a))).cloned();
                                 if let Some(a) = reach { hop.insert(peer_id, a); }
                             }
-                            reserve(&mut swarm, &st, &hop, relay_only);
+                            reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Autonat(autonat::Event::StatusChanged { new, .. })) => {
                             let label = match &new {
@@ -703,7 +757,7 @@ impl Node {
                             }
                             reachable_as(&mut swarm, &st);
                             st.lock().unwrap().nat = label.into();
-                            reserve(&mut swarm, &st, &hop, relay_only);
+                            reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Upnp(upnp::Event::NewExternalAddr { external_addr, .. })) => {
                             if let Some(p) = udp_port(&external_addr) { public_port.store(p, Ordering::Relaxed); }
@@ -718,6 +772,7 @@ impl Node {
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::RelayClient(relay::client::Event::ReservationReqAccepted { relay_peer_id, .. })) => {
                             st.lock().unwrap().relays.insert(relay_peer_id);
+                            backoff = Duration::from_secs(1);
                             publish_addrs(&mut swarm, &signing);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Kad(kad::Event::OutboundQueryProgressed { id, result, step, .. })) => match result {
@@ -761,7 +816,15 @@ impl Node {
             }
             save_remembered(&peers_file, &remembered);
         });
-        Ok(Node { rt, control, state, cmd, stop, peer_id })
+        // the node's thread ending for any reason, a panic included, is seen from Java, which starts a new node
+        let ended = alive.clone();
+        rt.spawn(async move {
+            if let Err(e) = task.await {
+                debug!("network thread ended: {e}");
+            }
+            ended.store(false, Ordering::Relaxed);
+        });
+        Ok(Node { rt, control, state, cmd, stop, alive, peer_id })
     }
 
     /// A loopback port for one HAMMER connection to `peer`. The connecting side must send `token` first; anything
@@ -792,6 +855,16 @@ impl Node {
             let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
         });
         Ok(port)
+    }
+
+    /// The phone moved to another network: reconnect, take new relay spots and look everyone up again now.
+    pub fn moved(&self) {
+        let _ = self.cmd.send(Cmd::Moved);
+    }
+
+    /// False once the node's network thread has ended (stopped, or a panic); the app then starts a new node.
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
     }
 
     /// Offer (or stop offering) this host in the DHT's public host list.
@@ -941,7 +1014,13 @@ fn finished(finds: &mut HashMap<kad::QueryId, (PeerId, Waiter, bool)>, id: kad::
 /// Nodes not confirmed reachable from the internet (behind NAT, still unknown, or reachable only on a LAN or a VPN
 /// such as Tailscale) listen through up to two relays, so peers anywhere can reach them; DCUtR then tries to turn
 /// each relayed connection into a direct one.
-fn reserve(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, hop: &HashMap<PeerId, Multiaddr>, relay_only: bool) {
+fn reserve(
+    swarm: &mut Swarm<Behaviour>,
+    st: &Arc<Mutex<State>>,
+    hop: &HashMap<PeerId, Multiaddr>,
+    circuits: &mut HashMap<ListenerId, PeerId>,
+    relay_only: bool,
+) {
     let (worldwide, have) = {
         let s = st.lock().unwrap();
         (s.worldwide, s.relays.len())
@@ -964,7 +1043,8 @@ fn reserve(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, hop: &HashMap<P
         let circuit = addr.clone().with(Protocol::P2p(*relay)).with(Protocol::P2pCircuit);
         let r = swarm.listen_on(circuit.clone());
         debug!("reserve on {circuit}: {r:?}");
-        if r.is_ok() {
+        if let Ok(id) = r {
+            circuits.insert(id, *relay);
             asked += 1;
         }
     }
@@ -1068,6 +1148,18 @@ mod jni_api {
         if let Some(n) = NODE.lock().unwrap().as_ref() {
             n.help(on != 0);
         }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMoved(_env: JNIEnv, _c: JClass) {
+        if let Some(n) = NODE.lock().unwrap().as_ref() {
+            n.moved();
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeAlive(_env: JNIEnv, _c: JClass) -> jboolean {
+        NODE.lock().unwrap().as_ref().map_or(0, |n| n.alive() as jboolean)
     }
 
     #[no_mangle]
