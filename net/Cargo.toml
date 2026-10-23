@@ -26,3 +26,8 @@ codegen-units = 1
 strip = true
 # unwind, so a panic becomes an error in Java instead of ending the app (see catch_unwind in the JNI calls)
 panic = "unwind"
+
+# libp2p-relay 0.22.0 with one fix (see patches/libp2p-relay/KILLA-PATCH.md): without it a relay switching on or off
+# while it has a relayed connection panics and stops the node's network thread.
+[patch.crates-io]
+libp2p-relay = { path = "patches/libp2p-relay" }

@@ -327,8 +327,7 @@ impl Node {
                     Ok(Behaviour {
                         relay_client,
                         // always present, but it serves only while this node helps and is reachable from the
-                        // internet: the relay library serves exactly when there are confirmed external addresses,
-                        // and reachable_as only confirms direct ones then
+                        // internet: relay_serves switches it
                         relay: Toggle::from(Some(relay::Behaviour::new(me, relay_config))),
                         dcutr: dcutr::Behaviour::new(me),
                         autonat: autonat::Behaviour::new(
@@ -384,6 +383,7 @@ impl Node {
         let mut incoming = control.clone().accept(HAMMER).map_err(|e| format!("stream protocol: {e}"))?;
         let state = Arc::new(Mutex::new(State { nat: "unknown".into(), helping: flags & HELP != 0,
                                                    test_reachable: flags & TEST_REACHABLE != 0, ..Default::default() }));
+        relay_serves(&mut swarm, &state);  // before any connection: off until this node is reachable
         let (cmd, mut cmds) = mpsc::unbounded_channel::<Cmd>();
         let stop = Arc::new(AtomicBool::new(false));
 
@@ -463,8 +463,10 @@ impl Node {
         // entry peers from the app, and peers remembered from earlier runs
         let mut remembered: HashMap<PeerId, Multiaddr> = HashMap::new();
         let mut first: Vec<Multiaddr> = o.entry.clone();
+        // only dialled, never put straight into the routing table: peers remembered from home Wi-Fi are
+        // unreachable on mobile data, and DHT lookups that wait on them time out without asking anyone who answers.
+        // A remembered peer that answers joins the table through identify.
         for (p, a) in load_remembered(&o.peers_file) {
-            swarm.behaviour_mut().kad.add_address(&p, a.clone());
             remembered.insert(p, a.clone());
             if first.len() < 16 + o.entry.len() {
                 first.push(a.with(Protocol::P2p(p)));
@@ -578,6 +580,7 @@ impl Node {
                                     s.helping
                                 };
                                 if helping { swarm.add_external_address(address.clone()); }
+                                relay_serves(&mut swarm, &st);
                                 if let Some(p) = udp_port(&address) { public_port.store(p, Ordering::Relaxed); }
                             }
                             st.lock().unwrap().listen.push(address);
@@ -609,14 +612,25 @@ impl Node {
                                 dialled.remove(&peer);
                                 dialled_local.remove(&peer);
                                 failed.insert(peer, std::time::Instant::now());
+                                // out of the routing table and the remembered peers too: after a move from Wi-Fi
+                                // to mobile data, neighbours left there would stall every lookup. It comes back
+                                // through identify when it answers again.
+                                swarm.behaviour_mut().kad.remove_peer(&peer);
+                                remembered.remove(&peer);
                             }
                         }
                         SwarmEvent::ConnectionClosed { peer_id, num_established, .. } => {
                             if num_established == 0 {
-                                let mut s = st.lock().unwrap();
-                                s.connected.remove(&peer_id);
+                                let lost_relay = {
+                                    let mut s = st.lock().unwrap();
+                                    s.connected.remove(&peer_id);
+                                    s.relays.remove(&peer_id)  // its relay spot closed with the connection
+                                };
                                 dialled.remove(&peer_id);  // found again later, it is dialled again
                                 dialled_local.remove(&peer_id);
+                                if lost_relay {
+                                    reserve(&mut swarm, &st, &hop, relay_only);
+                                }
                             }
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(found))) => {
@@ -666,7 +680,9 @@ impl Node {
                                 swarm.add_peer_address(peer_id, a.clone());
                             }
                             if relay_peer {
-                                let reach = addrs.iter().find(|a| !is_circuit(a) && (relay_only || !is_loopback(a))).cloned();
+                                // a relay on the home network, a VPN or a container bridge is no use to a phone
+                                // on mobile data: only an internet address (tests run on loopback)
+                                let reach = addrs.iter().find(|a| !is_circuit(a) && (relay_only || worldwide(a))).cloned();
                                 if let Some(a) = reach { hop.insert(peer_id, a); }
                             }
                             reserve(&mut swarm, &st, &hop, relay_only);
@@ -694,6 +710,8 @@ impl Node {
                             let mut s = st.lock().unwrap();
                             s.nat = "public (router opened a port)".into();
                             s.worldwide = worldwide(&external_addr);
+                            drop(s);
+                            relay_serves(&mut swarm, &st);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Dcutr(dcutr::Event { remote_peer_id, result: Ok(_) })) => {
                             st.lock().unwrap().punched.insert(remote_peer_id);
@@ -839,7 +857,7 @@ impl Node {
     }
 }
 
-/// The addresses this node confirms to others (which also makes a helper's relay serve): relay circuits always (a
+/// The addresses this node confirms to others: relay circuits always (a
 /// reservation is proof of reachability through that relay), and its own interface addresses only while it helps
 /// and is confirmed reachable from the internet. A node behind NAT, or reachable only on a LAN or a VPN, never
 /// offers relay spots that nobody outside could use; its own addresses still go into its DHT record and identify.
@@ -868,6 +886,20 @@ fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
     }
     for a in mine {
         swarm.add_external_address(a);
+    }
+    relay_serves(swarm, st);
+}
+
+/// The relay serves exactly while this node helps and is reachable directly (or a test says it is). Set here, not
+/// left to the relay library, which serves whenever any external address is confirmed, relay circuits included: a
+/// phone behind NAT then offered relay spots nobody could reach, and nodes chained relay through relay.
+fn relay_serves(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
+    let on = {
+        let s = st.lock().unwrap();
+        s.test_reachable || (s.worldwide && s.helping)
+    };
+    if let Some(r) = swarm.behaviour_mut().relay.as_mut() {
+        r.set_status(Some(if on { relay::Status::Enable } else { relay::Status::Disable }));
     }
 }
 
