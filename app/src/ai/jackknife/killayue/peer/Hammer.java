@@ -432,8 +432,10 @@ public final class Hammer {
         private final HammerGuard guard = new HammerGuard();
         private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<Socket>());
         private final Map<Socket, String> whoOf = new HashMap<Socket, String>();
+        // the guard admits at most 22 connections at once; all of them fit here and wait their turn rather than
+        // being closed mid-handshake, which a crowd of listeners (or one loading covers) took for a dead host
         private final ThreadPoolExecutor workers =
-            new ThreadPoolExecutor(2, 2, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(4));
+            new ThreadPoolExecutor(4, 4, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(32));
         private final ThreadPoolExecutor subscribers =
             new ThreadPoolExecutor(0, 16, 30, TimeUnit.SECONDS, new SynchronousQueue<Runnable>());
         public Server(SSLContext context, InetSocketAddress address, Source source) throws Exception {
@@ -737,21 +739,12 @@ public final class Hammer {
         final DataInputStream in;
         final DataOutputStream out;
         final ScheduledFuture<?> end;
-        Connection(Card card, int op, Job job) throws Exception {
-            // Cancellation closes raw TCP. SSLSocket.close may send close_notify, which Android
-            // forbids on its UI thread even when closing an otherwise idle connection.
-            Socket transport = new Socket();
-            end = deadline(transport);
+        Connection(Card card, int op, Job job) throws Exception { this(card, op, job, open(card, job)); }
+        private Connection(Card card, int op, Job job, Object[] opened) throws Exception {
+            socket = (SSLSocket)opened[0];
+            Socket transport = (Socket)opened[1];
+            end = (ScheduledFuture<?>)opened[2];
             try {
-                job.attach(transport);
-                if (card.isP2p())
-                    KillaNet.connect(transport, card.p2pId(), 8000);
-                else
-                    transport.connect(new InetSocketAddress(card.host, card.port), 8000);
-                socket = (SSLSocket)clientContext(card.pin).getSocketFactory().createSocket(
-                    transport, card.host, card.port, true);
-                secure(socket);
-                socket.startHandshake();
                 in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
                 out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
                 out.writeInt(MAGIC);
@@ -762,6 +755,46 @@ public final class Hammer {
                 Hammer.close(transport);
                 throw e;
             }
+        }
+        /**
+         * The TLS socket, its transport and deadline. A busy host closes connections it has no room for before the
+         * handshake ends, and nothing has been asked yet, so that is tried twice more; a wrong identity is not.
+         */
+        private static Object[] open(Card card, Job job) throws Exception {
+            for (int attempt = 0; ; attempt++) {
+                // Cancellation closes raw TCP. SSLSocket.close may send close_notify, which Android
+                // forbids on its UI thread even when closing an otherwise idle connection.
+                Socket transport = new Socket();
+                ScheduledFuture<?> end = deadline(transport);
+                try {
+                    job.attach(transport);
+                    if (card.isP2p())
+                        KillaNet.connect(transport, card.p2pId(), 8000);
+                    else
+                        transport.connect(new InetSocketAddress(card.host, card.port), 8000);
+                    SSLSocket socket = (SSLSocket)clientContext(card.pin).getSocketFactory().createSocket(
+                        transport, card.host, card.port, true);
+                    secure(socket);
+                    socket.startHandshake();
+                    return new Object[] {socket, transport, end};
+                } catch (javax.net.ssl.SSLHandshakeException e) {
+                    end.cancel(false);
+                    Hammer.close(transport);
+                    if (attempt == 2 || job.cancelled || refusedIdentity(e))
+                        throw e;
+                    Thread.sleep(attempt == 0 ? 300 : 1200);
+                } catch (Exception e) {
+                    end.cancel(false);
+                    Hammer.close(transport);
+                    throw e;
+                }
+            }
+        }
+        private static boolean refusedIdentity(Throwable e) {
+            for (; e != null; e = e.getCause())
+                if (e instanceof java.security.cert.CertificateException)
+                    return true;
+            return false;
         }
         void reply() throws IOException {
             out.flush();

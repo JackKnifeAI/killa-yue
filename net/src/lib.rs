@@ -44,7 +44,7 @@ const HOSTS_KEY: &[u8] = b"ky:hosts:1";
 const MEETING: [u8; 20] = [150, 33, 244, 148, 119, 77, 5, 160, 72, 223, 178, 220, 63, 125, 107, 31, 122, 59, 71, 254];
 /// The port QUIC (UDP) and TCP both listen on, so a Mainline "IP:port" can be dialled both ways.
 pub const DEFAULT_PORT: u16 = 47291;
-const INBOUND_AT_ONCE: usize = 16;
+const INBOUND_AT_ONCE: usize = 32;
 const AUTO_DIALS: usize = 32;
 const RELAYS: usize = 2;
 const REMEMBERED: usize = 200;
@@ -315,15 +315,26 @@ impl Node {
                         kad::store::MemoryStoreConfig { max_providers_per_key: 1024, ..Default::default() },
                     );
                     // Relays carry whole streams, not only hole-punch handshakes: 30 minutes and 64 MiB a circuit.
+                    // Every node that finds a relayed host dials it, once per relay address, so one helper carries
+                    // many short circuits at once. libp2p's own rates (30 circuits, then one every 2 minutes, a
+                    // peer; 60 for everyone behind one IP address) left a phone browsing Discover locked out, and a
+                    // whole carrier NAT or household sharing 60: phones hosting behind the relay were unreachable.
+                    let n = |v: u32| std::num::NonZeroU32::new(v).unwrap();
                     let relay_config = relay::Config {
-                        max_reservations: 32,
+                        max_reservations: 256,
                         max_reservations_per_peer: 2,
-                        max_circuits: 8,
-                        max_circuits_per_peer: 2,
+                        max_circuits: 128,
+                        max_circuits_per_peer: 4,
                         max_circuit_duration: Duration::from_secs(30 * 60),
                         max_circuit_bytes: 64 << 20,
+                        reservation_rate_limiters: Vec::new(),
+                        circuit_src_rate_limiters: Vec::new(),
                         ..Default::default()
-                    };
+                    }
+                    .reservation_rate_per_peer(n(30), Duration::from_secs(30))
+                    .reservation_rate_per_ip(n(500), Duration::from_secs(1))
+                    .circuit_src_per_peer(n(120), Duration::from_secs(2))
+                    .circuit_src_per_ip(n(1000), Duration::from_millis(100));
                     Ok(Behaviour {
                         relay_client,
                         // always present, but it serves only while this node helps and is reachable from the
@@ -392,10 +403,11 @@ impl Node {
         let (inbound_port, token) = (o.inbound_port, o.token.clone());
         rt.spawn(async move {
             while let Some((peer, stream)) = incoming.next().await {
-                let Ok(permit) = gate.clone().try_acquire_owned() else { continue };
-                let token = token.clone();
+                let (gate, token) = (gate.clone(), token.clone());
                 tokio::spawn(async move {
-                    let _permit = permit;
+                    // a stream beyond the limit waits a little for its turn instead of being dropped unanswered
+                    let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(10), gate.acquire_owned()).await
+                    else { return };
                     let Ok(mut local) = tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, inbound_port)).await else { return };
                     let _ = local.set_nodelay(true);
                     let id = peer.to_base58();
