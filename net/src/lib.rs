@@ -315,15 +315,26 @@ impl Node {
                         kad::store::MemoryStoreConfig { max_providers_per_key: 1024, ..Default::default() },
                     );
                     // Relays carry whole streams, not only hole-punch handshakes: 30 minutes and 64 MiB a circuit.
+                    // Every node that finds a relayed host dials it, once per relay address, so one helper carries
+                    // many short circuits at once. libp2p's own rates (30 circuits, then one every 2 minutes, a
+                    // peer; 60 for everyone behind one IP address) left a phone browsing Discover locked out, and a
+                    // whole carrier NAT or household sharing 60: phones hosting behind the relay were unreachable.
+                    let n = |v: u32| std::num::NonZeroU32::new(v).unwrap();
                     let relay_config = relay::Config {
-                        max_reservations: 32,
+                        max_reservations: 256,
                         max_reservations_per_peer: 2,
-                        max_circuits: 8,
-                        max_circuits_per_peer: 2,
+                        max_circuits: 128,
+                        max_circuits_per_peer: 4,
                         max_circuit_duration: Duration::from_secs(30 * 60),
                         max_circuit_bytes: 64 << 20,
+                        reservation_rate_limiters: Vec::new(),
+                        circuit_src_rate_limiters: Vec::new(),
                         ..Default::default()
-                    };
+                    }
+                    .reservation_rate_per_peer(n(30), Duration::from_secs(30))
+                    .reservation_rate_per_ip(n(500), Duration::from_secs(1))
+                    .circuit_src_per_peer(n(120), Duration::from_secs(2))
+                    .circuit_src_per_ip(n(1000), Duration::from_millis(100));
                     Ok(Behaviour {
                         relay_client,
                         // always present, but it serves only while this node helps and is reachable from the
