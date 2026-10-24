@@ -14,6 +14,8 @@
 //! separated text, so the desktop needs no JSON library). Inbound HAMMER streams reach Java's loopback bridge with a
 //! token and the remote PeerId first, so HAMMER's admission limits apply per peer, not to the loopback address.
 
+pub mod mix;
+
 use futures::StreamExt;
 use libp2p::{
     autonat, dcutr, identify, identity, kad, mdns, multiaddr::Protocol, noise, ping, relay,

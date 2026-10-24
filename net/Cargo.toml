@@ -18,6 +18,11 @@ tokio-util = { version = "0.7", features = ["compat"] }
 futures = "0.3"
 jni = "=0.21.1"
 mainline = { version = "=8.0.1", default-features = false, features = ["node"] }
+# the mixnet: Nym's Sphinx packet format (Apache-2.0), used as a library; the mix layer around it is ours (src/mix.rs)
+sphinx-packet = "=0.8.0"
+x25519-dalek = { version = "=3.0.0", features = ["static_secrets"] }
+rand = "=0.10.2"
+sha2 = "=0.11.0"
 
 [profile.release]
 opt-level = "s"
