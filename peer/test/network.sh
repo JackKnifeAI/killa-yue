@@ -5,6 +5,7 @@
 #   3. behind NAT: the host has no reachable address at all and is reached through a relay peer.
 #   4. moved from Wi-Fi to mobile data: the listener remembers peers that no longer answer and still finds the host.
 #   5. a host changes networks: it drops its relay links, takes a new relay spot and is reached through it again.
+#   6. a crowd: ten listeners at once reach the host behind NAT through the same relay.
 # Needs the host builds of libhammer.so (peer/test/run.sh makes it) and libkillanet.so (net/build.sh host).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -33,7 +34,7 @@ background() {  # name, then NetworkTest arguments; waits for "ready"
     cat "$tmp/$name.log"; echo "$name did not start"; exit 1
 }
 stop_all() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; pids=(); sleep 1; }
-for who in relay host1 listen1 host2 listen2 host3 listen3 listen4 host5 listen5; do key $who; done
+for who in relay host1 listen1 host2 listen2 host3 listen3 listen4 host5 listen5 crowd{1..10}; do key $who; done
 NOMAIN=4; NOMDNS=2; RELAYONLY=8; NOUPNP=16
 
 echo "== 1. same network (mDNS)"
@@ -63,3 +64,14 @@ echo "== 5. a host changes networks (drops its relay links, takes a new spot, re
 MOVE_AFTER=4 background host5 host "$tmp/host5.p12" "$tmp/host5" "$tmp/card5" $((NOMAIN|NOMDNS|NOUPNP|RELAYONLY)) "$tmp/entry"
 sleep 4  # the new relay spot and the signed address record that names it
 run listen "$tmp/listen5.p12" "$tmp/listen5" "$tmp/card5" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/entry" relayed
+
+echo "== 6. a crowd (ten listeners at once reach the host behind NAT through one relay and stay connected)"
+crowd=()
+for i in $(seq 1 10); do
+    LINGER=20 run listen "$tmp/crowd$i.p12" "$tmp/crowd$i" "$tmp/card3" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/entry" relayed > "$tmp/crowd$i.log" 2>&1 &
+    crowd+=($!)
+done
+failed=0
+for i in $(seq 1 10); do wait "${crowd[$((i-1))]}" || { failed=$((failed+1)); grep -vE "^\[killanet\]|^\s+at " "$tmp/crowd$i.log" | tail -4; }; done
+[ "$failed" = 0 ] || { echo "$failed of 10 listeners could not reach the host"; exit 1; }
+echo "all 10 listeners reached the host through the relay"

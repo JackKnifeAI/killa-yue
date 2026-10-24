@@ -82,6 +82,9 @@ public final class NetworkTest {
         KillaNet.start(new File(root, "network"), pin, flags, 0, entry);
         boolean relayed = args.length > 6 && "relayed".equals(args[6]);
         System.out.println(listen(root, out, 60000, relayed));
+        String linger = System.getenv("LINGER");  // seconds to stay connected afterwards, as a listener browsing on would
+        if (linger != null)
+            Thread.sleep(Long.parseLong(linger) * 1000);
         System.exit(0);
     }
 
