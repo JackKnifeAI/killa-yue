@@ -45,7 +45,7 @@ const HOSTS_KEY: &[u8] = b"ky:hosts:1";
 const MEETING: [u8; 20] = [150, 33, 244, 148, 119, 77, 5, 160, 72, 223, 178, 220, 63, 125, 107, 31, 122, 59, 71, 254];
 /// The port QUIC (UDP) and TCP both listen on, so a Mainline "IP:port" can be dialled both ways.
 pub const DEFAULT_PORT: u16 = 47291;
-const INBOUND_AT_ONCE: usize = 16;
+const INBOUND_AT_ONCE: usize = 32;
 const AUTO_DIALS: usize = 32;
 const RELAYS: usize = 2;
 const REMEMBERED: usize = 200;
@@ -406,10 +406,11 @@ impl Node {
         let (inbound_port, token) = (o.inbound_port, o.token.clone());
         rt.spawn(async move {
             while let Some((peer, stream)) = incoming.next().await {
-                let Ok(permit) = gate.clone().try_acquire_owned() else { continue };
-                let token = token.clone();
+                let (gate, token) = (gate.clone(), token.clone());
                 tokio::spawn(async move {
-                    let _permit = permit;
+                    // a stream beyond the limit waits a little for its turn instead of being dropped unanswered
+                    let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(10), gate.acquire_owned()).await
+                    else { return };
                     let Ok(mut local) = tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, inbound_port)).await else { return };
                     let _ = local.set_nodelay(true);
                     let id = peer.to_base58();
