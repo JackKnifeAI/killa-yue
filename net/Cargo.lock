@@ -1572,7 +1572,10 @@ dependencies = [
 name = "killanet"
 version = "0.1.0"
 dependencies = [
+ "chacha20poly1305",
+ "curve25519-dalek 5.0.0",
  "futures",
+ "hkdf",
  "jni 0.21.1",
  "libp2p",
  "libp2p-stream",

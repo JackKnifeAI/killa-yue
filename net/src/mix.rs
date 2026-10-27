@@ -81,17 +81,30 @@ pub fn peer_address(peer: &PeerId) -> Option<[u8; 32]> {
     address(&identity::PublicKey::try_decode_protobuf(hash.digest()).ok()?)
 }
 
-/// A mix node as a sender sees it: who it is and the mix key it published for today.
+/// A mix node as a sender sees it: who it is, the mix key it published for today, and when it signed that.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MixNode {
     pub address: [u8; 32],
     pub mix: [u8; 32],
     pub day: u64,
+    pub published: u64,
 }
+
+/// How old a descriptor may be and still be used: its mix signs a new one every five minutes while it serves, so
+/// a mix that went away is no longer chosen a quarter of an hour later.
+pub const FRESH: u64 = 15 * 60;
+/// How far a publisher's clock may run ahead of ours.
+const SKEW: u64 = 10 * 60;
 
 impl MixNode {
     fn node(&self) -> Node {
         Node::new(NodeAddressBytes::from_bytes(self.address), PublicKey::from(self.mix))
+    }
+
+    /// Signed for today and recently enough that its mix is still serving. An old descriptor proves nothing about
+    /// now, whoever still stores or replays it: the DHT kept the records of mixes that were long gone.
+    pub fn fresh(&self, now: u64) -> bool {
+        self.day == now / DAY && self.published <= now + SKEW && now.saturating_sub(self.published) <= FRESH
     }
 }
 
@@ -123,35 +136,41 @@ impl MixKeys {
     }
 }
 
-const DESCRIPTOR_TAG: &[u8] = b"killa mix descriptor 1";
+const DESCRIPTOR_TAG: &[u8] = b"killa mix descriptor 2";
 
-/// The DHT record a mix node publishes for one day: version, day, mix key, signed by its network identity.
-pub fn descriptor(key: &identity::Keypair, keys: &MixKeys, day: u64) -> Result<Vec<u8>, String> {
-    let mix = keys.public(day);
+fn descriptor_signed(day: u64, published: u64, mix: &[u8; 32]) -> Vec<u8> {
     let mut signed = DESCRIPTOR_TAG.to_vec();
     signed.extend_from_slice(&day.to_be_bytes());
-    signed.extend_from_slice(&mix);
-    let sig = key.sign(&signed).map_err(|e| e.to_string())?;
-    let mut out = vec![1u8];
+    signed.extend_from_slice(&published.to_be_bytes());
+    signed.extend_from_slice(mix);
+    signed
+}
+
+/// The DHT record a mix node publishes for one day: version, day, the time it was signed (seconds since 1970),
+/// mix key, signed by its network identity.
+pub fn descriptor(key: &identity::Keypair, keys: &MixKeys, day: u64, published: u64) -> Result<Vec<u8>, String> {
+    let mix = keys.public(day);
+    let sig = key.sign(&descriptor_signed(day, published, &mix)).map_err(|e| e.to_string())?;
+    let mut out = vec![2u8];
     out.extend_from_slice(&day.to_be_bytes());
+    out.extend_from_slice(&published.to_be_bytes());
     out.extend_from_slice(&mix);
     out.extend_from_slice(&sig);
     Ok(out)
 }
 
-/// Checks a descriptor against the PeerId that published it.
+/// Checks a descriptor against the PeerId that published it. Whether it is recent enough to use is `fresh`.
 pub fn read_descriptor(publisher: &PeerId, bytes: &[u8]) -> Option<MixNode> {
-    if bytes.len() != 1 + 8 + 32 + 64 || bytes[0] != 1 {
+    if bytes.len() != 1 + 8 + 8 + 32 + 64 || bytes[0] != 2 {
         return None;
     }
     let day = u64::from_be_bytes(bytes[1..9].try_into().ok()?);
-    let mix: [u8; 32] = bytes[9..41].try_into().ok()?;
+    let published = u64::from_be_bytes(bytes[9..17].try_into().ok()?);
+    let mix: [u8; 32] = bytes[17..49].try_into().ok()?;
     let address = peer_address(publisher)?;
     let key = identity::PublicKey::from(identity::ed25519::PublicKey::try_from_bytes(&address).ok()?);
-    let mut signed = DESCRIPTOR_TAG.to_vec();
-    signed.extend_from_slice(&day.to_be_bytes());
-    signed.extend_from_slice(&mix);
-    key.verify(&signed, &bytes[41..]).then_some(MixNode { address, mix, day })
+    key.verify(&descriptor_signed(day, published, &mix), &bytes[49..])
+        .then_some(MixNode { address, mix, day, published })
 }
 
 fn identifier(service: Service) -> SURBIdentifier {
@@ -170,13 +189,21 @@ fn route(path: &[MixNode]) -> Result<Vec<Node>, String> {
 /// A packet through `path` (gateway first, last hop last) for `service`; `to` names the receiving peer for Deliver.
 pub fn packet(path: &[MixNode], service: Service, to: [u8; 32], message: &[u8], mean: Duration)
     -> Result<Vec<u8>, String> {
-    let destination = Destination::new(DestinationAddressBytes::from_bytes(to), identifier(service));
+    packet_with_id(path, service, to, message, mean).map(|(p, _)| p)
+}
+
+/// A packet as `packet` makes it, and the identifier its last hop will read: a sender knows its own cover loop by
+/// it when the loop comes back.
+pub fn packet_with_id(path: &[MixNode], service: Service, to: [u8; 32], message: &[u8], mean: Duration)
+    -> Result<(Vec<u8>, SURBIdentifier), String> {
+    let id = identifier(service);
+    let destination = Destination::new(DestinationAddressBytes::from_bytes(to), id);
     let delays: Vec<Delay> = delays::generate_from_average_duration(HOPS, mean);
     let p = SphinxPacketBuilder::new()
         .with_payload_size(PAYLOAD)
         .build_packet(message, &route(path)?, &destination, &delays)
         .map_err(|e| e.to_string())?;
-    Ok(p.to_bytes())
+    Ok((p.to_bytes(), id))
 }
 
 /// A reply block whose route ends at `path`'s last node (the client's own gateway), addressed to `client`.
@@ -285,6 +312,62 @@ impl Mixer {
     }
 }
 
+/// What sealing adds to a message: the sender's one-time key and the tag.
+pub const SEAL: usize = 32 + 16;
+
+fn seal_key(shared: &[u8; 32], once: &[u8; 32], to: &[u8; 32]) -> chacha20poly1305::Key {
+    let mut key = [0u8; 32];
+    hkdf::Hkdf::<Sha256>::new(Some(b"killa mix seal 1"), shared)
+        .expand(&[once.as_slice(), to.as_slice()].concat(), &mut key)
+        .expect("32 bytes is a valid length");
+    key.into()
+}
+
+/// Seals a delivery for the node whose ed25519 address is `to`, so only it can read it: the last mix sees where it
+/// goes, never what it says. A one-time X25519 key against the receiver's ed25519 key in Montgomery form (as age
+/// does for ssh-ed25519 recipients), HKDF-SHA256, ChaCha20-Poly1305; each key seals one message, so the nonce is 0.
+pub fn seal(to: &[u8; 32], message: &[u8]) -> Result<Vec<u8>, String> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    let receiver = curve25519_dalek::edwards::CompressedEdwardsY(*to)
+        .decompress()
+        .ok_or("the receiver's key is not a curve point")?
+        .to_montgomery()
+        .to_bytes();
+    let secret = StaticSecret::from(rand::random::<[u8; 32]>());
+    let once = PublicKey::from(&secret).to_bytes();
+    let shared = secret.diffie_hellman(&PublicKey::from(receiver));
+    if !shared.was_contributory() {
+        return Err("the receiver's key is a weak point".into());
+    }
+    let sealed = chacha20poly1305::ChaCha20Poly1305::new(&seal_key(shared.as_bytes(), &once, to))
+        .encrypt(&Default::default(), message)
+        .map_err(|_| "sealing failed")?;
+    Ok([once.as_slice(), &sealed].concat())
+}
+
+/// Opens a delivery sealed for this node, with its network key. None for anything sealed for someone else or
+/// changed on the way.
+pub fn open_sealed(key: &identity::Keypair, body: &[u8]) -> Option<Vec<u8>> {
+    use chacha20poly1305::aead::{Aead, KeyInit};
+    if body.len() < SEAL {
+        return None;
+    }
+    let ed = key.clone().try_into_ed25519().ok()?;
+    let to = ed.public().to_bytes();
+    // the X25519 secret of an ed25519 key: the first half of SHA-512 of its seed (clamped when used)
+    let mut h = sha2::Sha512::new();
+    h.update(ed.secret().as_ref());
+    let scalar: [u8; 32] = h.finalize()[..32].try_into().ok()?;
+    let once: [u8; 32] = body[..32].try_into().ok()?;
+    let shared = StaticSecret::from(scalar).diffie_hellman(&PublicKey::from(once));
+    if !shared.was_contributory() {
+        return None;
+    }
+    chacha20poly1305::ChaCha20Poly1305::new(&seal_key(shared.as_bytes(), &once, &to))
+        .decrypt(&Default::default(), &body[32..])
+        .ok()
+}
+
 /// Proof of work bound to `what` (a song's ID): a nonce whose hash starts with `bits` zero bits.
 pub fn stamp(what: &[u8], bits: u32) -> u64 {
     (0u64..).find(|n| stamp_ok(what, bits, *n)).unwrap()
@@ -317,7 +400,7 @@ mod tests {
         for i in 0..n {
             let k = identity::Keypair::generate_ed25519();
             let m = MixKeys::new([i as u8 + 1; 32]);
-            let d = descriptor(&k, &m, NOW / DAY).unwrap();
+            let d = descriptor(&k, &m, NOW / DAY, NOW).unwrap();
             nodes.push(read_descriptor(&PeerId::from(k.public()), &d).unwrap());
             mixers.push(Mixer::new(m));
         }
@@ -425,6 +508,25 @@ mod tests {
     }
 
     #[test]
+    fn a_cover_loop_comes_back_to_its_gateway() {
+        let mut n = net(3);
+        let me = [7u8; 32];
+        // out through the gateway (mix 0) and another mix, back to the gateway, which hands it to us
+        let path = vec![n.nodes[0].clone(), n.nodes[1].clone(), n.nodes[0].clone()];
+        let (f, id) = packet_with_id(&path, Service::Reply, me, b"", MEAN_DELAY).unwrap();
+        let (exit, out) = n.run(0, f);
+        assert_eq!(exit, 0);
+        match out {
+            Out::Final { service, to, id: back, .. } => {
+                assert_eq!(service, Service::Reply);
+                assert_eq!(to, me);
+                assert_eq!(back, id);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
     fn a_reply_block_fits_in_a_message() {
         assert!(SURB_LEN + 512 < MESSAGE);
     }
@@ -434,14 +536,32 @@ mod tests {
         let k = identity::Keypair::generate_ed25519();
         let other = identity::Keypair::generate_ed25519();
         let m = MixKeys::new([3; 32]);
-        let d = descriptor(&k, &m, 5).unwrap();
+        let d = descriptor(&k, &m, 5, 5 * DAY + 100).unwrap();
         assert!(read_descriptor(&PeerId::from(k.public()), &d).is_some());
         assert!(read_descriptor(&PeerId::from(other.public()), &d).is_none());
         let mut forged = d.clone();
         forged[20] ^= 1; // another mix key
         assert!(read_descriptor(&PeerId::from(k.public()), &forged).is_none());
+        let mut later = d.clone();
+        later[16] ^= 1; // a later publish time: an old descriptor cannot be made to look new
+        assert!(read_descriptor(&PeerId::from(k.public()), &later).is_none());
         let a = peer_address(&PeerId::from(k.public())).unwrap();
         assert_eq!(peer(&a), Some(PeerId::from(k.public())));
+    }
+
+    #[test]
+    fn only_recent_descriptors_are_fresh() {
+        let k = identity::Keypair::generate_ed25519();
+        let m = MixKeys::new([3; 32]);
+        let me = PeerId::from(k.public());
+        let signed_at = |t: u64| read_descriptor(&me, &descriptor(&k, &m, t / DAY, t).unwrap()).unwrap();
+        assert!(signed_at(NOW).fresh(NOW));
+        assert!(signed_at(NOW - 14 * 60).fresh(NOW)); // signed 14 minutes ago: its mix may still be serving
+        assert!(!signed_at(NOW - 16 * 60).fresh(NOW)); // three renewals missed: gone
+        assert!(signed_at(NOW + 5 * 60).fresh(NOW)); // a publisher's clock a little ahead
+        assert!(!signed_at(NOW + 20 * 60).fresh(NOW)); // far ahead is not believed
+        let yesterday = NOW - DAY;
+        assert!(!signed_at(yesterday).fresh(NOW));
     }
 
     #[test]
@@ -449,5 +569,29 @@ mod tests {
         let n = stamp(b"song", 12);
         assert!(stamp_ok(b"song", 12, n));
         assert!((0..64).filter(|i| stamp_ok(b"song", 12, *i)).count() < 4);
+    }
+
+    #[test]
+    fn only_the_receiver_opens_a_sealed_delivery() {
+        let (me, other) = (identity::Keypair::generate_ed25519(), identity::Keypair::generate_ed25519());
+        let to = address(&me.public()).unwrap();
+        let sealed = seal(&to, b"a vote, for the receiver only").unwrap();
+        assert_eq!(sealed.len(), SEAL + 29);
+        assert!(!sealed.windows(4).any(|w| w == b"vote")); // the last mix sees no plaintext
+        assert_eq!(open_sealed(&me, &sealed).unwrap(), b"a vote, for the receiver only");
+        assert!(open_sealed(&other, &sealed).is_none());
+        let mut changed = sealed.clone();
+        changed[40] ^= 1;
+        assert!(open_sealed(&me, &changed).is_none());
+        assert!(open_sealed(&me, &sealed[..SEAL - 1]).is_none());
+        assert_ne!(seal(&to, b"same").unwrap(), seal(&to, b"same").unwrap()); // a fresh key every time
+    }
+
+    #[test]
+    fn a_sealed_message_still_fits_a_packet() {
+        let k = identity::Keypair::generate_ed25519();
+        let to = address(&k.public()).unwrap();
+        let sealed = seal(&to, &vec![7u8; MESSAGE - SEAL]).unwrap();
+        assert_eq!(sealed.len(), MESSAGE);
     }
 }

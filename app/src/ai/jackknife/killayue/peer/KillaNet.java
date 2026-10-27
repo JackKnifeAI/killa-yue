@@ -32,6 +32,14 @@ public final class KillaNet {
     private static native void nativeStop();
     private static native void nativeMoved();
     private static native boolean nativeAlive();
+    private static native String nativeMixSend(String peerId, byte[] message);
+    private static native String nativeMixReply(byte[] block, byte[] message);
+    private static native byte[] nativeMixSurb();
+    private static native void nativeMixCover(int meanMs);
+    private static native String nativeMixInbox();
+    private static native String nativeMixLook();
+    private static native void nativeMixServe(boolean on);
+    private static native String nativeMixNodes();
 
     /** Identify's agent string carries the HAMMER pin, so peers found nearby can be dialled with a full card. */
     static final String AGENT = "killa-yue/1 hammer-pin/";
@@ -59,7 +67,8 @@ public final class KillaNet {
     public static String peerId() { return peerId; }
 
     /** Start flags. HELP: relay for others and answer DHT queries (Wi-Fi and charging, or a computer). */
-    public static final int HELP = 1, NO_MDNS = 2, NO_MAINLINE = 4, RELAY_ONLY = 8, NO_UPNP = 16, TEST_REACHABLE = 32;
+    public static final int HELP = 1, NO_MDNS = 2, NO_MAINLINE = 4, RELAY_ONLY = 8, NO_UPNP = 16, TEST_REACHABLE = 32,
+        TEST_MIX = 64, TEST_NETWORKS = 128;
     /** QUIC and TCP share this port, so an address found in the BitTorrent DHT can be dialled both ways. */
     public static final int PORT = 47291;
 
@@ -89,7 +98,7 @@ public final class KillaNet {
         t.setDaemon(true);
         t.start();
         dataDir.mkdirs();
-        String id = nativeStart(dataDir.getAbsolutePath(), AGENT + pin, bridge.getLocalPort(), TOKEN, flags, port,
+        String id = nativeStart(dataDir.getAbsolutePath(), AGENT + pin, bridge.getLocalPort(), TOKEN, flags & ~TEST_NETWORKS, port,
                                 entry == null ? "" : entry);
         helping = (flags & HELP) != 0;
         if (id == null || id.startsWith("error")) {
@@ -163,6 +172,13 @@ public final class KillaNet {
 
     /** The HAMMER server that inbound streams are handed to, or null to refuse them (hosting off). */
     public static void serve(Hammer.Server s) { server = s; }
+    static Hammer.Server server() { return server; }
+    /**
+     * Started with TEST_NETWORKS (tests only, never set by the app): the test bench's mixes share one network, so
+     * the rule that a protected send needs mixes on three independent networks is waived. The native node never
+     * sees this flag.
+     */
+    static boolean testNetworks() { return started != null && ((Integer)started[2] & TEST_NETWORKS) != 0; }
 
     /** Offer this host in the worldwide public host list (the DHT), or stop offering it. Public hosts only. */
     public static void announce(boolean on) {
@@ -187,6 +203,84 @@ public final class KillaNet {
     public static void lookup() {
         if (peerId != null)
             nativeLookup();
+    }
+
+    /**
+     * Sends a message through the mixnet (experimental): small messages travel by three mix nodes, so the first
+     * hop sees this phone but not where the message goes. Says the packet was queued, not that it arrived;
+     * answers come back as replies to reply blocks, into the mixnet inbox.
+     */
+    public static String mixSend(String peer, byte[] message) {
+        if (peerId == null)
+            return "error: not running";
+        return nativeMixSend(peer, message);
+    }
+
+    /** Answers through a reply block a message carried: the answer travels the block's own route back. */
+    public static String mixReply(byte[] block, byte[] message) {
+        if (peerId == null)
+            return "error: not running";
+        return nativeMixReply(block, message);
+    }
+
+    /** A reply block for this node: embed it in a message, and the answer arrives in the mixnet inbox. */
+    public static byte[] mixSurb() {
+        if (peerId == null)
+            return null;
+        return nativeMixSurb();
+    }
+
+    /**
+     * The cover rate in milliseconds: while Protection is on, one packet every mean on average, cover loops when
+     * there is nothing to send, so real messages hide among fake ones. 0 turns the clock off.
+     */
+    public static void mixCover(int meanMs) {
+        if (peerId != null)
+            nativeMixCover(meanMs);
+    }
+
+    /**
+     * Paces what this node sends into the mixnet at one packet every meanMs on average, without cover loops: an
+     * upload must not outrun what its gateway takes from one peer. mixCover(0) or mixCover(n) ends it.
+     */
+    public static void mixPace(int meanMs) {
+        if (peerId != null && meanMs > 0)
+            nativeMixCover(-meanMs);
+    }
+
+    /** Everything waiting in the mixnet inbox: "got", id, message and "back", id, message lines, tab separated, hex-encoded. */
+    public static String mixInbox() {
+        if (peerId == null)
+            return "";
+        return nativeMixInbox();
+    }
+
+    /**
+     * The mixnet's honest numbers, tab separated: mix nodes, independent ones, serving as a mix, cover on, cover loops
+     * sent and cover loops back (loops that never come back are packets the mixnet dropped), and 1 while the gateway
+     * is gone and not yet replaced.
+     */
+    public static String mixLook() {
+        if (peerId == null)
+            return "error: not running";
+        return nativeMixLook();
+    }
+
+    /** The PeerIds of the mix nodes known and usable now: the network's helpers. */
+    public static List<String> mixNodes() {
+        List<String> out = new ArrayList<String>();
+        if (peerId == null)
+            return out;
+        for (String line : nativeMixNodes().split("\n"))
+            if (!line.trim().isEmpty())
+                out.add(line.trim());
+        return out;
+    }
+
+    /** Serve as a mix node when reachable (a helper), or refuse to; the default is to serve. */
+    public static void mixServe(boolean on) {
+        if (peerId != null)
+            nativeMixServe(on);
     }
 
     /**

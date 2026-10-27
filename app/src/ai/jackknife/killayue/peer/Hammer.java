@@ -451,6 +451,8 @@ public final class Hammer {
             t.start();
         }
         public int port() { return listener.getLocalPort(); }
+        /** What this server hosts: requests that come through the mixnet are handled by it too. */
+        public Source source() { return source; }
         private void accept() {
             while (!listener.isClosed())
                 try {

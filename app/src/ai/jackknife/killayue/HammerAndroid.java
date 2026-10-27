@@ -59,6 +59,15 @@ final class HammerAndroid {
         KeyStore k = keys(alias);
         return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey)k.getKey(alias, null));
     }
+    /**
+     * The key of one hidden artist name: made for that name only, never used for anything sent from this phone's own
+     * address (no presence, hosting, comments or votes), so nothing links the name to the phone.
+     */
+    static KeyPair hiddenIdentity(String name) throws Exception {
+        String alias = "hammer-hidden-" + Hammer.hash(name.getBytes("UTF-8"));
+        KeyStore k = keys(alias);
+        return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey)k.getKey(alias, null));
+    }
     private static android.net.wifi.WifiManager.MulticastLock multicast;
     /**
      * Starts the Killa YuE network node once (libkillanet.so), with the multicast lock Android needs before peers on
@@ -77,6 +86,9 @@ final class HammerAndroid {
         int flags = helper(c) ? KillaNet.HELP : 0;
         String id = KillaNet.start(new File(c.getFilesDir(), "network"), pin(), flags, KillaNet.PORT, "");
         watchHelping(c.getApplicationContext());
+        HammerMix.start(); // votes and comments reaching our host through the mixnet, and answers to ours
+        Protection.watch(c);
+        Protection.refresh(c);
         return id;
     }
     private static boolean watching;
@@ -102,7 +114,10 @@ final class HammerAndroid {
             return;
         watching = true;
         final Runnable check = new Runnable() {
-            public void run() { KillaNet.help(helper(c)); }
+            public void run() {
+                KillaNet.help(helper(c));
+                Protection.refresh(c); // cover traffic is slower on mobile data
+            }
         };
         android.content.IntentFilter power = new android.content.IntentFilter();
         power.addAction(android.content.Intent.ACTION_POWER_CONNECTED);

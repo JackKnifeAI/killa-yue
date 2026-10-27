@@ -288,6 +288,7 @@ public class MainActivity extends Activity {
         setTheme(Skin.themeFor(this, Skin.id(this)));
         super.onCreate(b);
         inst = this;
+        Protection.watch(this); // before this screen starts, so the count of open screens includes it
         cfg = getSharedPreferences("cfg", 0);
         // Apply device defaults before the controls read them.
         String check = PhoneCheck.firstLaunch(this);
@@ -3794,12 +3795,13 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        c.addView(chipRow(new String[] {"Hosting", "Circles and invitations", "Peers and artists", "Downloads", "Computer"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Hosting", "Circles and invitations", "Peers and artists", "Downloads", "Computer", "Protection"}, new Runnable[] {
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.HOSTING); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.CIRCLES); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.PEERS); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.TRANSFERS); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.COMPUTER); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.PROTECTION); } },
         }));
         TextView why = text("Only songs you share from the Library are offered. Public songs show in Discover; private ones need an invitation.", DIM, 12);
         c.addView(why, gap(6));

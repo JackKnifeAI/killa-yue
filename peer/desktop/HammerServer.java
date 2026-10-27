@@ -306,6 +306,8 @@ public final class HammerServer {
             + "  join CARD                             Join a public entry peer and announce this host\n"
             + "  hosted                                List hosted songs\n"
             + "  unpublish SONG_HASH                    Stop offering a song; keep its master\n"
+            + "  adopted                                Hidden artists' songs this helper adopted (mixnet, experimental)\n"
+            + "  remove-adopted SONG_HASH               Stop hosting an adopted song and never take it again\n"
             + "  revoke                                Replace all private invitations\n"
             + "  follow CARD NAME                      Follow a peer (no public introduction)\n"
             + "  introduce PEER_NUMBER                 Opt in to introducing a public peer\n"
@@ -471,6 +473,17 @@ public final class HammerServer {
         } else if (op.equals("unpublish")) {
             store.unpublish(a.get(1));
             server.disconnect();
+        } else if (op.equals("adopted")) {
+            HammerAdoption adopt = HammerMix.adoption;
+            if (adopt == null)
+                System.out.println("This helper does not adopt hidden songs (start it with --help-network)");
+            else
+                for (Hammer.Song s : adopt.adopted())
+                    System.out.println(s.id + " | " + s.title + " | " + (s.size >> 10) + " KiB");
+        } else if (op.equals("remove-adopted")) {
+            Hammer.require(HammerMix.adoption != null, "This helper does not adopt hidden songs");
+            HammerMix.adoption.remove(a.get(1));  // and never take it again
+            server.disconnect();
         } else if (op.equals("revoke")) {
             store.revoke();
             server.disconnect();
@@ -606,7 +619,7 @@ public final class HammerServer {
     public static void main(String[] args) throws Exception {
         File data = new File(System.getProperty("user.home"), ".hammer");
         String address = "127.0.0.1", bind = "0.0.0.0";
-        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false;
+        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true;
         int networkPort = KillaNet.PORT; String entry = "", watch = ""; boolean watchPrivate = false;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--data"))
@@ -622,13 +635,14 @@ public final class HammerServer {
             else if (args[i].equals("--help-network")) { network = true; helper = true; }
             else if (args[i].equals("--community-count")) count = true;
             else if (args[i].equals("--upnp")) upnp = true;
+            else if (args[i].equals("--no-adopt")) adopt = false;
             else if (args[i].equals("--network-port")) networkPort = Integer.parseInt(args[++i]);
             else if (args[i].equals("--entry")) entry = args[++i];
             else if (args[i].equals("--watch")) watch = args[++i];
             else if (args[i].equals("--watch-private")) watchPrivate = true;
             else
                 throw new IllegalArgumentException(
-                    "Use --daemon --network --help-network --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --no-adopt --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -642,6 +656,10 @@ public final class HammerServer {
             try {
                 KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);
                 KillaNet.serve(app.server); app.announce();
+                // a helper adopts hidden artists' songs that arrive through the mixnet, unless its owner says no
+                if (helper && adopt)
+                    HammerMix.adoption = new HammerAdoption(app.store, new File(data, "adopted"));
+                HammerMix.start(); // votes, comments and hidden songs that reach this host through the mixnet
                 System.out.println("Network card: " + app.card(false).encode());
             } catch (Exception e) { app.close(); throw e; }
         }

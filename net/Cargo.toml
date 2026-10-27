@@ -23,6 +23,10 @@ sphinx-packet = "=0.8.0"
 x25519-dalek = { version = "=3.0.0", features = ["static_secrets"] }
 rand = "=0.10.2"
 sha2 = "=0.11.0"
+# the seal on a delivery, so its last mix cannot read it: crates the lockfile already had through libp2p and Sphinx
+curve25519-dalek = { version = "=5.0.0", default-features = false }
+chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
+hkdf = "=0.13.0"
 
 [profile.release]
 opt-level = "s"

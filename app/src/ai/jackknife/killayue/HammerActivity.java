@@ -65,7 +65,7 @@ public final class HammerActivity extends Activity {
     private interface Work {
         void run() throws Exception;
     }
-    static final int ALL = 0, HOSTING = 1, CIRCLES = 2, PEERS = 3, TRANSFERS = 4, COMPUTER = 5;
+    static final int ALL = 0, HOSTING = 1, CIRCLES = 2, PEERS = 3, TRANSFERS = 4, COMPUTER = 5, PROTECTION = 6;
     static void open(Context c) { c.startActivity(new Intent(c, HammerActivity.class)); }
     static void settings(Context c) { settings(c, ALL); }
     /** Sharing settings, grouped; section is the group to scroll to. The Settings tab opens these. */
@@ -89,6 +89,8 @@ public final class HammerActivity extends Activity {
     private static final Map<String, int[]> tallies = new java.util.concurrent.ConcurrentHashMap<String, int[]>();
     private static final Map<String, Long> counted = new java.util.concurrent.ConcurrentHashMap<String, Long>();
     private final ExecutorService voting = Executors.newFixedThreadPool(2);
+    /** Protected sends to a song's other hosts, and the mixnet's numbers in the settings. */
+    private final ExecutorService mixing = Executors.newFixedThreadPool(4);
     // covers and portraits, fetched one at a time so a peer's admission limit is never hit
     private final ExecutorService art = Executors.newSingleThreadExecutor();
     private final Map<String, android.graphics.Bitmap> pictures = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
@@ -364,6 +366,42 @@ public final class HammerActivity extends Activity {
                 startActivityForResult(i, 840);
             }
         });
+        final View protection = group("Protection (experimental)",
+                                      "Send votes and comments through the mixnet, so hosts never learn your address.");
+        final CheckBox protect = new CheckBox(this);
+        protect.setText("Send votes and comments through the mixnet");
+        protect.setTextColor(Skin.TEXT);
+        protect.setChecked(Protection.on(this));
+        protect.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean on) {
+                Protection.set(HammerActivity.this, on);
+            }
+        });
+        body.addView(protect);
+        final TextView mixnet = Ui.text(this, "", Skin.DIM, 12);
+        body.addView(mixnet);
+        Runnable look = new Runnable() {
+            public void run() {
+                if (closed)
+                    return;
+                final Runnable again = this;
+                mixing.execute(new Runnable() {
+                    public void run() {
+                        final String line = Protection.status(HammerActivity.this);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                mixnet.setText(line);
+                                ui.postDelayed(again, 3000);
+                            }
+                        });
+                    }
+                });
+            }
+        };
+        look.run();
+        TextView honest = Ui.text(this, Protection.TEXT, Skin.DIM, 12);
+        honest.setPadding(0, Ui.dp(this, 6), 0, 0);
+        body.addView(honest);
         group("Community headcount", "An optional monthly count of participating installations.");
         button(body, "Community headcount settings", new Runnable() {
             public void run() { startActivity(new Intent(HammerActivity.this, CommunityCountActivity.class)); }
@@ -378,7 +416,7 @@ public final class HammerActivity extends Activity {
         if (section != ALL)
             scroll.post(new Runnable() {
                 public void run() {
-                    View[] at = {null, hosting, circles, peers, transfers, computer};
+                    View[] at = {null, hosting, circles, peers, transfers, computer, protection};
                     if (section < at.length && at[section] != null)
                         scroll.smoothScrollTo(0, at[section].getTop());
                 }
@@ -717,7 +755,20 @@ public final class HammerActivity extends Activity {
         showVotes();
         voting.execute(new Runnable() {
             public void run() {
+                final boolean protect = Protection.on(HammerActivity.this);
                 try {
+                    if (protect) {
+                        // no direct connection to read the votes first or the count after: that would show the
+                        // host this phone's address right beside the protected vote
+                        sendVote(hit, now, new ArrayList<Hammer.Vote>(), new Hammer.Job());
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (!closed)
+                                    Ui.toast(HammerActivity.this, "Vote sent through the mixnet");
+                            }
+                        });
+                        return;
+                    }
                     sendVote(hit, now, Hammer.votes(hit.peer.card, hit.song.id, new Hammer.Job()), new Hammer.Job());
                     tally(hit, null);  // the host's count, now including this vote
                 } catch (final Exception e) {
@@ -725,8 +776,10 @@ public final class HammerActivity extends Activity {
                         public void run() {
                             if (closed)
                                 return;
-                            Ui.toast(HammerActivity.this, "Vote not sent: the artist is out of reach right now");
-                            tally(hit, null);
+                            Ui.toast(HammerActivity.this, protect ? "Vote not sent: " + e.getMessage()
+                                                                  : "Vote not sent: the artist is out of reach right now");
+                            if (!protect)
+                                tally(hit, null);
                         }
                     });
                 }
@@ -746,19 +799,42 @@ public final class HammerActivity extends Activity {
         for (Hammer.Vote old : list)
             if (old.key.equals(pub) && old.audience.equals(v.audience))
                 last = Math.max(last, old.sequence);
-        v.sequence = last + 1;
+        final boolean protect = Protection.on(this);
+        // a protected vote cannot read the host's last sequence first; the clock keeps a later vote ahead anyway, in
+        // minutes since 2026 (a sequence stays under a billion)
+        v.sequence = protect ? Math.max(last + 1, (System.currentTimeMillis() - 1767225600000L) / 60000) : last + 1;
         v.sign(key);
-        Hammer.vote(hit.peer.card, v, job);
+        final Hammer.Vote signed = v;
+        if (protect)
+            HammerMix.vote(hit.peer.card, v, job);
+        else
+            Hammer.vote(hit.peer.card, v, job);
         getSharedPreferences("hammer-votes", 0)
             .edit()
             .putLong(seq, v.sequence)
             .putLong("mine." + tallyKey(hit), value)
             .apply();
         if (!hit.peer.card.isPrivate())
-            for (Hammer.Card p : hosts(hit)) {
+            for (final Hammer.Card p : hosts(hit)) {
                 job.check();
                 if (p == hit.peer.card)
                     continue;
+                if (protect) {
+                    // each other host by its own paths, side by side: waiting for each answer in turn takes minutes
+                    if (p.isP2p())
+                        try {
+                            mixing.execute(new Runnable() {
+                                public void run() {
+                                    try {
+                                        HammerMix.vote(p, signed, new Hammer.Job());
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+                            });
+                        } catch (java.util.concurrent.RejectedExecutionException screenClosed) {
+                        }
+                    continue;
+                }
                 try {
                     Hammer.vote(p, v, job);
                 } catch (Exception ignored) {
@@ -2030,7 +2106,10 @@ public final class HammerActivity extends Activity {
                                 c.name = who;
                                 c.body = body;
                                 c.sign(HammerAndroid.identity());
-                                Hammer.comment(hit.peer.card, c, job);
+                                if (Protection.on(HammerActivity.this))
+                                    HammerMix.comment(hit.peer.card, c, job);
+                                else
+                                    Hammer.comment(hit.peer.card, c, job);
                             }
                         });
                     }
@@ -2261,6 +2340,7 @@ public final class HammerActivity extends Activity {
         worker.shutdownNow();
         art.shutdownNow();
         voting.shutdownNow();
+        mixing.shutdown(); // protected votes already on their way to other hosts still finish
         super.onDestroy();
     }
 }
