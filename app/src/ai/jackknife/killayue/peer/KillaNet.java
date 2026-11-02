@@ -66,9 +66,12 @@ public final class KillaNet {
     public static boolean running() { return peerId != null; }
     public static String peerId() { return peerId; }
 
-    /** Start flags. HELP: relay for others and answer DHT queries (Wi-Fi and charging, or a computer). */
+    /**
+     * Start flags. HELP: relay for others and answer DHT queries (Wi-Fi and charging, or a computer). COMPUTER: an
+     * always-on computer that helps, never a phone: it serves as a mix node from behind a router too.
+     */
     public static final int HELP = 1, NO_MDNS = 2, NO_MAINLINE = 4, RELAY_ONLY = 8, NO_UPNP = 16, TEST_REACHABLE = 32,
-        TEST_MIX = 64, TEST_NETWORKS = 128;
+        TEST_MIX = 64, TEST_NETWORKS = 128, COMPUTER = 256;
     /** QUIC and TCP share this port, so an address found in the BitTorrent DHT can be dialled both ways. */
     public static final int PORT = 47291;
 

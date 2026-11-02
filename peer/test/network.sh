@@ -9,6 +9,7 @@
 #   7. the mixnet: three helpers carry a message between two clients, the answer and cover loops come back.
 #   8. Protection: a vote and a two-packet comment reach a host behind NAT through the mixnet, and are taken.
 #   9. a hidden artist: a song goes in pieces through the mixnet to three helpers that adopt and host it.
+#  10. mixes behind routers: three computers nobody can dial serve as the only mixes, through relay spots.
 # Run it on a machine with real network interfaces: steps 1-6 need mDNS and dialable addresses. In a PRoot, where
 # interfaces cannot be listed, only step 7 can run, with KILLANET_LOOPBACK=1 so nodes bind loopback and find each other.
 # Needs the host builds of libhammer.so (peer/test/run.sh makes it) and libkillanet.so (net/build.sh host).
@@ -39,7 +40,7 @@ background() {  # name, then NetworkTest arguments; waits for "ready"
     cat "$tmp/$name.log"; echo "$name did not start"; exit 1
 }
 stop_all() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; pids=(); sleep 1; }
-for who in relay host1 listen1 host2 listen2 host3 listen3 listen4 host5 listen5 crowd{1..10} mix1 mix2 mix3 mixsend mixlisten mixhost mixvote adopt1 adopt2 adopt3 hidden; do key $who; done
+for who in relay host1 listen1 host2 listen2 host3 listen3 listen4 host5 listen5 crowd{1..10} mix1 mix2 mix3 mixsend mixlisten mixhost mixvote adopt1 adopt2 adopt3 hidden natrelay natmix{1..3} natsend natlisten; do key $who; done
 NOMAIN=4; NOMDNS=2; RELAYONLY=8; NOUPNP=16
 
 echo "== 1. same network (mDNS)"
@@ -108,3 +109,18 @@ cat "$tmp"/adopt{1,2,3}entry.card > "$tmp/adopters"
 sleep 3  # the adopters publish their mix descriptors too
 run hidden "$tmp/hidden.p12" "$tmp/hidden" "$tmp/adopters" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/mixentry"
 echo "three helpers adopted a hidden song, and a listener downloaded it whole from one"
+
+echo "== 10. mixes behind routers (three computers with no address of their own are the only mixes, reached through relay spots)"
+# a network of its own: a relay that does not mix, and three computers behind "routers" (relay only, no test switch)
+# that must find out for themselves that they can serve through their relay spots
+stop_all
+background natrelay natrelay "$tmp/natrelay.p12" "$tmp/natrelay" "$tmp/natentry"
+for i in 1 2 3; do
+    background natmix$i natmix "$tmp/natmix$i.p12" "$tmp/natmix$i" "$tmp/natmix${i}id" 0 "$tmp/natentry"
+done
+grep -h "^ok" "$tmp"/natmix1.log
+sleep 3  # the mixes publish their descriptors
+background natlisten mixlisten "$tmp/natlisten.p12" "$tmp/natlisten" "$tmp/natpeer" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/natentry"
+for i in $(seq 1 100); do [ -s "$tmp/natpeer" ] && break; sleep 0.2; done
+run mixsend "$tmp/natsend.p12" "$tmp/natsend" "$tmp/natpeer" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/natentry"
+echo "a message went through three mixes behind routers and the answer came back"

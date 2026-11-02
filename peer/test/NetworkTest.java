@@ -64,7 +64,7 @@ public final class NetworkTest {
         int flags = args.length > 4 ? Integer.parseInt(args[4]) : 0;
         String entry = args.length > 5 ? new String(Files.readAllBytes(new File(args[5]).toPath()), "UTF-8") : "";
         File out = new File(args[3]);
-        if ("relay".equals(args[0]) || "adopter".equals(args[0])) {
+        if ("relay".equals(args[0]) || "adopter".equals(args[0]) || "natrelay".equals(args[0])) {
             String id = KillaNet.start(new File(root, "network"), pin, KillaNet.HELP | KillaNet.NO_MDNS | KillaNet.NO_MAINLINE |
                                        KillaNet.NO_UPNP | KillaNet.TEST_REACHABLE, 0, entry);
             String quic = null;
@@ -77,6 +77,8 @@ public final class NetworkTest {
                     if (a.startsWith("/ip4/127.0.0.1/udp/") && a.endsWith("/quic-v1"))
                         quic = a;
             }
+            if ("natrelay".equals(args[0]))
+                KillaNet.mixServe(false); // only the relay: the mixes behind routers carry the mixnet alone
             if ("adopter".equals(args[0])) {
                 // a helper as the desktop companion runs one: hosting, and adopting hidden songs from the mixnet
                 HammerStore store = new HammerStore(new File(root, "store"));
@@ -90,6 +92,24 @@ public final class NetworkTest {
             }
             Files.write(out.toPath(), (quic + "/p2p/" + id + "\n").getBytes("UTF-8"));
             System.out.println("ready relay " + id);
+            Thread.sleep(600000);
+            return;
+        }
+        if ("natmix".equals(args[0])) {
+            // an always-on computer behind a router, as Fodenn is: no address anyone can dial, no test switch to
+            // serve; it must take a relay spot and serve as a mix through it on its own
+            String id = KillaNet.start(new File(root, "network"), pin, KillaNet.HELP | KillaNet.COMPUTER |
+                                       KillaNet.RELAY_ONLY | KillaNet.NO_MDNS | KillaNet.NO_MAINLINE | KillaNet.NO_UPNP, 0, entry);
+            boolean serving = false;
+            for (int i = 0; i < 150 && !serving; i++) {
+                String[] look = KillaNet.mixLook().split("\t");
+                serving = look.length >= 3 && "1".equals(look[2]);
+                if (!serving)
+                    Thread.sleep(200);
+            }
+            check(serving, "a computer behind a router serves as a mix through its relay spot");
+            Files.write(out.toPath(), (id + "\n").getBytes("UTF-8"));
+            System.out.println("ready natmix " + id);
             Thread.sleep(600000);
             return;
         }

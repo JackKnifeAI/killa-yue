@@ -654,7 +654,7 @@ public final class HammerServer {
         app.store.census.enabled = count;
         if (network) {
             try {
-                KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);
+                KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP | KillaNet.COMPUTER : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);
                 KillaNet.serve(app.server); app.announce();
                 // a helper adopts hidden artists' songs that arrive through the mixnet, unless its owner says no
                 if (helper && adopt)

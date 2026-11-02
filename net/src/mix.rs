@@ -88,7 +88,13 @@ pub struct MixNode {
     pub mix: [u8; 32],
     pub day: u64,
     pub published: u64,
+    /// The networks a mix behind a router says it stands on, as its peers see its address: it has no public
+    /// address of its own to count by. Claimed, like any address a mix publishes; at most NETS.
+    pub nets: Vec<[u8; 5]>,
 }
+
+/// How many networks a descriptor may claim.
+pub const NETS: usize = 4;
 
 /// How old a descriptor may be and still be used: its mix signs a new one every five minutes while it serves, so
 /// a mix that went away is no longer chosen a quarter of an hour later.
@@ -137,40 +143,61 @@ impl MixKeys {
 }
 
 const DESCRIPTOR_TAG: &[u8] = b"killa mix descriptor 2";
+const DESCRIPTOR_TAG_NETS: &[u8] = b"killa mix descriptor 3";
 
-fn descriptor_signed(day: u64, published: u64, mix: &[u8; 32]) -> Vec<u8> {
-    let mut signed = DESCRIPTOR_TAG.to_vec();
+fn descriptor_signed(day: u64, published: u64, mix: &[u8; 32], nets: &[[u8; 5]]) -> Vec<u8> {
+    let mut signed = if nets.is_empty() { DESCRIPTOR_TAG } else { DESCRIPTOR_TAG_NETS }.to_vec();
     signed.extend_from_slice(&day.to_be_bytes());
     signed.extend_from_slice(&published.to_be_bytes());
     signed.extend_from_slice(mix);
+    if !nets.is_empty() {
+        signed.push(nets.len() as u8);
+        for n in nets { signed.extend_from_slice(n); }
+    }
     signed
 }
 
 /// The DHT record a mix node publishes for one day: version, day, the time it was signed (seconds since 1970),
-/// mix key, signed by its network identity.
-pub fn descriptor(key: &identity::Keypair, keys: &MixKeys, day: u64, published: u64) -> Result<Vec<u8>, String> {
+/// mix key, then (version 3, a mix behind a router) the networks it claims, signed by its network identity.
+pub fn descriptor(key: &identity::Keypair, keys: &MixKeys, day: u64, published: u64, nets: &[[u8; 5]])
+    -> Result<Vec<u8>, String> {
+    let nets = &nets[..nets.len().min(NETS)];
     let mix = keys.public(day);
-    let sig = key.sign(&descriptor_signed(day, published, &mix)).map_err(|e| e.to_string())?;
-    let mut out = vec![2u8];
+    let sig = key.sign(&descriptor_signed(day, published, &mix, nets)).map_err(|e| e.to_string())?;
+    let mut out = vec![if nets.is_empty() { 2u8 } else { 3u8 }];
     out.extend_from_slice(&day.to_be_bytes());
     out.extend_from_slice(&published.to_be_bytes());
     out.extend_from_slice(&mix);
+    if !nets.is_empty() {
+        out.push(nets.len() as u8);
+        for n in nets { out.extend_from_slice(n); }
+    }
     out.extend_from_slice(&sig);
     Ok(out)
 }
 
 /// Checks a descriptor against the PeerId that published it. Whether it is recent enough to use is `fresh`.
 pub fn read_descriptor(publisher: &PeerId, bytes: &[u8]) -> Option<MixNode> {
-    if bytes.len() != 1 + 8 + 8 + 32 + 64 || bytes[0] != 2 {
-        return None;
-    }
+    let mut nets = Vec::new();
+    let sig = match *bytes.first()? {
+        2 if bytes.len() == 1 + 8 + 8 + 32 + 64 => 49,
+        3 => {
+            let n = *bytes.get(49)? as usize;
+            if n == 0 || n > NETS || bytes.len() != 1 + 8 + 8 + 32 + 1 + 5 * n + 64 {
+                return None;
+            }
+            for i in 0..n { nets.push(bytes[50 + 5 * i..55 + 5 * i].try_into().ok()?); }
+            50 + 5 * n
+        }
+        _ => return None,
+    };
     let day = u64::from_be_bytes(bytes[1..9].try_into().ok()?);
     let published = u64::from_be_bytes(bytes[9..17].try_into().ok()?);
     let mix: [u8; 32] = bytes[17..49].try_into().ok()?;
     let address = peer_address(publisher)?;
     let key = identity::PublicKey::from(identity::ed25519::PublicKey::try_from_bytes(&address).ok()?);
-    key.verify(&descriptor_signed(day, published, &mix), &bytes[49..])
-        .then_some(MixNode { address, mix, day, published })
+    key.verify(&descriptor_signed(day, published, &mix, &nets), &bytes[sig..])
+        .then_some(MixNode { address, mix, day, published, nets })
 }
 
 fn identifier(service: Service) -> SURBIdentifier {
@@ -400,7 +427,7 @@ mod tests {
         for i in 0..n {
             let k = identity::Keypair::generate_ed25519();
             let m = MixKeys::new([i as u8 + 1; 32]);
-            let d = descriptor(&k, &m, NOW / DAY, NOW).unwrap();
+            let d = descriptor(&k, &m, NOW / DAY, NOW, &[]).unwrap();
             nodes.push(read_descriptor(&PeerId::from(k.public()), &d).unwrap());
             mixers.push(Mixer::new(m));
         }
@@ -532,11 +559,30 @@ mod tests {
     }
 
     #[test]
+    fn a_mix_behind_a_router_signs_the_networks_it_claims() {
+        let k = identity::Keypair::generate_ed25519();
+        let me = PeerId::from(k.public());
+        let m = MixKeys::new([4; 32]);
+        let nets = [[4, 0, 0, 96, 54], [6, 0x26, 0x04, 0x3d, 0x08]];
+        let d = descriptor(&k, &m, 5, 5 * DAY + 100, &nets).unwrap();
+        assert_eq!(read_descriptor(&me, &d).unwrap().nets, nets.to_vec());
+        let mut moved = d.clone();
+        moved[53] ^= 1; // another network than the one signed
+        assert!(read_descriptor(&me, &moved).is_none());
+        let mut fewer = d.clone();
+        fewer[49] = 1; // a claim cut short
+        assert!(read_descriptor(&me, &fewer).is_none());
+        // with nothing to claim it is the version every 1.8 node reads
+        assert_eq!(descriptor(&k, &m, 5, 5 * DAY + 100, &[]).unwrap()[0], 2);
+        assert_eq!(descriptor(&k, &m, 5, 5 * DAY + 100, &[[4, 0, 0, 1, 2]; 9]).unwrap()[49] as usize, NETS);
+    }
+
+    #[test]
     fn descriptors_are_bound_to_their_publisher() {
         let k = identity::Keypair::generate_ed25519();
         let other = identity::Keypair::generate_ed25519();
         let m = MixKeys::new([3; 32]);
-        let d = descriptor(&k, &m, 5, 5 * DAY + 100).unwrap();
+        let d = descriptor(&k, &m, 5, 5 * DAY + 100, &[]).unwrap();
         assert!(read_descriptor(&PeerId::from(k.public()), &d).is_some());
         assert!(read_descriptor(&PeerId::from(other.public()), &d).is_none());
         let mut forged = d.clone();
@@ -554,7 +600,7 @@ mod tests {
         let k = identity::Keypair::generate_ed25519();
         let m = MixKeys::new([3; 32]);
         let me = PeerId::from(k.public());
-        let signed_at = |t: u64| read_descriptor(&me, &descriptor(&k, &m, t / DAY, t).unwrap()).unwrap();
+        let signed_at = |t: u64| read_descriptor(&me, &descriptor(&k, &m, t / DAY, t, &[]).unwrap()).unwrap();
         assert!(signed_at(NOW).fresh(NOW));
         assert!(signed_at(NOW - 14 * 60).fresh(NOW)); // signed 14 minutes ago: its mix may still be serving
         assert!(!signed_at(NOW - 16 * 60).fresh(NOW)); // three renewals missed: gone

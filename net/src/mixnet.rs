@@ -256,7 +256,7 @@ fn pick_two<T>(mut v: Vec<T>) -> Option<(T, T)> {
 }
 
 /// The network a mix stands on, for counting independent ones: a /16 in IPv4, a /32 in IPv6.
-fn net_of(a: &Multiaddr) -> Option<[u8; 5]> {
+pub(crate) fn net_of(a: &Multiaddr) -> Option<[u8; 5]> {
     for p in a.iter() {
         match p {
             Protocol::Ip4(ip) => return Some([4, 0, 0, ip.octets()[0], ip.octets()[1]]),
@@ -269,12 +269,11 @@ fn net_of(a: &Multiaddr) -> Option<[u8; 5]> {
 
 /// How many independent networks the mixes stand on, counted by mix, not by address: each mix by its public
 /// internet addresses only (home, VPN, loopback and relay addresses say nothing about who runs it), and mixes that
-/// share a network count once, as one operator may run them all. A mix with no public address known does not
-/// count: it cannot be claimed as someone independent.
-fn networks<'a>(mixes: impl Iterator<Item = &'a Vec<Multiaddr>>) -> usize {
+/// share a network count once, as one operator may run them all. A mix behind a router counts by the networks its
+/// descriptor claims (Known::nets). A mix with neither does not count: it cannot be claimed as someone independent.
+fn networks(mixes: impl Iterator<Item = HashSet<[u8; 5]>>) -> usize {
     let mut groups: Vec<HashSet<[u8; 5]>> = Vec::new();
-    for addrs in mixes {
-        let mut mine = nets(addrs);
+    for mut mine in mixes {
         if mine.is_empty() { continue }
         let mut i = 0;
         while i < groups.len() {
@@ -383,6 +382,9 @@ pub enum Event {
     Reach(bool),
     /// a mix node's record from the DHT: its publisher, its bytes, and the addresses seen for it so far
     Descriptor(PeerId, Vec<u8>, Vec<Multiaddr>),
+    /// the networks this node stands on as its peers see it, when it has no public address of its own: a mix
+    /// behind a router claims them in its descriptor
+    Nets(Vec<[u8; 5]>),
     /// the DHT took (or refused) our mix descriptor
     Stored(bool),
     /// the phone moved to another network: every link it had is dead, though writes into one still succeed for a
@@ -452,6 +454,15 @@ struct Known {
     addrs: Vec<Multiaddr>,
 }
 
+impl Known {
+    /// The networks it stands on: its public addresses, and those it claims from behind a router.
+    fn nets(&self) -> HashSet<[u8; 5]> {
+        let mut n = nets(&self.addrs);
+        n.extend(self.node.nets.iter().copied());
+        n
+    }
+}
+
 /// Everything the mixnet does, in one task that owns it all: the streams to the mixes, the packets held for their
 /// delays, the cover clock, the replay-checked processing, and the inbox.
 struct Engine {
@@ -471,6 +482,7 @@ struct Engine {
     serve_allowed: bool,       // the loop says we are a reachable helper
     serve_on: bool,            // the owner has not turned serving off
     published: Option<(u64, Instant)>, // the day and time of our last descriptor the DHT took
+    own_nets: Vec<[u8; 5]>,    // the networks we claim from behind a router (Event::Nets)
     tried: Option<Instant>,    // our last attempt, whatever came of it
     app_cover: Option<Duration>,
     app_loops: bool,           // the app's clock fills empty slots with cover loops (false: it only paces)
@@ -551,7 +563,7 @@ impl Engine {
                 self.want_mixes();
                 let _ = done.send(Look {
                     mixes: self.usable().count(),
-                    networks: networks(self.usable().map(|(_, k)| &k.addrs)),
+                    networks: networks(self.usable().map(|(_, k)| k.nets())),
                     serving: self.serving(),
                     cover: self.cover_mean().is_some(),
                     loops_sent: self.loops_sent,
@@ -591,6 +603,15 @@ impl Engine {
                 self.opening.clear();
                 if let Some(g) = self.gateway { self.spawn_open(g); }
                 self.retry();
+            }
+            Event::Nets(n) => {
+                let n: Vec<[u8; 5]> = n.into_iter().take(mix::NETS).collect();
+                if n != self.own_nets {
+                    debug!("mix: our networks as peers see us: {} known", n.len());
+                    self.own_nets = n;
+                    // a descriptor with the new claim goes out now, not at the next renewal
+                    if self.serving() { self.published = None; self.tried = None; self.publish(); }
+                }
             }
             Event::Stored(ok) => {
                 if !ok {
@@ -723,10 +744,10 @@ impl Engine {
     fn path(&mut self) -> Result<Vec<MixNode>, String> {
         let gateway = self.guard()?;
         let known = self.mixes.get(&gateway).ok_or("no mix nodes known yet")?;
-        let (guard, guard_nets) = (known.node.clone(), nets(&known.addrs));
+        let (guard, guard_nets) = (known.node.clone(), known.nets());
         let others: Vec<(MixNode, HashSet<[u8; 5]>)> = self.usable()
             .filter(|(_, k)| k.node.address != guard.address)
-            .map(|(_, k)| (k.node.clone(), nets(&k.addrs)))
+            .map(|(_, k)| (k.node.clone(), k.nets()))
             .collect();
         let apart = |a: &HashSet<[u8; 5]>, b: &HashSet<[u8; 5]>| !a.is_empty() && !b.is_empty() && a.is_disjoint(b);
         for _ in 0..32 {
@@ -866,7 +887,7 @@ impl Engine {
             return;
         }
         self.tried = Some(Instant::now());
-        if let Ok(record) = mix::descriptor(&self.key, self.mixer.keys(), today, now_secs()) {
+        if let Ok(record) = mix::descriptor(&self.key, self.mixer.keys(), today, now_secs(), &self.own_nets) {
             if self.cmd.send(Cmd::MixPublish(record)).is_ok() {
                 // optimistic until the loop says the DHT refused it
                 self.published = Some((today, Instant::now()));
@@ -1213,7 +1234,7 @@ impl Mixnet {
             address, key, seed, mixer: Mixer::new(MixKeys::new(seed)), cmd: cmd.clone(), msg,
             control, file: file.to_string(), inbox: inbox.clone(), stats: Arc::new(Mutex::new(HashMap::new())),
             mixes: HashMap::new(), gateway, lost: None, serve_allowed: false, serve_on: true, published: None,
-            tried: None,
+            own_nets: Vec::new(), tried: None,
             app_cover: None, app_loops: true, cover_at: Instant::now(), queue: VecDeque::new(), held: Vec::new(),
             links: HashMap::new(), pending: HashMap::new(), opening: HashSet::new(), wait: HashMap::new(),
             fails: HashMap::new(), down: HashMap::new(), loops: HashSet::new(), loop_order: VecDeque::new(), loops_sent: 0, loops_back: 0, asked: None, delivered: VecDeque::new(), partial: HashMap::new(), moved_at: None, generation: 0,
@@ -1362,8 +1383,8 @@ mod tests {
         assert_eq!(got, vec![first, second]);
     }
 
-    fn mixes(of: &[&[&str]]) -> Vec<Vec<Multiaddr>> {
-        of.iter().map(|m| m.iter().map(|a| addr(a)).collect()).collect()
+    fn mixes(of: &[&[&str]]) -> Vec<HashSet<[u8; 5]>> {
+        of.iter().map(|m| nets(&m.iter().map(|a| addr(a)).collect::<Vec<_>>())).collect()
     }
 
     #[test]
@@ -1404,24 +1425,31 @@ mod tests {
     fn independent_networks_are_counted() {
         // two mixes behind one /16 count once; an IPv6 network counts by its first /32
         let m = mixes(&[&["/ip4/1.2.3.4/tcp/1"], &["/ip4/1.2.9.9/tcp/1"], &["/ip4/5.6.7.8/tcp/1"], &["/ip4/9.9.9.9/tcp/1"]]);
-        assert_eq!(networks(m.iter()), 3);
+        assert_eq!(networks(m.clone().into_iter()), 3);
         let m = mixes(&[&["/ip6/2001:db8::1/tcp/1"], &["/ip6/2001:db8:1::2/tcp/1"], &["/ip4/1.2.3.4/tcp/1"]]);
-        assert_eq!(networks(m.iter()), 2);
+        assert_eq!(networks(m.clone().into_iter()), 2);
         // home, VPN, loopback and relay addresses never count, so mixes known only by them count as nothing
         let m = mixes(&[&["/ip4/192.168.1.2/tcp/1", "/ip4/127.0.0.1/tcp/1"], &["/ip4/100.86.126.120/udp/1/quic-v1"],
                         &["/ip6/fd7a:115c:a1e0::1/tcp/1", "/ip6/::1/tcp/1"],
                         &["/ip4/66.179.209.233/udp/47291/quic-v1/p2p/12D3KooWSGeDbNKwygVgQ3dbF8TSTZnj5e1y7U2MA2tRGBWTULDv/p2p-circuit"]]);
-        assert_eq!(networks(m.iter()), 0);
+        assert_eq!(networks(m.clone().into_iter()), 0);
         // three mixes on one machine, as on a test bench: each has many addresses, but they share their network
         let m = mixes(&[&["/ip4/10.0.0.104/tcp/1", "/ip6/2601:644:8301:7240::9497/tcp/1", "/ip4/127.0.0.1/tcp/1"],
                         &["/ip6/2601:644:8301:7240::9497/udp/2/quic-v1", "/ip4/192.168.122.1/tcp/2"],
                         &["/ip6/2601:644:8301:7240:afce:5be9:e432:f53/tcp/3"]]);
-        assert_eq!(networks(m.iter()), 1);
+        assert_eq!(networks(m.clone().into_iter()), 1);
         // a mix linking two networks joins them: one operator may stand on both
         let m = mixes(&[&["/ip4/1.2.3.4/tcp/1"], &["/ip4/5.6.7.8/tcp/1"], &["/ip4/1.2.0.1/tcp/1", "/ip4/5.6.0.1/tcp/1"]]);
-        assert_eq!(networks(m.iter()), 1);
+        assert_eq!(networks(m.clone().into_iter()), 1);
         // a mix with no address cannot be claimed as independent
-        assert_eq!(networks(Vec::<Vec<Multiaddr>>::new().iter()), 0);
+        assert_eq!(networks(Vec::<HashSet<[u8; 5]>>::new().into_iter()), 0);
+        // a mix behind a router, known only by its relay circuit, counts by the network it claims
+        let mut m = mixes(&[&["/ip4/66.179.209.233/udp/1/quic-v1"], &["/ip4/66.179.209.233/udp/1/quic-v1/p2p/12D3KooWSGeDbNKwygVgQ3dbF8TSTZnj5e1y7U2MA2tRGBWTULDv/p2p-circuit"],
+                            &["/ip4/192.168.1.2/tcp/1"]]);
+        assert_eq!(networks(m.clone().into_iter()), 1);
+        m[1].insert([4, 0, 0, 96, 54]);
+        m[2].insert([4, 0, 0, 24, 7]);
+        assert_eq!(networks(m.into_iter()), 3);
     }
 
     #[test]
@@ -1466,7 +1494,7 @@ mod tests {
         for _ in 0..100 {
             let d = exp(mean);
             assert!(d > Duration::ZERO);
-            assert!(d < 10 * mean);
+            assert!(d < 40 * mean); // uncapped by design: 10x the mean turns up in about 1 run in 220
             if d < mean { short += 1; }
         }
         assert!(short > 35 && short < 90); // most waits are short: it is exponential, not uniform

@@ -88,8 +88,12 @@ pub const NO_UPNP: i32 = 16;
 pub const TEST_REACHABLE: i32 = 32;
 /// Tests only: serve as a mix node without being reachable directly, so a test bench behind NAT can carry the mixnet
 /// through relay circuits the way an outside phone would reach it, without claiming addresses nobody outside can
-/// dial. Real mix nodes are always reachable directly.
+/// dial.
 pub const TEST_MIX: i32 = 64;
+/// An always-on computer that helps (the desktop helper, never a phone): it serves as a mix node from behind a
+/// router too, reached through its relay spots and hole punched to direct links where the routers allow, and claims
+/// the network its peers see it on. Phones move and sleep, so they mix only for themselves.
+pub const COMPUTER: i32 = 256;
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
@@ -119,6 +123,10 @@ struct State {
     helping: bool,   // volunteers as a relay and DHT server (a computer, or a phone on Wi-Fi and charging)
     test_reachable: bool,
     test_mix: bool,
+    computer: bool,
+    /// the networks peers saw this node on (identify's observed address), with who said so: a node behind a
+    /// router learns its own network only this way
+    observed: HashMap<[u8; 5], HashSet<PeerId>>,
     interface_public: bool, // a public IPv4 address on the machine's own interface: a server, whatever AutoNAT says
     relays: HashSet<PeerId>,
     hosts: HashSet<PeerId>,
@@ -453,6 +461,7 @@ impl Node {
         let mut incoming = control.clone().accept(HAMMER).map_err(|e| format!("stream protocol: {e}"))?;
         let state = Arc::new(Mutex::new(State { nat: "unknown".into(), helping: flags & HELP != 0,
                                                    test_reachable: flags & TEST_REACHABLE != 0, test_mix: flags & TEST_MIX != 0,
+                                                   computer: flags & COMPUTER != 0,
                                                    ..Default::default() }));
         let (cmd, mut cmds) = mpsc::unbounded_channel::<Cmd>();
         let stop = Arc::new(AtomicBool::new(false));
@@ -669,7 +678,11 @@ impl Node {
                                 swarm.remove_listener(id);
                                 let _ = swarm.disconnect_peer_id(relay);
                             }
-                            st.lock().unwrap().relays.clear();
+                            {
+                                let mut s = st.lock().unwrap();
+                                s.relays.clear();
+                                s.observed.clear(); // the old network's address is no claim on this one
+                            }
                             failed.clear();  // a peer unreachable from the old network may answer on this one
                             // new spots in a second, once the old connections are gone
                             backoff = Duration::from_secs(1);
@@ -744,6 +757,8 @@ impl Node {
                                     }
                                 }
                             }
+                            // a mix behind a router without a relay spot cannot be reached: it stops serving
+                            relay_serves(&mut swarm, &st, &to_mix);
                             // a relay spot ends with its connection (the relay restarted, or this phone moved):
                             // take another soon
                             if retry.is_none() {
@@ -828,9 +843,20 @@ impl Node {
                             let relay_peer = info.protocols.contains(&HOP);
                             debug!("identify {peer_id}: kad {kad_peer} relay {relay_peer} addrs {:?}", info.listen_addrs);
                             let addrs: Vec<Multiaddr> = info.listen_addrs.into_iter().take(16).collect();
+                            let mut newly = false;
                             {
                                 let mut s = st.lock().unwrap();
                                 s.agents.insert(peer_id, info.agent_version);
+                                // where this peer saw us: from behind a router, the only word on our own network
+                                if worldwide(&info.observed_addr) {
+                                    if let Some(n) = mixnet::net_of(&info.observed_addr) {
+                                        let relay = s.relays.contains(&peer_id);
+                                        if s.observed.len() < 16 || s.observed.contains_key(&n) {
+                                            let by = s.observed.entry(n).or_default();
+                                            newly = by.len() < 8 && by.insert(peer_id) && (by.len() == 2 || relay);
+                                        }
+                                    }
+                                }
                                 let set = s.addrs.entry(peer_id).or_default();
                                 for a in &addrs { set.insert(a.clone()); }
                             }
@@ -855,6 +881,7 @@ impl Node {
                                 if let Some(a) = reach { hop.insert(peer_id, a); }
                             }
                             reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
+                            if newly { relay_serves(&mut swarm, &st, &to_mix); }
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Autonat(autonat::Event::StatusChanged { new, .. })) => {
                             let label = match &new {
@@ -889,6 +916,7 @@ impl Node {
                             st.lock().unwrap().relays.insert(relay_peer_id);
                             backoff = Duration::from_secs(1);
                             publish_addrs(&mut swarm, &signing);
+                            relay_serves(&mut swarm, &st, &to_mix); // the relay may vouch for our network now
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Kad(kad::Event::OutboundQueryProgressed { id, result, step, .. })) => match result {
                             kad::QueryResult::GetClosestPeers(r) => {
@@ -1121,15 +1149,30 @@ fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, mix: &mpsc
 /// left to the relay library, which serves whenever any external address is confirmed, relay circuits included: a
 /// phone behind NAT then offered relay spots nobody could reach, and nodes chained relay through relay.
 fn relay_serves(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, mix: &mpsc::UnboundedSender<mixnet::Event>) {
-    let (on, test_mix) = {
+    let spot = swarm.listeners().any(is_circuit);
+    let (on, behind, test_mix, claimed) = {
         let s = st.lock().unwrap();
-        (s.test_reachable || (s.worldwide && s.helping), s.test_mix)
+        (s.test_reachable || (s.worldwide && s.helping), s.computer && s.helping && spot, s.test_mix, claimed(&s))
     };
     if let Some(r) = swarm.behaviour_mut().relay.as_mut() {
         r.set_status(Some(if on { relay::Status::Enable } else { relay::Status::Disable }));
     }
-    // the mixnet serves as a mix node under the same condition, so it follows along
-    let _ = mix.send(mixnet::Event::Reach(on || test_mix));
+    // the mixnet serves as a mix node under the same condition, or from behind a router through a relay spot (an
+    // always-on computer only); then it claims the network peers see it on, having no public address to count by
+    let _ = mix.send(mixnet::Event::Nets(if on { Vec::new() } else { claimed }));
+    let _ = mix.send(mixnet::Event::Reach(on || behind || test_mix));
+}
+
+/// The networks this node may claim from behind a router: those at least two peers saw it on, or a relay that
+/// holds a spot for it (a reachable helper, already trusted with every packet through that spot), most often seen
+/// first. Any one other peer alone could make it claim any network.
+fn claimed(s: &State) -> Vec<[u8; 5]> {
+    let mut seen: Vec<(&[u8; 5], usize)> = s.observed.iter()
+        .filter(|(_, by)| by.len() >= 2 || by.iter().any(|p| s.relays.contains(p)))
+        .map(|(n, by)| (n, by.len()))
+        .collect();
+    seen.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    seen.into_iter().take(mix::NETS).map(|(n, _)| *n).collect()
 }
 
 /// Addresses for a peer arrived from the DHT: remember them, wake whoever waits, dial if this was a host lookup.

@@ -48,6 +48,19 @@ descriptor carries a signed publish time and is renewed every five minutes; one 
 used. A Sphinx
 node address is the 32-byte ed25519 public key; the PeerId follows from it, so a hop cannot be redirected.
 
+**Mixes behind routers.** Most volunteers cannot open a port on their router (UPnP is off on both the Xfinity and
+the Rogers gateways we tried, and so is incoming IPv6), and a mixnet of only those who can would never have many
+independent mixes. So an always-on computer that helps (the desktop helper, flag `COMPUTER`; never a phone, which
+moves and sleeps) serves as a mix node from behind a router too, as soon as it holds a relay spot on a reachable
+helper. Others reach it through that spot and the link is hole punched to a direct one where both routers allow it,
+as Hyphanet's nodes and our own phone hosts are reached. Having no public address to count by, it claims in its
+descriptor (version 3, signed) the networks at least two peers saw it on (identify's observed address); at most
+four. A claim is no weaker than the public addresses other mixes publish, which are their own word too. What it
+costs: until a link is punched through, its packets pass the relay, which sees their timing in and out of that
+mix (never their contents, every packet being the same size and layered). The relay is often itself a mix, so a
+mixnet whose mixes sit behind one relay gives that relay more to watch; more reachable helpers, each with relay
+spots, spread it.
+
 **Paths.** A client picks three distinct mix nodes. The first is its **gateway**, kept for weeks like a Tor guard so
 that a hostile node gets few chances to be first. The other two are chosen fresh for each packet. Mix nodes run by
 the same person cannot be told apart, so "three helpers" means three that *appear* independent; the app counts
@@ -154,7 +167,9 @@ song, it is gone from the network, and only the artist's own copy remains.
   one), messages in parts and back whole, parts that lie refused.
 - `peer/test/network.sh` step 7: three helpers carry a message between two clients, the answer and cover loops come
   back; step 8: a vote and a two-packet comment reach a host behind NAT through the mixnet and are taken, a host
-  reached by address is refused, a refusal comes back with its reason.
+  reached by address is refused, a refusal comes back with its reason; step 10: three computers behind "routers"
+  (no address anyone can dial, no test switch to serve) are the only mixes, reached through a relay that does not
+  mix, and a message and its answer go through them.
 - `peer/test/network.sh`: a mixnet of helper nodes on one machine; a phone-like node behind NAT publishes a hidden
   song; it is adopted by three helpers and a listener plays it from one, and no helper ever had a connection from the
   publisher except its gateway.
