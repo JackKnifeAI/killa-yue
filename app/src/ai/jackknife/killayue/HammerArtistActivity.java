@@ -106,7 +106,7 @@ public final class HammerArtistActivity extends Activity {
         body.addView(status);
         figures = Ui.row(this);
         figures.setBackground(new LuxFrame(14, 8));
-        int in = Ui.dp(this, 12);
+        int in = Ui.dp(this, 16);
         figures.setPadding(in, in, in, in);
         figureSongs = figure("SONGS");
         figurePlays = figure("PLAYS");
@@ -135,15 +135,15 @@ public final class HammerArtistActivity extends Activity {
     private LinearLayout plate() {
         LinearLayout p = Ui.column(this);
         p.setBackground(new LuxFrame(14, 8));
-        int in = Ui.dp(this, 14);
-        p.setPadding(in, in, in, in);
+        int in = Ui.dp(this, 24), down = Ui.dp(this, 18);  // clear of the rivets in the corners
+        p.setPadding(in, down, in, down);
         return p;
     }
     /** What to do here: one row, the main thing first. */
     private void actions() {
         LinearLayout row = Ui.row(this);
         if (own) {
-            action(row, "Edit my page", true, new Runnable() {
+            action(row, "Edit", true, new Runnable() {
                 public void run() { editor.setVisibility(editor.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); }
             });
         } else {
@@ -164,7 +164,10 @@ public final class HammerArtistActivity extends Activity {
         b.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { run.run(); }
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, primary ? 1.4f : 1f);
+        b.setSingleLine(true);
+        if (primary)
+            b.setTextSize(17);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, primary ? 1.7f : 1f);
         if (row.getChildCount() > 0)
             lp.leftMargin = Ui.dp(this, 8);
         row.addView(b, lp);
@@ -398,6 +401,10 @@ public final class HammerArtistActivity extends Activity {
             figureDownloads.setText(String.valueOf(downloads));
             figureNote.setText(own ? "Counted by this phone, the plays and downloads it served" : "As counted by this host");
         }
+        else {  // a host from before 1.8 can't say: show what is known, not blanks
+            ((View)figurePlays.getParent()).setVisibility(View.GONE);
+            ((View)figureDownloads.getParent()).setVisibility(View.GONE);
+        }
         figures.setVisibility(View.VISIBLE);
         if (own && counts != null)
             week(counts, selected);
@@ -445,8 +452,8 @@ public final class HammerArtistActivity extends Activity {
         LinearLayout row = Ui.row(me);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setBackground(new LuxFrame(14, 8));
-        int in = Ui.dp(me, 12);
-        row.setPadding(in, in, in, in);
+        int in = Ui.dp(me, 24), down = Ui.dp(me, 14);
+        row.setPadding(in, down, in, down);
         ImageView art = new ImageView(me);
         art.setScaleType(ImageView.ScaleType.CENTER_CROP);
         art.setBackground(Ui.box(me, Skin.PILL, 8));
