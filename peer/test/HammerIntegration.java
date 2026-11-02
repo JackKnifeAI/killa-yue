@@ -120,6 +120,19 @@ public final class HammerIntegration {
                   "public catalog excludes private songs");
             check(Hammer.catalog(privateCard, new Hammer.Job()).size() == 2,
                   "private circle sees authorized catalog");
+            String seenSong = Hammer.catalog(publicCard, new Hammer.Job()).get(0).id, circleSong = "";
+            for (Hammer.Song song : Hammer.catalog(privateCard, new Hammer.Job()))
+                if (!song.id.equals(seenSong))
+                    circleSong = song.id;
+            a.counted(seenSong, 0);
+            a.counted(seenSong, 1);
+            a.counted(seenSong, 1);
+            a.counted(circleSong, 0);
+            java.util.Map<String, long[]> counts = Hammer.allStats(publicCard, new Hammer.Job());
+            check(counts.size() == 1 && counts.get(seenSong)[0] == 1 && counts.get(seenSong)[1] == 2,
+                  "all counts at once match the public songs");
+            check(Hammer.allStats(privateCard, new Hammer.Job()).containsKey(circleSong),
+                  "a circle member sees the counts of circle songs");
             rejects(new Attempt() {
                 public void run() throws Exception {
                     Hammer.catalog(new Hammer.Card("127.0.0.1", first.port(), fingerprint, Hammer.random()),

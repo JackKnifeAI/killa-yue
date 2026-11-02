@@ -193,6 +193,16 @@ public final class HammerStore implements Hammer.Source {
             return n == null ? new long[] {0, 0} : n.clone();
         }
     }
+    @Override
+    public synchronized Map<String, long[]> allStats(String capability) throws Exception {
+        Map<String, long[]> out = new HashMap<String, long[]>();
+        for (Hammer.Song s : catalog(capability)) {
+            long[] n = counts().get(s.id);
+            if (n != null)
+                out.put(s.id, n.clone());
+        }
+        return out;
+    }
     public synchronized List<Hammer.Song> catalog(String capability) throws Exception {
         boolean privateAccess = member(capability);
         List<Hammer.Song> out = new ArrayList<Hammer.Song>();

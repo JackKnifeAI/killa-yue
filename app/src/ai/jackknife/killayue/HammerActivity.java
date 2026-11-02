@@ -1299,6 +1299,19 @@ public final class HammerActivity extends Activity {
                             return;
                         collect();
                         render();
+                        String album = getIntent().getStringExtra("album");  // an album tile on an artist page
+                        if (album != null) {
+                            for (List<AlbumHit> l : albumsByPeer.values())
+                                for (AlbumHit a : l)
+                                    try {
+                                        if (a.album.id().equals(album)) {
+                                            getIntent().removeExtra("album");
+                                            albumFilter = a;
+                                            render();
+                                        }
+                                    } catch (Exception badAlbum) {
+                                    }
+                        }
                         String wanted = getIntent().getStringExtra("song");
                         if (wanted != null) {
                             getIntent().removeExtra("song");

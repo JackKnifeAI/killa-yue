@@ -61,7 +61,15 @@
         </activity>
         <activity android:name=".BackstageActivity" android:exported="false"/>
         <activity android:name=".CommunityCountActivity" android:exported="false"/>
-        <activity android:name=".HammerArtistActivity" android:exported="false"/>
+        <activity android:name=".HammerArtistActivity" android:exported="true">
+            <!-- A shared artist page: killayue://a/<artist>?via=<a host that has it> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="killayue" android:host="a"/>
+            </intent-filter>
+        </activity>
         <activity android:name=".HammerActivity" android:exported="false"/>
         <service android:name=".HammerCodecService" android:exported="false" android:isolatedProcess="true" android:process=":hammercodec"/>
         <service android:name=".HammerService" android:exported="false"/>
