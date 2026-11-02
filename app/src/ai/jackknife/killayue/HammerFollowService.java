@@ -9,6 +9,8 @@ import java.util.*;
 /** Direct encrypted subscriptions, with a visible opt-in service and reconnect catch-up. */
 public final class HammerFollowService extends Service {
     static volatile String status = "Live Follow off";
+    /** An artist counts as "back" only after this long away, so a dropped connection never rings. */
+    static final long AWAY_MILLIS = 30 * 60 * 1000L;
     private final List<Watcher> watchers = new ArrayList<Watcher>();
     private final Handler main = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wake;
@@ -43,6 +45,8 @@ public final class HammerFollowService extends Service {
             "hammer-live", "HAMMER live connections", NotificationManager.IMPORTANCE_LOW));
         n.createNotificationChannel(new NotificationChannel(
             "hammer-releases", "New music from followed artists", NotificationManager.IMPORTANCE_HIGH));
+        n.createNotificationChannel(new NotificationChannel(
+            "hammer-online", "Followed artists online", NotificationManager.IMPORTANCE_DEFAULT));
         wake = ((PowerManager) getSystemService(POWER_SERVICE))
                    .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KillaYuE:HammerLive");
         wake.setReferenceCounted(false);
@@ -189,6 +193,8 @@ public final class HammerFollowService extends Service {
                             if (done || stopped)
                                 return;
                             delay = 2;
+                            if (!online)
+                                arrived(peer);
                             online = true;
                             received(Watcher.this, songs);
                             main.post(new Runnable() {
@@ -202,6 +208,7 @@ public final class HammerFollowService extends Service {
                 } catch (
                     Exception ignored) { /* Pins, invitations and private catalog data never enter logs. */
                 }
+                boolean left = online;
                 online = false;
                 main.post(new Runnable() {
                     public void run() {
@@ -210,6 +217,7 @@ public final class HammerFollowService extends Service {
                 });
                 if (done)
                     return;
+                away(peer, left);
                 try {
                     Thread.sleep(
                         delay * 1000L + java.util.concurrent.ThreadLocalRandom.current().nextInt(1000));
@@ -218,6 +226,49 @@ public final class HammerFollowService extends Service {
                 delay = Math.min(60, delay * 2);
             }
         }
+    }
+    /** Keeps the time an artist stopped answering, but only while this phone could have reached them. */
+    private void away(HammerStore.Peer peer, boolean left) {
+        SharedPreferences p = prefs(this);
+        String key = "away." + peer.card.pin;
+        if (!internet())
+            p.edit().remove(key).apply();
+        else if (!p.contains(key))
+            p.edit().putLong(key, System.currentTimeMillis()).apply();
+        if (left)
+            ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel("online." + peer.card.pin, 90);
+    }
+    private boolean internet() {
+        android.net.ConnectivityManager c =
+            (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        android.net.NetworkCapabilities now = c.getNetworkCapabilities(c.getActiveNetwork());
+        return now != null && now.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+    /** Rings once when a followed artist returns, while their songs can be played. */
+    private void arrived(HammerStore.Peer peer) {
+        SharedPreferences p = prefs(this);
+        String key = "away." + peer.card.pin;
+        long since = p.getLong(key, 0);
+        p.edit().remove(key).apply();
+        if (since == 0 || System.currentTimeMillis() - since < AWAY_MILLIS)
+            return;
+        PendingIntent open = PendingIntent.getActivity(this, peer.card.pin.hashCode(),
+            new Intent(this, HammerActivity.class)
+                .setData(android.net.Uri.parse("hammer-online:" + peer.card.pin))
+                .putExtra("refresh", true),
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification n = new Notification.Builder(this, "hammer-online")
+                             .setSmallIcon(android.R.drawable.ic_media_play)
+                             .setContentTitle(peer.card.isPrivate() ? "Someone in your private circle is online"
+                                                                    : peer.label + " is online")
+                             .setContentText("Their music can be played now")
+                             .setVisibility(Notification.VISIBILITY_PRIVATE)
+                             .setCategory(Notification.CATEGORY_SOCIAL)
+                             .setOnlyAlertOnce(true)
+                             .setAutoCancel(true)
+                             .setContentIntent(open)
+                             .build();
+        ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify("online." + peer.card.pin, 90, n);
     }
     private void community(Watcher watcher) throws Exception {
         SharedPreferences p = prefs(this); String artist = watcher.peer.card.pin;
@@ -304,6 +355,12 @@ public final class HammerFollowService extends Service {
         stopped = true;
         main.removeCallbacksAndMessages(null);
         stopWatchers();
+        // Nobody was watching from here on, so a later return can't be told from "there all along".
+        SharedPreferences.Editor forget = prefs(this).edit();
+        for (String key : prefs(this).getAll().keySet())
+            if (key.startsWith("away."))
+                forget.remove(key);
+        forget.apply();
         if (wake != null && wake.isHeld())
             wake.release();
         status = "Live Follow off";
