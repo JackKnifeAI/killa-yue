@@ -199,6 +199,63 @@ public final class HammerPublic {
         File f = object(id, ".album");
         Hammer.require(!f.exists() || f.delete(), "Could not withdraw album");
     }
+    /** Puts an artist's station here, their own or one carried for them; a newer revision replaces the older. */
+    public synchronized void putStation(HammerStation s) throws Exception {
+        s.validate();
+        File f = object(s.id(), ".station");
+        if (f.isFile()) {
+            HammerStation old = readStation(f);
+            Hammer.require(s.revision > old.revision, "Station update must be newer");
+        } else {
+            int count = 0;
+            File[] files = root.listFiles();
+            if (files != null)
+                for (File x : files)
+                    if (x.getName().endsWith(".station"))
+                        count++;
+            Hammer.require(count < 64, "This host holds at most 64 stations");
+        }
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        s.write(new DataOutputStream(b));
+        HammerStore.atomic(f, b.toByteArray());
+    }
+    private static HammerStation readStation(File f) throws Exception {
+        return HammerStation.read(new DataInputStream(new ByteArrayInputStream(HammerStore.read(f, 1 << 18))));
+    }
+    /** This artist's station as stored here, on air or not, or null. */
+    public synchronized HammerStation station(String artist) throws Exception {
+        File f = object(artist, ".station");
+        return f.isFile() ? readStation(f) : null;
+    }
+    /** Stations on air whose every song this caller can reach here: a listener never meets a gap in the music. */
+    public List<HammerStation> stations(String capability) throws Exception {
+        Map<String, String> visible = new HashMap<String, String>();
+        for (Hammer.Song s : store.catalog(capability))
+            visible.put(s.id, s.key);
+        List<HammerStation> out = new ArrayList<HammerStation>();
+        File[] files;
+        synchronized (this) {
+            files = root.listFiles();
+        }
+        if (files == null)
+            return out;
+        Arrays.sort(files);
+        long now = System.currentTimeMillis();
+        for (File f : files) {
+            if (!f.getName().endsWith(".station") || out.size() >= 64)
+                continue;
+            try {
+                HammerStation s = readStation(f);
+                boolean all = s.live(now);
+                for (String id : s.songs)
+                    all &= s.key.equals(visible.get(id));
+                if (all)
+                    out.add(s);
+            } catch (Exception damaged) {
+            }
+        }
+        return out;
+    }
     /** Albums whose songs this caller can see, each showing only the visible songs of its signer. */
     public List<HammerAlbum> albums(String capability) throws Exception {
         Map<String, String> visible = new HashMap<String, String>();  // song → publisher key

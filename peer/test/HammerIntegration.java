@@ -128,6 +128,53 @@ public final class HammerIntegration {
             a.counted(seenSong, 1);
             a.counted(seenSong, 1);
             a.counted(circleSong, 0);
+            KeyPairGenerator stationKeys = KeyPairGenerator.getInstance("EC");
+            stationKeys.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            KeyPair stationKey = stationKeys.generateKeyPair();
+            final HammerStation station = new HammerStation();
+            station.title = "Test radio";
+            station.songs.add(Hammer.hash(new byte[] {1}));
+            station.songs.add(Hammer.hash(new byte[] {2}));
+            station.lengths.add(1000);
+            station.lengths.add(3000);
+            station.started = System.currentTimeMillis() - 60000;
+            station.ends = station.started + 120000;
+            station.revision = 5;
+            station.sign(stationKey);
+            long begun = station.started;
+            check(station.at(begun + 500).index == 0 && station.at(begun + 500).offset == 500, "a station starts at its first song");
+            check(station.at(begun + 1500).index == 1 && station.at(begun + 1500).offset == 500, "a station moves on by the clock");
+            check(station.at(begun + 4500).index == 0 && station.at(begun + 4500).offset == 500, "a station loops");
+            check(station.at(begun - 1) == null && station.at(station.ends) == null, "a station is off air outside its hours");
+            station.note = "changed after signing";
+            rejects(new Attempt() {
+                public void run() throws Exception { station.validate(); }
+            }, "a changed station is refused");
+            station.note = "";
+            a.publicObjects.putStation(station);
+            check(Hammer.stations(publicCard, new Hammer.Job()).isEmpty(), "a station with songs this host lacks is not offered");
+            final HammerStation real = new HammerStation();
+            real.title = "On air";
+            for (Hammer.Song song : Hammer.catalog(publicCard, new Hammer.Job())) {
+                real.songs.add(song.id);
+                real.lengths.add(2000);
+            }
+            real.started = System.currentTimeMillis() - 1000;
+            real.ends = real.started + 120000;
+            real.revision = 1;
+            real.sign(key);
+            a.publicObjects.putStation(real);
+            check(Hammer.stations(publicCard, new Hammer.Job()).size() == 1
+                      && Hammer.stations(publicCard, new Hammer.Job()).get(0).id().equals(real.id()),
+                  "a station on air is offered and verified");
+            rejects(new Attempt() {
+                public void run() throws Exception { a.publicObjects.putStation(real); }
+            }, "a station can't be replaced by the same revision");
+            real.ends = real.started + 500;
+            real.revision = 2;
+            real.sign(key);
+            a.publicObjects.putStation(real);
+            check(Hammer.stations(publicCard, new Hammer.Job()).isEmpty(), "a stopped station is off air everywhere");
             java.util.Map<String, long[]> counts = Hammer.allStats(publicCard, new Hammer.Job());
             check(counts.size() == 1 && counts.get(seenSong)[0] == 1 && counts.get(seenSong)[1] == 2,
                   "all counts at once match the public songs");

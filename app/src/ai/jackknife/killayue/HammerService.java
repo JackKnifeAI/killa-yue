@@ -18,6 +18,138 @@ import java.util.*;
 public final class HammerService extends Service {
     static volatile HammerService instance;
     static volatile String status = "Hosting off", playback = "Stopped";
+    /** A station this phone is tuned to: the music plays where the station's clock says, and moves on by itself. */
+    private static final class Tuned {
+        volatile HammerStation station;
+        final Map<String, Hammer.Song> songs;
+        final Map<String, List<Hammer.Card>> hosts;
+        volatile boolean gone;
+        int failures;
+        Tuned(HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts) {
+            station = s;
+            this.songs = songs;
+            this.hosts = hosts;
+        }
+    }
+    private static volatile Tuned tuned;
+    /** The song the tuned station is on, for the player screen. Null when not tuned. */
+    static volatile String stationSong;
+    static boolean onStation() { return tuned != null; }
+    static HammerStation station() {
+        Tuned t = tuned;
+        return t == null ? null : t.station;
+    }
+    static void tune(Context c, HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts)
+        throws Exception {
+        Tuned t = new Tuned(s, songs, hosts);
+        tuned = t;
+        joinStation(c, t, System.currentTimeMillis(), -1);
+    }
+    /** Plays what the station has on at {@code now}, or the song at {@code index} from its start. */
+    private static void joinStation(Context c, Tuned t, long now, int index) throws Exception {
+        HammerStation.Spot at = t.station.at(now);
+        if (at == null || t.gone) {
+            leaveStation("The station has gone off air");
+            return;
+        }
+        int pick = index >= 0 ? index : at.index, offset = index >= 0 ? 0 : at.offset;
+        for (int i = 0; i < t.station.songs.size(); i++) {
+            int n = (pick + i) % t.station.songs.size();
+            Hammer.Song song = t.songs.get(t.station.songs.get(n));
+            if (song != null) {
+                stationSong = song.id;
+                play(c, t.hosts.get(song.id), song, HammerBuffer.AUTO, i == 0 ? offset : 0, true);
+                return;
+            }
+        }
+        leaveStation("This station's songs can't be reached right now");
+    }
+    private static void leaveStation(String why) {
+        tuned = null;
+        stationSong = null;
+        HammerService s = instance;
+        if (s != null) {
+            s.releasePlayer();
+            playback = why;
+            s.update();
+        }
+    }
+    /** Where the tuned station is in this song now, or -1 when it has moved on. */
+    private static int stationOffset(String song) {
+        Tuned t = tuned;
+        HammerStation.Spot at = t == null ? null : t.station.at(System.currentTimeMillis());
+        return at != null && at.song.equals(song) ? at.offset : -1;
+    }
+    /** A song ended by itself. A clock a little behind the music must not play its last moments again. */
+    private void nextOnStation(Tuned t, String finished) throws Exception {
+        long soon = System.currentTimeMillis() + 2000;
+        HammerStation.Spot at = t.station.at(soon);
+        if (at != null && at.song.equals(finished) && t.station.songs.size() > 1)
+            joinStation(this, t, soon, (at.index + 1) % t.station.songs.size());
+        else
+            joinStation(this, t, soon - 2000, -1);
+        refreshStation(t);
+    }
+    /** Between songs, ask a host for the station again: a new shout-out, or that it has gone off air. */
+    private void refreshStation(final Tuned t) {
+        final String song = stationSong;
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    String id = t.station.id();
+                    for (Hammer.Card host : t.hosts.get(song)) {
+                        try {
+                            boolean found = false;
+                            for (HammerStation s : Hammer.stations(host, new Hammer.Job()))
+                                if (s.id().equals(id)) {
+                                    found = true;
+                                    if (s.revision > t.station.revision)
+                                        t.station = s;
+                                }
+                            t.gone = !found;
+                            return;
+                        } catch (Exception tryAnother) {
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }, "hammer-station").start();
+    }
+    /** The clock said a moment, and buffering took some of it: catch up once if the music fell well behind. */
+    private void catchUp(final int generation, final String song) {
+        main.postDelayed(new Runnable() {
+            public void run() {
+                if (generation != playerGeneration || !playerReady || player == null)
+                    return;
+                int wanted = stationOffset(song);
+                try {
+                    if (wanted >= 0 && player.isPlaying() && Math.abs(wanted - player.getCurrentPosition()) > 2500)
+                        player.seekTo(wanted);
+                } catch (Exception ignored) {
+                }
+            }
+        }, 6000);
+    }
+    private void stationFailed() {
+        final Tuned t = tuned;
+        if (t == null)
+            return;
+        if (++t.failures > 5) {
+            leaveStation("Lost the station. Tune in again from Discover.");
+            return;
+        }
+        main.postDelayed(new Runnable() {
+            public void run() {
+                if (tuned == t)
+                    try {
+                        joinStation(HammerService.this, t, System.currentTimeMillis(), -1);
+                    } catch (Exception e) {
+                        leaveStation("Lost the station. Tune in again from Discover.");
+                    }
+            }
+        }, 3000);
+    }
     static volatile boolean starting;
     private volatile Hammer.Server host;
     private HammerNearby.Announcement announcement;
@@ -81,6 +213,8 @@ public final class HammerService extends Service {
         }
     }
     static void stopPlayback() {
+        tuned = null;
+        stationSong = null;
         HammerService s = instance;
         if (s != null) {
             s.releasePlayer();
@@ -116,6 +250,9 @@ public final class HammerService extends Service {
             if (s.player.isPlaying()) {
                 s.player.pause();
                 playback = "Paused";
+            } else if (tuned != null) {
+                joinStation(s, tuned, System.currentTimeMillis(), -1);  // radio doesn't wait: back to what's on now
+                return;
             } else if (s.requestFocus()) {
                 s.player.start();
                 playback = "Playing";
@@ -128,6 +265,14 @@ public final class HammerService extends Service {
         play(c, peers, song, mode, 0);
     }
     static void play(Context c, List<Hammer.Card> peers, Hammer.Song song, int mode, int startAt) throws Exception {
+        play(c, peers, song, mode, startAt, false);
+    }
+    private static void play(Context c, List<Hammer.Card> peers, Hammer.Song song, int mode, int startAt, boolean station)
+        throws Exception {
+        if (!station) {  // choosing a song leaves the station
+            tuned = null;
+            stationSong = null;
+        }
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         song.write(new DataOutputStream(b));
         ArrayList<String> cards = new ArrayList<String>();
@@ -346,10 +491,16 @@ public final class HammerService extends Service {
                 if (generation != playerGeneration)
                     return;
                 playerReady = true;
-                if (startAt > 0) mp.seekTo(Math.min(startAt, Math.max(0, mp.getDuration() - 1)));
+                int live = stationOffset(song.id);
+                int from = live >= 0 ? live : startAt;
+                if (from > 0) mp.seekTo(Math.min(from, Math.max(0, mp.getDuration() - 1)));
                 if (requestFocus()) {
                     mp.start();
                     playback = "Playing: " + song.title;
+                    if (tuned != null) {
+                        tuned.failures = 0;
+                        catchUp(generation, song.id);
+                    }
                 } else
                     playback = "Audio focus unavailable — tap Play";
                 update();
@@ -372,6 +523,7 @@ public final class HammerService extends Service {
                     releasePlayer();
                     playback = "Stream interrupted. Open the song and Retry stream.";
                     update();
+                    stationFailed();
                 }
                 return true;
             }
@@ -382,6 +534,13 @@ public final class HammerService extends Service {
                     releasePlayer();
                     playback = "Finished: " + song.title;
                     update();
+                    Tuned t = tuned;
+                    if (t != null)
+                        try {
+                            nextOnStation(t, song.id);
+                        } catch (Exception e) {
+                            stationFailed();
+                        }
                 }
             }
         });

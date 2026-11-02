@@ -53,6 +53,17 @@ public final class HammerActivity extends Activity {
             album = a;
         }
     }
+    private static final class StationHit {
+        final HammerStore.Peer peer;
+        final HammerStation station;
+        StationHit(HammerStore.Peer p, HammerStation s) {
+            peer = p;
+            station = s;
+        }
+    }
+    /** Each peer's stations on air, kept like its songs. */
+    private static final Map<String, List<StationHit>> stationsByPeer =
+        new java.util.concurrent.ConcurrentHashMap<String, List<StationHit>>();
     /** Each peer's albums and playlists, kept like its songs. */
     private static final Map<String, List<AlbumHit>> albumsByPeer =
         new java.util.concurrent.ConcurrentHashMap<String, List<AlbumHit>>();
@@ -494,7 +505,16 @@ public final class HammerActivity extends Activity {
                     deck.invalidate();
                 }
                 // like a radio: when a song ends by itself, the next one in Discover plays
-                if (playing != null && HammerService.playback.startsWith("Finished") && !userStopped &&
+                String onAir = HammerService.stationSong;
+                if (onAir != null && (playing == null || !playing.song.id.equals(onAir)))
+                    for (Hit h : hits)
+                        if (h.song.id.equals(onAir)) {  // the station moved on: the player follows it
+                            playing = h;
+                            deck.cover = null;
+                            showVotes();
+                            break;
+                        }
+                if (onAir == null && playing != null && HammerService.playback.startsWith("Finished") && !userStopped &&
                     !playing.song.id.equals(advancedFor)) {
                     advancedFor = playing.song.id;
                     skip(1);
@@ -676,6 +696,10 @@ public final class HammerActivity extends Activity {
     }
     /** Plays the song before or after this one in Discover, as listed now. */
     private void skip(int by) {
+        if (HammerService.onStation()) {
+            Ui.toast(this, "Radio: everyone hears the same song. Tap a song to leave the station.");
+            return;
+        }
         if (shown.isEmpty())
             return;
         int at = -1;
@@ -1240,6 +1264,12 @@ public final class HammerActivity extends Activity {
                                                 albums.add(new AlbumHit(via, a));
                                         } catch (Exception olderHost) {
                                         }
+                                        List<StationHit> stations = new ArrayList<StationHit>();
+                                        try {
+                                            for (HammerStation s : Hammer.stations(card, one))
+                                                stations.add(new StationHit(via, s));
+                                        } catch (Exception olderHost) {
+                                        }
                                         if (!card.isPrivate())
                                             try {
                                                 List<HammerPresence> hints = Hammer.directory(card, one);
@@ -1264,6 +1294,7 @@ public final class HammerActivity extends Activity {
                                         songsByPeer.put(key, songs);
                                         artistsByPeer.put(key, artists);
                                         albumsByPeer.put(key, albums);
+                                        stationsByPeer.put(key, stations);
                                         lastSeen.put(key, System.currentTimeMillis());
                                         worked(card);
                                         answered.incrementAndGet();
@@ -1299,6 +1330,17 @@ public final class HammerActivity extends Activity {
                             return;
                         collect();
                         render();
+                        String tune = getIntent().getStringExtra("tune");  // Tune in on an artist page
+                        if (tune != null)
+                            for (List<StationHit> l : stationsByPeer.values())
+                                for (StationHit s : l)
+                                    try {
+                                        if (s.station.id().equals(tune) && getIntent().hasExtra("tune")) {
+                                            getIntent().removeExtra("tune");
+                                            tuneIn(s);
+                                        }
+                                    } catch (Exception badStation) {
+                                    }
                         String album = getIntent().getStringExtra("album");  // an album tile on an artist page
                         if (album != null) {
                             for (List<AlbumHit> l : albumsByPeer.values())
@@ -1343,6 +1385,7 @@ public final class HammerActivity extends Activity {
         String q = query.getText().toString();
         int count = 0;
         if (artistFilter == null && albumFilter == null) {
+            onAir();
             LinearLayout strip = Ui.row(this);
             strip.setGravity(android.view.Gravity.TOP);
             for (final ProfileHit profile : profiles.values())
@@ -1478,6 +1521,68 @@ public final class HammerActivity extends Activity {
              : (n == null ? -1 : n[1]);
     }
     /** An album as a framed cover with its title; tap to open it. */
+    /** On air, at the top of Discover: each station once, with the song it has on now. */
+    private void onAir() {
+        Set<String> seen = new HashSet<String>();
+        long now = System.currentTimeMillis();
+        for (List<StationHit> list : stationsByPeer.values())
+            for (final StationHit s : list)
+                try {
+                    if (!s.station.live(now) || !seen.add(s.station.id()))
+                        continue;
+                    if (seen.size() == 1)
+                        results.addView(heading("On air"));
+                    LinearLayout row = Ui.row(this);
+                    row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    row.setBackground(new LuxFrame(14, 8));
+                    int across = Ui.dp(this, 24), down = Ui.dp(this, 14);
+                    row.setPadding(across, down, across, down);
+                    LinearLayout words = Ui.column(this);
+                    TextView t = Ui.text(this, "● " + s.station.title, Skin.ACCENT, 16);
+                    t.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+                    t.setSingleLine(true);
+                    t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    words.addView(t);
+                    String title = "";
+                    HammerStation.Spot at = s.station.at(now);
+                    for (Hit h : hits)
+                        if (at != null && h.song.id.equals(at.song))
+                            title = h.song.title;
+                    TextView n = Ui.text(this, artistName(s.station.key) + (title.isEmpty() ? "" : " · " + title), Skin.DIM, 13);
+                    n.setSingleLine(true);
+                    n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    words.addView(n);
+                    row.addView(words, Ui.weight());
+                    Button tune = Ui.chip(this, "Tune in");
+                    tune.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) { tuneIn(s); }
+                    });
+                    row.addView(tune);
+                    results.addView(row, Ui.gap(this, 8));
+                } catch (Exception badStation) {
+                }
+    }
+    private void tuneIn(StationHit s) {
+        Map<String, Hammer.Song> songs = new HashMap<String, Hammer.Song>();
+        Map<String, List<Hammer.Card>> routes = new HashMap<String, List<Hammer.Card>>();
+        for (Hit h : hits)
+            if (h.song.key.equals(s.station.key) && s.station.songs.contains(h.song.id) && !songs.containsKey(h.song.id)) {
+                songs.put(h.song.id, h.song);
+                routes.put(h.song.id, hosts(h));
+            }
+        if (songs.isEmpty()) {
+            Ui.toast(this, "This station's songs are still loading");
+            return;
+        }
+        userStopped = false;
+        playing = null;
+        try {
+            HammerService.tune(this, s.station, songs, routes);
+            Ui.toast(this, "Tuning in to " + s.station.title);
+        } catch (Exception e) {
+            Ui.toast(this, "Could not tune in");
+        }
+    }
     private View albumTile(final AlbumHit a) {
         LinearLayout t = Ui.column(this);
         t.setPadding(0, 0, Ui.dp(this, 14), 0);

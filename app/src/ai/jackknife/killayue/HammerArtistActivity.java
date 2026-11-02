@@ -22,7 +22,9 @@ public final class HammerArtistActivity extends Activity {
     private LinearLayout body, songs, editor;
     private EditText name, bio, tags;
     private TextView status, shownName, shownTags, shownBio, figureSongs, figurePlays, figureDownloads, figureNote;
-    private LinearLayout figures, about;
+    private LinearLayout figures, about, onAir;
+    private HammerStation station;
+    private List<Hammer.Song> titles = new ArrayList<Hammer.Song>();
     private Button followButton;
     private int paintings, coversAsked;
     private ImageView portrait;
@@ -81,6 +83,8 @@ public final class HammerArtistActivity extends Activity {
         shownBio.setLineSpacing(0, 1.15f);
         about.addView(shownBio);
         body.addView(about, Ui.gap(this, 14));
+        onAir = Ui.column(this);
+        body.addView(onAir);
         songs = Ui.column(this);
         body.addView(songs);
         load();
@@ -336,6 +340,15 @@ public final class HammerArtistActivity extends Activity {
                             albums.add(a);
                 } catch (Exception olderHostOrNone) {
                 }
+                try {
+                    if (own)
+                        station = store.publicObjects.station(artist);
+                    else
+                        for (HammerStation s : Hammer.stations(peer, job))
+                            if (s.id().equals(artist))
+                                station = s;
+                } catch (Exception olderHostOrNone) {
+                }
                 final HammerProfile p = profile;
                 final Bitmap avatar;
                 if (p != null && !p.image.isEmpty()) {
@@ -406,6 +419,8 @@ public final class HammerArtistActivity extends Activity {
             ((View)figureDownloads.getParent()).setVisibility(View.GONE);
         }
         figures.setVisibility(View.VISIBLE);
+        titles = selected;
+        showStation();
         if (own && counts != null)
             week(counts, selected);
         if (!albums.isEmpty())
@@ -420,6 +435,146 @@ public final class HammerArtistActivity extends Activity {
             songs.addView(heading(own ? "OTHER ARTISTS' SONGS YOU HOST" : "ALSO HOSTING"));
             songList(songs, carried, counts, 0);
         }
+    }
+    /** The Now of the page: on air with what's playing, or for the artist, the way on air. */
+    private void showStation() {
+        onAir.removeAllViews();
+        long now = System.currentTimeMillis();
+        boolean live = station != null && station.live(now);
+        if (!live && !own)
+            return;
+        onAir.addView(heading(live ? "● ON AIR" : "YOUR STATION"));
+        LinearLayout card = plate();
+        if (live) {
+            TextView t = Ui.text(this, station.title, Skin.ACCENT, 18);
+            t.setTypeface(Skin.text(), Typeface.BOLD);
+            card.addView(t);
+            HammerStation.Spot at = station.at(now);
+            for (Hammer.Song s : titles)
+                if (at != null && s.id.equals(at.song))
+                    card.addView(Ui.text(this, "Now: " + s.title, Skin.TEXT, 14), Ui.gap(this, 4));
+            if (!station.note.isEmpty())
+                card.addView(Ui.text(this, "“" + station.note + "”", Skin.TEXT, 14), Ui.gap(this, 6));
+            LinearLayout row = Ui.row(this);
+            if (own) {
+                action(row, "Say something", false, new Runnable() {
+                    public void run() { if (ready()) shoutOut(); }
+                });
+                action(row, "Go off air", false, new Runnable() {
+                    public void run() { if (ready()) stopStation(); }
+                });
+            } else
+                action(row, "Tune in", true, new Runnable() {
+                    public void run() {
+                        try {
+                            startActivity(new Intent(HammerArtistActivity.this, HammerActivity.class)
+                                              .putExtra("browse_peer", peer.encode())
+                                              .putExtra("tune", station.id())
+                                              .putExtra("refresh", true));
+                        } catch (Exception unreadable) {
+                        }
+                    }
+                });
+            card.addView(row, Ui.gap(this, 12));
+        } else {
+            card.addView(Ui.text(this, "Play your shared songs in order, for everyone at the same moment, like radio. "
+                                           + "It keeps going while your phone sleeps, as long as a host has your songs.",
+                                 Skin.TEXT, 14));
+            LinearLayout row = Ui.row(this);
+            action(row, "Go on air", true, new Runnable() {
+                public void run() { if (ready()) goOnAir(); }
+            });
+            card.addView(row, Ui.gap(this, 12));
+        }
+        onAir.addView(card);
+    }
+    private void goOnAir() {
+        LinearLayout v = Ui.column(this);
+        final EditText title = Ui.edit(this, "Station name", 1);
+        title.setText(shownName.getText().toString().trim() + " Radio");
+        v.addView(title);
+        final EditText note = Ui.edit(this, "A few words for your listeners (optional)", 2);
+        v.addView(note, Ui.gap(this, 8));
+        final CheckBox mix = new CheckBox(this);
+        mix.setText("Shuffle the songs");
+        mix.setTextColor(Skin.TEXT);
+        v.addView(mix, Ui.gap(this, 8));
+        new Lux.Builder(this).setTitle("Go on air").setView(v)
+            .setPositiveButton("Go on air", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    startStation(title.getText().toString().trim(), note.getText().toString().trim(), mix.isChecked());
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+    private void startStation(final String title, final String note, final boolean shuffle) {
+        work("Going on air", new Work() {
+            public void run() throws Exception {
+                Hammer.require(profile != null, "Publish your page first");
+                Hammer.require(!title.isEmpty(), "Give your station a name");
+                Hammer.require(note.length() <= HammerStation.NOTE, "Keep your words to 140 letters");
+                List<HammerStore.Hosted> mine = new ArrayList<HammerStore.Hosted>();
+                String key = Hammer.publicKey(HammerAndroid.identity().getPublic());
+                for (HammerStore.Hosted h : store.hosted())
+                    if (h.publicSong && h.song.key.equals(key))
+                        mine.add(h);
+                Hammer.require(!mine.isEmpty(), "Share a song publicly first, from the Library");
+                if (shuffle)
+                    Collections.shuffle(mine);
+                HammerStation s = new HammerStation();
+                s.title = title;
+                s.note = note;
+                for (HammerStore.Hosted h : mine)
+                    if (s.songs.size() < HammerStation.SONGS) {
+                        s.songs.add(h.song.id);
+                        s.lengths.add((int)(HammerMedia.codec.frames(h.file) * 1000 / HammerMedia.RATE));
+                    }
+                s.started = System.currentTimeMillis();
+                s.ends = s.started + HammerStation.LONGEST;
+                sendStation(s);
+            }
+        });
+    }
+    private void sendStation(HammerStation s) throws Exception {
+        long now = System.currentTimeMillis();
+        s.revision = Math.max(now, station == null ? 1 : station.revision + 1);
+        s.sign(HammerAndroid.identity());
+        store.publicObjects.putStation(s);
+        station = s;
+        runOnUiThread(new Runnable() {
+            public void run() {
+                if (closed)
+                    return;
+                showStation();
+                HammerService.startHost(HammerArtistActivity.this);
+            }
+        });
+    }
+    private void shoutOut() {
+        final EditText words = Ui.edit(this, "e.g. for everyone up late tonight", 2);
+        words.setText(station.note);
+        new Lux.Builder(this).setTitle("Say something").setMessage("Listeners see this from the next song.").setView(words)
+            .setPositiveButton("Send", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    final String text = words.getText().toString().trim();
+                    work("Sending your words", new Work() {
+                        public void run() throws Exception {
+                            Hammer.require(text.length() <= HammerStation.NOTE, "Keep your words to 140 letters");
+                            station.note = text;
+                            sendStation(station);
+                        }
+                    });
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+    private void stopStation() {
+        work("Going off air", new Work() {
+            public void run() throws Exception {
+                station.ends = Math.max(station.started + 1, System.currentTimeMillis());
+                sendStation(station);
+            }
+        });
     }
     private void showIdentity(String shown, String words, String styles) {
         shownName.setText(shown.isEmpty() && own ? "Unnamed artist" : shown);

@@ -17,7 +17,7 @@ public final class Hammer {
     public static final long MAX_AUDIO = 1024L * 1024 * 1024;
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
-                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23;
+                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23, STATIONS = 24;
     /** The most songs one STATS_ALL answers for. */
     static final int STATS_MAX = 4096;
     public static String hex(byte[] bytes) {
@@ -649,6 +649,14 @@ public final class Hammer {
                         out.writeLong(n[0]);
                         out.writeLong(n[1]);
                     }
+                } else if (op == STATIONS) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Stations unavailable");
+                    List<HammerStation> stations = objects.stations(token);
+                    out.writeInt(MAGIC);
+                    out.writeInt(stations.size());
+                    for (HammerStation on : stations)
+                        on.write(out);
                 } else if (op == STATS_ALL) {
                     Map<String, long[]> all = source.allStats(token);
                     out.writeInt(MAGIC);
@@ -888,6 +896,18 @@ public final class Hammer {
             List<HammerAlbum> out = new ArrayList<HammerAlbum>();
             for (int i = 0; i < n; i++)
                 out.add(HammerAlbum.read(c.in));
+            return out;
+        }
+    }
+    /** The stations on air at this host. Hosts before 1.8 refuse. */
+    public static List<HammerStation> stations(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, STATIONS, job)) {
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= 64, "Invalid station count");
+            List<HammerStation> out = new ArrayList<HammerStation>();
+            for (int i = 0; i < n; i++)
+                out.add(HammerStation.read(c.in));
             return out;
         }
     }

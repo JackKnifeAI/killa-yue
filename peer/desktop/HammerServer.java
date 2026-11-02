@@ -301,6 +301,8 @@ public final class HammerServer {
             + "  albums                                Publish the albums named in the songs' own tags\n"
             + "  album TITLE SONG_HASH...              Publish an album or playlist of hosted songs, in order\n"
             + "  stats                                 Plays and downloads served per song\n"
+            + "  station TITLE [NOTE]                  Go on air with this artist's public songs, looping\n"
+            + "  station-stop                          Go off air\n"
             + "  profile NAME BIO TAGS                  Publish signed public artist metadata\n"
             + "  withdraw-profile                      Remove this host public artist profile\n"
             + "  join CARD                             Join a public entry peer and announce this host\n"
@@ -440,6 +442,33 @@ public final class HammerServer {
             al.sign(identity);
             store.publicObjects.putAlbum(al);
             System.out.println("Album published: " + al.title + " (" + al.songs.size() + " songs)");
+        } else if (op.equals("station")) {
+            HammerStation s = new HammerStation();
+            s.title = a.get(1);
+            s.note = a.size() > 2 ? a.get(2) : "";
+            String key = Hammer.publicKey(identity.getPublic());
+            for (HammerStore.Hosted h : store.hosted())
+                if (h.publicSong && h.song.key.equals(key) && s.songs.size() < HammerStation.SONGS) {
+                    s.songs.add(h.song.id);
+                    s.lengths.add((int)(HammerMedia.codec.frames(h.file) * 1000 / HammerMedia.RATE));
+                }
+            Hammer.require(!s.songs.isEmpty(), "No public songs of this artist to play");
+            s.started = System.currentTimeMillis();
+            s.ends = s.started + HammerStation.LONGEST;
+            HammerStation old = store.publicObjects.station(Hammer.hash(identity.getPublic().getEncoded()));
+            s.revision = Math.max(s.started, old == null ? 1 : old.revision + 1);
+            s.sign(identity);
+            store.publicObjects.putStation(s);
+            System.out.println("On air: " + s.title + " (" + s.songs.size() + " songs)");
+        } else if (op.equals("station-stop")) {
+            HammerStation s = store.publicObjects.station(Hammer.hash(identity.getPublic().getEncoded()));
+            Hammer.require(s != null, "No station here");
+            long now = System.currentTimeMillis();
+            s.ends = Math.max(s.started + 1, now);
+            s.revision = Math.max(s.revision + 1, now);
+            s.sign(identity);
+            store.publicObjects.putStation(s);
+            System.out.println("Off air");
         } else if (op.equals("stats")) {
             for (HammerStore.Hosted h : store.hosted()) {
                 long[] n = store.stats(h.song.id, h.publicSong ? "" : store.token());
