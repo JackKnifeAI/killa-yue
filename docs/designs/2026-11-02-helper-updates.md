@@ -21,7 +21,7 @@ stations, holding circle messages), goes into that one program.
 
 ## The signed manifest
 
-Every release publishes `update.json` beside the zip:
+Every release publishes `update.txt` beside the zip, plain lines of `name=value`, the last being the signature over the rest:
 
 | Field | Meaning |
 |---|---|
@@ -29,17 +29,18 @@ Every release publishes `update.json` beside the zip:
 | `version` | `1.8.1` |
 | `zip_sha256`, `zip_size` | The helper zip, per platform |
 | `urgent` | Spread over one hour, not 24, for a security fix |
-| `published` | Signing time, shown in the helper's status |
+| `published` | Signing time. The rollout counts from here |
+| `retire` | A key to stop trusting. Obeyed only from the recovery key, so a stolen release key can't lock it out |
 | `sig` | ed25519 over all of the above |
 
 The public keys are built into the helper: a **release key** and a separate **recovery key**. Either verifies a
-manifest. A manifest may name a replacement key, so a lost or stolen release key can be retired with the recovery key.
+manifest. A lost or stolen release key is retired with the recovery key, and the next release carries a new one.
 Both private keys stay offline, never on a machine that is always connected. The manifest is the only thing trusted;
 where the bytes came from doesn't matter.
 
 ## How a helper finds and takes an update
 
-1. **Find.** Every six hours it fetches `releases/latest/download/update.json`, and helpers hand the newest manifest
+1. **Find.** Every six hours it fetches `releases/latest/download/update.txt`. Still to build: helpers hand the newest manifest
    they hold to each other, signed as it is, so a blocked GitHub doesn't freeze the network. Carrying the zip itself
    between helpers comes after that, by the same reasoning as an app that spreads without GitHub.
 2. **Wait its turn.** It waits a delay taken from a hash of its peer ID and the version, up to 24 hours (one hour if
@@ -47,28 +48,28 @@ where the bytes came from doesn't matter.
 3. **Fetch and check.** It downloads the zip, checks the size and hash from the signed manifest, and unpacks it to
    `versions/<version>/`. On any mismatch it deletes the download and keeps running.
 4. **Switch.** It points `next` at the new version and exits with code 75. systemd restarts it through a small launcher.
-5. **Prove it works.** The new version writes `healthy` once it has held network peers for five minutes.
-6. **Roll back.** If two starts go by with no `healthy`, the launcher returns to `previous`, records the version as bad
-   and never takes it again.
+5. **Prove it works.** The new version clears `update/trying` once it has held network peers for five minutes. If it
+   still has none after 30 minutes it exits, which counts as a failed start.
+6. **Roll back.** If two starts go by and `trying` is still there, the launcher returns to `previous`, records the
+   version as bad and never takes it again.
 
 ```
 ~/.local/share/killa-yue-helper/
   launcher.sh        changes only through a new install line, so it can always recover
-  current -> versions/1.8.1
-  previous -> versions/1.8.0
-  versions/
+  update/            current, previous, trying, bad
+  versions/<sequence>/
   state/             keys, music and mix seed: never touched by an update
 ```
 
 ## Turning it off
 
-`--no-auto-update`, or `sh ~/.local/share/killa-yue-helper/update.sh off`. The helper still checks manifests and prints
-a warning when it falls behind. Peers don't punish it.
+`--no-auto-update`, or `sh ~/.local/share/killa-yue-helper/update.sh off`. The helper still checks manifests and says
+when it has fallen behind. Peers don't punish it.
 
 ## Versions side by side
 
 During a rollout old and new helpers work together for a day, so a release must keep speaking the protocol of the one
-before it. Mix descriptors already carry a version. A helper reports its version in `status` and `health.txt`.
+before it. Mix descriptors already carry a version. A helper reports its version in `status`.
 
 ## Honest limits
 

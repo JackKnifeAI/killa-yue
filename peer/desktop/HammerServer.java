@@ -367,6 +367,7 @@ public final class HammerServer {
             System.out.println("Hosting and signed community metadata; native audio/transcode (Opus); remote generation: disabled");
             System.out.println("Network: " + (KillaNet.running() ? KillaNet.status() : "off"));
             System.out.println("Monthly counter: " + (store.census.enabled ? "enabled" : "off"));
+            System.out.println(HelperUpdate.status);
         } else if (op.equals("count")) {
             System.out.println(store.census.count(HammerCensus.month(), "", false) + " participating installations · " + HammerCensus.month());
         } else if (op.equals("board")) {
@@ -621,6 +622,8 @@ public final class HammerServer {
         String address = "127.0.0.1", bind = "0.0.0.0";
         int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true;
         int networkPort = KillaNet.PORT; String entry = "", watch = ""; boolean watchPrivate = false;
+        boolean updates = true; String updateFrom = null; int updatePeers = -1;
+        long updateEvery = -1, updateSpread = -1, updateHealthy = -1, updateDeadline = -1;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--data"))
                 data = new File(args[++i]);
@@ -636,13 +639,20 @@ public final class HammerServer {
             else if (args[i].equals("--community-count")) count = true;
             else if (args[i].equals("--upnp")) upnp = true;
             else if (args[i].equals("--no-adopt")) adopt = false;
+            else if (args[i].equals("--no-auto-update")) updates = false;
+            else if (args[i].equals("--update-from")) updateFrom = args[++i];
+            else if (args[i].equals("--update-every")) updateEvery = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-spread")) updateSpread = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-healthy-after")) updateHealthy = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-deadline")) updateDeadline = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-peers")) updatePeers = Integer.parseInt(args[++i]);
             else if (args[i].equals("--network-port")) networkPort = Integer.parseInt(args[++i]);
             else if (args[i].equals("--entry")) entry = args[++i];
             else if (args[i].equals("--watch")) watch = args[++i];
             else if (args[i].equals("--watch-private")) watchPrivate = true;
             else
                 throw new IllegalArgumentException(
-                    "Use --daemon --network --help-network --no-adopt --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --no-adopt --no-auto-update --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -660,6 +670,17 @@ public final class HammerServer {
                 if (helper && adopt)
                     HammerMix.adoption = new HammerAdoption(app.store, new File(data, "adopted"));
                 HammerMix.start(); // votes, comments and hidden songs that reach this host through the mixnet
+                HelperUpdate update = helper ? HelperUpdate.create() : null;
+                if (update != null) {
+                    update.off = !updates;
+                    if (updateFrom != null) update.from = updateFrom;
+                    if (updateEvery >= 0) update.everyMillis = updateEvery * 1000;
+                    if (updateSpread >= 0) update.spreadMillis = updateSpread * 1000;
+                    if (updateHealthy >= 0) update.healthyAfterMillis = updateHealthy * 1000;
+                    if (updateDeadline >= 0) update.deadlineMillis = updateDeadline * 1000;
+                    if (updatePeers >= 0) update.needPeers = updatePeers;
+                    update.start();
+                }
                 System.out.println("Network card: " + app.card(false).encode());
             } catch (Exception e) { app.close(); throw e; }
         }
