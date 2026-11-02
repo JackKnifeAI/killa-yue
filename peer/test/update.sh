@@ -89,7 +89,7 @@ sleep 5; [ "$(cat "$home/update/current")" = 101 ] || die "took the broken relea
 stop
 
 # a release that runs but never finds a peer
-: > "$tmp/log"; PEERS=1 DEADLINE=3 install; publish 103 "$tmp/release.pem"
+: > "$tmp/log"; PEERS=100000 DEADLINE=3 install; publish 103 "$tmp/release.pem"
 supervise
 wait_for 90 'grep -q "^103$" "$home/update/bad" 2>/dev/null' || die "an unhealthy release was not rolled back"
 [ "$(cat "$home/update/current")" = 100 ] || die "not back on the version before"; ok "a release that can't find peers is rolled back"
