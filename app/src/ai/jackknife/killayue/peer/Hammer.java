@@ -18,7 +18,7 @@ public final class Hammer {
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
                             IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23, STATIONS = 24,
-                            CARRY_STATION = 25;
+                            CARRY_STATION = 25, LISTENING = 26;
     /** The most songs one STATS_ALL answers for. */
     static final int STATS_MAX = 4096;
     public static String hex(byte[] bytes) {
@@ -666,6 +666,14 @@ public final class Hammer {
                     boolean kept = objects.carry(offered);
                     out.writeInt(MAGIC);
                     out.writeBoolean(kept);
+                } else if (op == LISTENING) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Stations unavailable");
+                    List<String> heard = objects.listening(text(in, 64), text(in, 64));
+                    out.writeInt(MAGIC);
+                    out.writeInt(heard.size());
+                    for (String t : heard)
+                        text(out, t, 16);
                 } else if (op == STATS_ALL) {
                     Map<String, long[]> all = source.allStats(token);
                     out.writeInt(MAGIC);
@@ -930,6 +938,23 @@ public final class Hammer {
             s.write(c.out);
             c.reply();
             return c.in.readBoolean();
+        }
+    }
+    /**
+     * Tells a host holding a station that this phone is listening, by a tag made for this tune-in (empty: only
+     * asking), and returns the short tags it heard lately. Hosts before 1.8 refuse.
+     */
+    public static Set<String> listening(Card p, String station, String tag, Job job) throws Exception {
+        try (Connection c = new Connection(p, LISTENING, job)) {
+            text(c.out, station, 64);
+            text(c.out, tag, 64);
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= 4096, "Invalid listener count");
+            Set<String> out = new HashSet<String>();
+            for (int i = 0; i < n; i++)
+                out.add(text(c.in, 16));
+            return out;
         }
     }
     /** {plays, downloads} the host has served for a song, or null when it does not count. */

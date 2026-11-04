@@ -16,7 +16,7 @@ public final class HammerMix {
     private HammerMix() {}
 
     static final int MAGIC = 0x4b4d5831; // "KMX1"
-    static final int VOTE = 1, COMMENT = 2, ADOPT = 3, PIECE = 4;
+    static final int VOTE = 1, COMMENT = 2, ADOPT = 3, PIECE = 4, STATION = 5;
     /** Independent networks the mix nodes must stand on before anything is sent: fewer, and one operator may run them all. */
     public static final int NETWORKS = 3;
     /** How long one try waits for the host's answer; a request goes twice before it fails. */
@@ -170,6 +170,21 @@ public final class HammerMix {
         }, 2, WAIT, job));
     }
 
+    /**
+     * Hands a station to a helper through the mixnet, as a hidden artist must, and as any artist may for the helpers
+     * that took their songs. True when the helper kept it as new.
+     */
+    public static boolean station(String helper, final HammerStation s, Hammer.Job job) throws Exception {
+        s.validate();
+        String why = unready();
+        if (why != null)
+            throw new IOException(why + " Nothing was sent.");
+        byte[] kept = check(request(helper, STATION, "", new Body() {
+            public void write(DataOutputStream o) throws IOException { s.write(o); }
+        }, 2, WAIT, job));
+        return kept.length == 1 && kept[0] == 1;
+    }
+
     static byte[] check(Answer a) throws IOException {
         if (a == null)
             throw new IOException("No answer came back through the mixnet: the host may be offline. Nothing was sent "
@@ -297,6 +312,10 @@ public final class HammerMix {
                     server.source().vote(Hammer.Vote.read(in), token);
                 else
                     server.source().comment(Hammer.Comment.read(in), token);
+            } else if (op == STATION) {
+                Hammer.Server server = KillaNet.server();
+                Hammer.require(server != null && server.source().publicObjects() != null, "Not hosting now");
+                data = new byte[] {(byte)(server.source().publicObjects().carry(HammerStation.read(in)) ? 1 : 0)};
             } else if (op == ADOPT || op == PIECE) {
                 HammerAdoption a = adoption;
                 Hammer.require(a != null, "This helper does not adopt hidden songs");

@@ -1582,6 +1582,20 @@ public final class HammerActivity extends Activity {
              : (n == null ? -1 : n[1]);
     }
     /** An album as a framed cover with its title; tap to open it. */
+    /** The public hosts Discover last saw holding this artist's station, any revision. */
+    static List<Hammer.Card> stationHolders(String artist) {
+        List<Hammer.Card> out = new ArrayList<Hammer.Card>();
+        for (List<StationHit> l : stationsByPeer.values())
+            for (StationHit s : l)
+                try {
+                    if (s.station.id().equals(artist) && !s.peer.card.isPrivate()) {
+                        out.add(s.peer.card);
+                        break;
+                    }
+                } catch (Exception badStation) {
+                }
+        return out;
+    }
     /** The newest copy of each station seen, by artist: a host still holding an older one doesn't win. */
     private static Map<String, StationHit> newestStations() {
         Map<String, StationHit> out = new LinkedHashMap<String, StationHit>();

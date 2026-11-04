@@ -66,6 +66,23 @@ public final class HammerServer {
         this.address = address;
         server =
             new Hammer.Server(Hammer.serverContext(identity, cert), new InetSocketAddress(bind, port), store);
+        // a station newly carried here goes straight on to the hosts last seen holding an older copy of it
+        store.publicObjects.carried = new HammerPublic.StationListener() {
+            public void carried(final HammerStation s) throws Exception {
+                final String id = s.id();
+                discovery.execute(new Runnable() {
+                    public void run() {
+                        for (Object[] h : holders.values())
+                            try {
+                                if (id.equals(h[1]) && (Long)h[2] < s.revision &&
+                                    Hammer.carryStation((Hammer.Card)h[0], s, announceJob))
+                                    h[2] = s.revision;
+                            } catch (Exception unavailable) {
+                            }
+                    }
+                });
+            }
+        };
         discovery.scheduleWithFixedDelay(new Runnable() {
             public void run() {
                 announce();
@@ -73,6 +90,8 @@ public final class HammerServer {
             }
         }, 1, 600, java.util.concurrent.TimeUnit.SECONDS);
     }
+    /** Hosts seen holding a station, by host and station: {card, station id, revision}. */
+    private final Map<String, Object[]> holders = new java.util.concurrent.ConcurrentHashMap<String, Object[]>();
     private static void privatePermissions(File file, boolean directory) throws Exception {
         if (Files.getFileStore(file.toPath()).supportsFileAttributeView("posix"))
             Files.setPosixFilePermissions(file.toPath(),
@@ -276,6 +295,8 @@ public final class HammerServer {
             try {
                 for (HammerStation theirs : Hammer.stations(card, announceJob)) {
                     try {
+                        if (holders.size() < 4096)
+                            holders.put(card.pin + "/" + theirs.id(), new Object[] {card, theirs.id(), theirs.revision});
                         store.publicObjects.carry(theirs);
                         HammerStation mine = store.publicObjects.station(theirs.id());
                         if (mine != null && mine.revision > theirs.revision)

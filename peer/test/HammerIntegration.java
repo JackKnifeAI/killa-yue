@@ -200,6 +200,22 @@ public final class HammerIntegration {
                           && Hammer.stations(carrier, new Hammer.Job()).get(0).revision == 3,
                       "a carried station is on air from the carrier");
                 check(!Hammer.carryStation(carrier, real, new Hammer.Job()), "a carrier doesn't take the same revision twice");
+                final String one = Hammer.random(), two = Hammer.random();
+                check(Hammer.listening(carrier, real.id(), one, new Hammer.Job()).size() == 1
+                          && Hammer.listening(carrier, real.id(), two, new Hammer.Job()).size() == 2
+                          && Hammer.listening(carrier, real.id(), one, new Hammer.Job()).size() == 2
+                          && Hammer.listening(carrier, real.id(), "", new Hammer.Job()).size() == 2,
+                      "listeners are counted once each by their tune-in tags");
+                java.util.Set<String> both = new java.util.HashSet<String>(Hammer.listening(carrier, real.id(), "", new Hammer.Job()));
+                both.addAll(Hammer.listening(publicCard, real.id(), one, new Hammer.Job()));
+                check(both.size() == 2 && !both.contains(one), "a listener heard by two hosts counts once, and no tag is given out");
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.listening(carrier, Hammer.random(), one, new Hammer.Job()); }
+                }, "listeners are counted only for stations held here");
+                final int[] passedOn = {0};
+                carrierStore.publicObjects.carried = new HammerPublic.StationListener() {
+                    public void carried(HammerStation s) { passedOn[0]++; }
+                };
                 real.note = "a new note";
                 real.revision = 4;
                 real.sign(key);
@@ -214,6 +230,7 @@ public final class HammerIntegration {
                 check(HammerStations.gather(carrierStore.publicObjects, publicCard, new Hammer.Job()) == 1
                           && !Hammer.stations(carrier, new Hammer.Job()).get(0).live(System.currentTimeMillis()),
                       "going off air reaches the carrier");
+                check(passedOn[0] == 2, "a carrier is told of each newer revision, to pass it straight on");
                 final HammerStation forged = HammerStation.read(new DataInputStream(new ByteArrayInputStream(
                     stationBytes(real))));
                 forged.revision = 6;

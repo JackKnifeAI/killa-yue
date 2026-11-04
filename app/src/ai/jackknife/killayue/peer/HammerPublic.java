@@ -237,6 +237,56 @@ public final class HammerPublic {
      * is taken only to replace a live copy. True when this copy was new here.
      */
     public boolean carry(HammerStation s) throws Exception {
+        boolean kept = keep(s);
+        StationListener l = carried;
+        if (kept && l != null)
+            try {
+                l.carried(s);
+            } catch (Exception ignored) {
+            }
+        return kept;
+    }
+    /** Told of each station newly kept here by {@link #carry}, so a helper can pass it straight on. */
+    public interface StationListener {
+        void carried(HammerStation s) throws Exception;
+    }
+    public volatile StationListener carried;
+    /** How long a listener counts as listening after it last said so: a little over three songs. */
+    public static final long LISTENING = 10L * 60 * 1000;
+    private final Map<String, Map<String, Long>> listeners = new HashMap<String, Map<String, Long>>();
+    /**
+     * Notes that someone is listening to a station held here, by a random tag their phone made for this tune-in
+     * (empty: only asking), and answers the tags heard in the last ten minutes as short hashes. The artist joins the
+     * answers of every host, so a listener who moved between hosts counts once, and no tag says who anyone is.
+     */
+    public synchronized List<String> listening(String station, String tag) throws Exception {
+        Hammer.require(Hammer.digest(station) && (tag.isEmpty() || Hammer.digest(tag)), "Invalid listener");
+        Hammer.require(object(station, ".station").isFile(), "No such station here");
+        long now = System.currentTimeMillis();
+        for (Iterator<Map<String, Long>> i = listeners.values().iterator(); i.hasNext();) {
+            Map<String, Long> m = i.next();
+            for (Iterator<Long> t = m.values().iterator(); t.hasNext();)
+                if (now - t.next() > LISTENING)
+                    t.remove();
+            if (m.isEmpty())
+                i.remove();
+        }
+        Map<String, Long> m = listeners.get(station);
+        if (m == null && !tag.isEmpty() && listeners.size() < 64)
+            listeners.put(station, m = new HashMap<String, Long>());
+        List<String> out = new ArrayList<String>();
+        if (m == null)
+            return out;
+        if (!tag.isEmpty() && (m.containsKey(tag) || m.size() < 4096))
+            m.put(tag, now);
+        for (String t : m.keySet())
+            out.add(shortTag(t));
+        return out;
+    }
+    public static String shortTag(String tag) throws Exception {
+        return Hammer.hash(tag.getBytes(java.nio.charset.StandardCharsets.US_ASCII)).substring(0, 16);
+    }
+    private boolean keep(HammerStation s) throws Exception {
         s.validate();
         long now = System.currentTimeMillis();
         if (!s.kept(now))

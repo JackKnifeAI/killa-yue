@@ -25,6 +25,10 @@ public final class HammerArtistActivity extends Activity {
     private LinearLayout figures, about, onAir;
     private HammerStation station;
     private List<Hammer.Song> titles = new ArrayList<Hammer.Song>();
+    private List<HammerAlbum> myAlbums = new ArrayList<HammerAlbum>();
+    /** For your own station: the other hosts seen carrying it, and the listeners they and this phone heard lately. */
+    private volatile int carriers = -1, listenersNow = -1;
+    private volatile String asking;
     private Button followButton;
     private int paintings, coversAsked;
     private ImageView portrait;
@@ -349,6 +353,8 @@ public final class HammerArtistActivity extends Activity {
                                 station = s;
                 } catch (Exception olderHostOrNone) {
                 }
+                if (own)
+                    reach();
                 final HammerProfile p = profile;
                 final Bitmap avatar;
                 if (p != null && !p.image.isEmpty()) {
@@ -420,6 +426,7 @@ public final class HammerArtistActivity extends Activity {
         }
         figures.setVisibility(View.VISIBLE);
         titles = selected;
+        myAlbums = albums;
         showStation();
         if (own && counts != null)
             week(counts, selected);
@@ -455,8 +462,25 @@ public final class HammerArtistActivity extends Activity {
                     card.addView(Ui.text(this, "Now: " + s.title, Skin.TEXT, 14), Ui.gap(this, 4));
             if (!station.note.isEmpty())
                 card.addView(Ui.text(this, "“" + station.note + "”", Skin.TEXT, 14), Ui.gap(this, 6));
+            if (own && listenersNow >= 0)
+                card.addView(Ui.text(this, listenersNow == 1 ? "1 person listening now" : listenersNow + " people listening now",
+                                     Skin.DIM, 13), Ui.gap(this, 6));
+            if (own && asking != null)
+                card.addView(Ui.text(this, asking, Skin.DIM, 13), Ui.gap(this, 6));
+            else if (own && carriers == 0)
+                card.addView(Ui.text(this, "No other host has been seen carrying it, so it may stop when this phone stops "
+                                               + "hosting. Ask helpers to carry it, or look again after Discover refreshes.",
+                                     Skin.TEXT, 13), Ui.gap(this, 6));
+            else if (own && carriers > 0)
+                card.addView(Ui.text(this, "Carried by " + carriers + (carriers == 1 ? " other host" : " other hosts")
+                                               + ", so it keeps going while this phone sleeps.",
+                                     Skin.DIM, 13), Ui.gap(this, 6));
             LinearLayout row = Ui.row(this);
             if (own) {
+                if (carriers == 0 && asking == null)
+                    action(row, "Ask helpers", false, new Runnable() {
+                        public void run() { if (ready()) askHelpers(); }
+                    });
                 action(row, "Say something", false, new Runnable() {
                     public void run() { if (ready()) shoutOut(); }
                 });
@@ -496,19 +520,118 @@ public final class HammerArtistActivity extends Activity {
         v.addView(title);
         final EditText note = Ui.edit(this, "A few words for your listeners (optional)", 2);
         v.addView(note, Ui.gap(this, 8));
+        // what goes on air: every song you share, or one of your albums
+        final RadioGroup what = new RadioGroup(this);
+        final List<HammerAlbum> choices = new ArrayList<HammerAlbum>();
+        choices.add(null);
+        for (HammerAlbum a : myAlbums)
+            choices.add(a);
+        for (int i = 0; i < choices.size(); i++) {
+            RadioButton b = new RadioButton(this);
+            b.setId(1000 + i);
+            b.setText(choices.get(i) == null ? "All your shared songs"
+                                             : "Album: " + choices.get(i).title + " (" + choices.get(i).songs.size() + ")");
+            b.setTextColor(Skin.TEXT);
+            what.addView(b);
+        }
+        what.check(1000);
+        if (choices.size() > 1)
+            v.addView(what, Ui.gap(this, 8));
         final CheckBox mix = new CheckBox(this);
         mix.setText("Shuffle the songs");
         mix.setTextColor(Skin.TEXT);
         v.addView(mix, Ui.gap(this, 8));
-        new Lux.Builder(this).setTitle("Go on air").setView(v)
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(v);
+        new Lux.Builder(this).setTitle("Go on air").setView(scroll)
             .setPositiveButton("Go on air", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) {
-                    startStation(title.getText().toString().trim(), note.getText().toString().trim(), mix.isChecked());
+                    int picked = Math.max(0, what.getCheckedRadioButtonId() - 1000);
+                    startStation(title.getText().toString().trim(), note.getText().toString().trim(), mix.isChecked(),
+                                 picked < choices.size() ? choices.get(picked) : null);
                 }
             })
             .setNegativeButton("Cancel", null).show();
     }
-    private void startStation(final String title, final String note, final boolean shuffle) {
+    /**
+     * Counts, for your own station, the other hosts seen carrying it (Discover's last look, and the helpers that
+     * took it through the mixnet) and the listeners heard lately by this phone and those hosts, each listener once.
+     */
+    private void reach() {
+        if (station == null || !station.live(System.currentTimeMillis()))
+            return;
+        Set<String> heard = new HashSet<String>(), hosts = new HashSet<String>(helpers());
+        try {
+            heard.addAll(store.publicObjects.listening(artist, ""));
+        } catch (Exception none) {
+        }
+        for (Hammer.Card c : HammerActivity.stationHolders(artist)) {
+            hosts.add(c.isP2p() ? c.p2pId() : c.pin);
+            try {
+                heard.addAll(Hammer.listening(c, artist, "", job));
+            } catch (Exception unavailable) {
+            }
+        }
+        carriers = hosts.size();
+        listenersNow = heard.size();
+    }
+    /** The helpers that took this station's songs through the mixnet, by PeerId. */
+    private List<String> helpers() {
+        String saved = getSharedPreferences("hammer", MODE_PRIVATE).getString("station-helpers", "");
+        List<String> out = new ArrayList<String>();
+        for (String h : saved.split(","))
+            if (!h.trim().isEmpty())
+                out.add(h.trim());
+        return out;
+    }
+    /** Sends this station's songs to helpers through the mixnet, then the station: minutes per song, in the background. */
+    private void askHelpers() {
+        final HammerStation s = station;
+        final HammerProfile p = profile;
+        if (s == null || p == null)
+            return;
+        asking = "Asking helpers to carry your station…";
+        showStation();
+        new Thread(new Runnable() {
+            public void run() {
+                String result;
+                try {
+                    HammerAndroid.network(getApplicationContext());
+                    for (int i = 0; i < 120 && HammerMix.unready() != null; i++)  // mix nodes are found in the first minute
+                        Thread.sleep(500);
+                    List<String> took = HammerStations.askHelpers(store, s, p, new HammerStations.Asking() {
+                        public void asking(int song, int songs, int percent) {
+                            asking = "Sending song " + song + " of " + songs + " to helpers: " + percent + "%";
+                            runOnUiThread(new Runnable() {
+                                public void run() { if (!closed) showStation(); }
+                            });
+                        }
+                    }, new Hammer.Job());
+                    StringBuilder b = new StringBuilder();
+                    for (String h : took)
+                        b.append(b.length() == 0 ? "" : ",").append(h);
+                    getSharedPreferences("hammer", MODE_PRIVATE).edit().putString("station-helpers", b.toString()).apply();
+                    carriers = Math.max(0, carriers) + took.size();
+                    result = took.isEmpty() ? "No helper took the whole station. Try again later."
+                                            : took.size() + (took.size() == 1 ? " helper carries" : " helpers carry")
+                                              + " your station now.";
+                } catch (Exception e) {
+                    result = "Helpers couldn't take it: " + e.getMessage();
+                }
+                final String said = result;
+                asking = null;
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        if (closed)
+                            return;
+                        showStation();
+                        Ui.toast(HammerArtistActivity.this, said);
+                    }
+                });
+            }
+        }, "hammer-ask-helpers").start();
+    }
+    private void startStation(final String title, final String note, final boolean shuffle, final HammerAlbum album) {
         work("Going on air", new Work() {
             public void run() throws Exception {
                 Hammer.require(profile != null, "Publish your page first");
@@ -517,9 +640,15 @@ public final class HammerArtistActivity extends Activity {
                 List<HammerStore.Hosted> mine = new ArrayList<HammerStore.Hosted>();
                 String key = Hammer.publicKey(HammerAndroid.identity().getPublic());
                 for (HammerStore.Hosted h : store.hosted())
-                    if (h.publicSong && h.song.key.equals(key))
+                    if (h.publicSong && h.song.key.equals(key) && album == null)
                         mine.add(h);
+                if (album != null)  // the album's order, its songs that are still shared
+                    for (String id : album.songs)
+                        for (HammerStore.Hosted h : store.hosted())
+                            if (h.publicSong && h.song.key.equals(key) && h.song.id.equals(id))
+                                mine.add(h);
                 Hammer.require(!mine.isEmpty(), "Share a song publicly first, from the Library");
+                getSharedPreferences("hammer", MODE_PRIVATE).edit().remove("station-helpers").apply();  // new songs
                 if (shuffle)
                     Collections.shuffle(mine);
                 HammerStation s = new HammerStation();
@@ -543,6 +672,21 @@ public final class HammerArtistActivity extends Activity {
         store.publicObjects.putStation(s);
         station = s;
         HammerActivity.spreadStations(store, s);  // to the hosts sharing these songs, so it plays on while this phone sleeps
+        final List<String> took = helpers();
+        if (!took.isEmpty())  // and to the helpers that took the songs through the mixnet: a note, or off air
+            new Thread(new Runnable() {
+                public void run() { HammerStations.tellHelpers(s, took, new Hammer.Job()); }
+            }, "hammer-tell-helpers").start();
+        carriers = -1;
+        listenersNow = -1;
+        worker.submit(new Runnable() {
+            public void run() {
+                reach();
+                runOnUiThread(new Runnable() {
+                    public void run() { if (!closed) showStation(); }
+                });
+            }
+        });
         runOnUiThread(new Runnable() {
             public void run() {
                 if (closed)

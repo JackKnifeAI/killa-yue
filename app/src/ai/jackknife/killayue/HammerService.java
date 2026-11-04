@@ -25,6 +25,8 @@ public final class HammerService extends Service {
         final Map<String, List<Hammer.Card>> hosts;
         volatile boolean gone;
         int failures;
+        /** Made for this tune-in only: hosts count listeners by it, and it says nothing about who is listening. */
+        final String tag = Hammer.random();
         Tuned(HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts) {
             station = s;
             this.songs = songs;
@@ -44,6 +46,7 @@ public final class HammerService extends Service {
         Tuned t = new Tuned(s, songs, hosts);
         tuned = t;
         joinStation(c, t, System.currentTimeMillis(), -1);
+        refreshStation(t);
     }
     /** Plays what the station has on at {@code now}, or the song at {@code index} from its start. */
     private static void joinStation(Context c, Tuned t, long now, int index) throws Exception {
@@ -90,14 +93,22 @@ public final class HammerService extends Service {
             joinStation(this, t, soon - 2000, -1);
         refreshStation(t);
     }
-    /** Between songs, ask a host for the station again: a new shout-out, or that it has gone off air. */
-    private void refreshStation(final Tuned t) {
+    /**
+     * Between songs, ask up to three hosts of the song for the station again: a new shout-out, or that it has gone
+     * off air. The newest copy any of them holds wins, so one host still holding an old copy can't keep it on air
+     * here. The first that answers is told this phone is listening, by the tag made for this tune-in.
+     */
+    private static void refreshStation(final Tuned t) {
         final String song = stationSong;
         new Thread(new Runnable() {
             public void run() {
                 try {
                     String id = t.station.id();
-                    for (Hammer.Card host : t.hosts.get(song)) {
+                    int asked = 0, answered = 0, holding = 0;
+                    List<Hammer.Card> hosts = t.hosts.get(song);
+                    for (Hammer.Card host : hosts == null ? new ArrayList<Hammer.Card>() : hosts) {
+                        if (asked++ >= 3)
+                            break;
                         try {
                             boolean found = false;
                             for (HammerStation s : Hammer.stations(host, new Hammer.Job()))
@@ -106,11 +117,17 @@ public final class HammerService extends Service {
                                     if (s.revision > t.station.revision)
                                         t.station = s;
                                 }
-                            t.gone = !found;
-                            return;
+                            if (found && holding++ == 0)
+                                try {
+                                    Hammer.listening(host, id, t.tag, new Hammer.Job());
+                                } catch (Exception olderHost) {
+                                }
+                            answered++;
                         } catch (Exception tryAnother) {
                         }
                     }
+                    if (answered > 0)
+                        t.gone = holding == 0;
                 } catch (Exception ignored) {
                 }
             }

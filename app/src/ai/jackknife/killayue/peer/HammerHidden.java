@@ -98,6 +98,20 @@ public final class HammerHidden {
     }
 
     /**
+     * A song an artist already shares under their own name, made ready to offer to helpers the same way, so that
+     * helpers host it and can carry the artist's station. It pays the same stamp and counts against the same quota.
+     */
+    public static Prepared shared(File file, Hammer.Song song, HammerProfile profile, Hammer.Job job) throws Exception {
+        song.validate();
+        profile.validate();
+        Hammer.require(profile.key.equals(song.key), "The page and the song have different artists");
+        Hammer.require(song.reshare, "\"" + song.title + "\" doesn't allow rehosting, so helpers can't carry it");
+        Hammer.require(file.isFile() && file.length() == song.size && song.size <= MAX,
+                       "\"" + song.title + "\" is over 32 MB, more than a helper takes: share it as MP3");
+        return new Prepared(file, song, profile, stamp(song.id, job));
+    }
+
+    /**
      * Cleans the song (no device, place or encoder tags; the artist fields say the hidden name), signs it and a
      * profile with the hidden identity, and pays the stamp. The clean copy is kept in work, by its id.
      */
