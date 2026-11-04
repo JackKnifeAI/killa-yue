@@ -40,7 +40,9 @@ public final class HammerStore implements Hammer.Source {
     public final HammerPublic publicObjects;
     public final HammerCommunity community;
     public final HammerCensus census;
+    public final HammerCircles circles;
     public HammerCommunity community() { return community; }
+    public HammerCircles circles() { return circles; }
     public HammerCensus census() { return census; }
     public synchronized boolean blocked(String key) throws Exception {
         return blocked.contains(Hammer.hash(Base64.getDecoder().decode(key)));
@@ -58,6 +60,7 @@ public final class HammerStore implements Hammer.Source {
         publicObjects = new HammerPublic(this);
         community = new HammerCommunity(this);
         census = new HammerCensus(root);
+        circles = new HammerCircles(new File(root, "circles"));
         File cap = new File(root, "circle.key");
         if (cap.isFile()) {
             token = new String(read(cap, 64), StandardCharsets.US_ASCII);

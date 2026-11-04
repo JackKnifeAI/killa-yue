@@ -89,6 +89,18 @@ public final class HammerServer {
                 stationRound();
             }
         }, 1, 600, java.util.concurrent.TimeUnit.SECONDS);
+        // each circle carried here catches up from its other hosts, so one that was down or missed a post has it
+        discovery.scheduleWithFixedDelay(new Runnable() {
+            public void run() {
+                for (HammerCircle c : store.circles.all())
+                    for (Hammer.Card h : c.hostCards())
+                        if (!h.pin.equals(pin) && !announceJob.cancelled)
+                            try {
+                                store.circles.sync(h, c.id, announceJob);
+                            } catch (Exception unavailable) {
+                            }
+            }
+        }, 30, 60, java.util.concurrent.TimeUnit.SECONDS);
     }
     /** Hosts seen holding a station, by host and station: {card, station id, revision}. */
     private final Map<String, Object[]> holders = new java.util.concurrent.ConcurrentHashMap<String, Object[]>();
@@ -372,6 +384,8 @@ public final class HammerServer {
             + "  station TITLE [NOTE]                  Go on air with this artist's public songs, looping\n"
             + "  station-stop                          Go off air\n"
             + "  stations                              Stations held here, this artist's and carried ones\n"
+            + "  circles                               Circles carried here (sealed: their words can't be read here)\n"
+            + "  forget-circle CIRCLE_ID               Stop carrying a circle and drop what it said\n"
             + "  profile NAME BIO TAGS                  Publish signed public artist metadata\n"
             + "  withdraw-profile                      Remove this host public artist profile\n"
             + "  join CARD                             Join a public entry peer and announce this host\n"
@@ -540,6 +554,15 @@ public final class HammerServer {
             store.publicObjects.putStation(s);
             HammerStations.spread(s, stationHosts(), announceJob);
             System.out.println("Off air");
+        } else if (op.equals("circles")) {
+            for (HammerCircle c : store.circles.all())
+                System.out.println((c.open ? "open    " : "invite  ") + c.title + " | " + c.id + " | "
+                                   + store.circles.read(c.id, HammerCircle.ROOM, 0).size() + " room, "
+                                   + store.circles.read(c.id, HammerCircle.BOARD, 0).size() + " board (sealed)");
+            System.out.println(store.circles.enabled ? "Carried here sealed: this host can't read them" : "Carrying circles is off (--no-circles)");
+        } else if (op.equals("forget-circle")) {
+            store.circles.forget(a.get(1));
+            System.out.println("No longer carrying that circle");
         } else if (op.equals("stations")) {
             long now = System.currentTimeMillis();
             String me = Hammer.hash(identity.getPublic().getEncoded());
@@ -727,7 +750,7 @@ public final class HammerServer {
     public static void main(String[] args) throws Exception {
         File data = new File(System.getProperty("user.home"), ".hammer");
         String address = "127.0.0.1", bind = "0.0.0.0";
-        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true;
+        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true, circles = true;
         int networkPort = KillaNet.PORT; String entry = "", watch = ""; boolean watchPrivate = false;
         boolean updates = true; String updateFrom = null; int updatePeers = -1;
         long updateEvery = -1, updateSpread = -1, updateHealthy = -1, updateDeadline = -1;
@@ -746,6 +769,7 @@ public final class HammerServer {
             else if (args[i].equals("--community-count")) count = true;
             else if (args[i].equals("--upnp")) upnp = true;
             else if (args[i].equals("--no-adopt")) adopt = false;
+            else if (args[i].equals("--no-circles")) circles = false;
             else if (args[i].equals("--no-auto-update")) updates = false;
             else if (args[i].equals("--update-from")) updateFrom = args[++i];
             else if (args[i].equals("--update-every")) updateEvery = Long.parseLong(args[++i]);
@@ -759,7 +783,7 @@ public final class HammerServer {
             else if (args[i].equals("--watch-private")) watchPrivate = true;
             else
                 throw new IllegalArgumentException(
-                    "Use --daemon --network --help-network --no-adopt --no-auto-update --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --no-adopt --no-circles --no-auto-update --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -769,6 +793,7 @@ public final class HammerServer {
             "HAMMER desktop host listening on " + bind + ":" + app.server.port() +
             ". Nothing is public until you publish it.\nPublic card: " + app.card(false).encode());
         app.store.census.enabled = count;
+        app.store.circles.enabled = circles;
         if (network) {
             try {
                 KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP | KillaNet.COMPUTER : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);

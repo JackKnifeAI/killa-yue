@@ -28,6 +28,11 @@ public final class HammerIntegration {
         }
         check(failed, name);
     }
+    static byte[] envelopeBytes(HammerCircle.Envelope e) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        e.write(new DataOutputStream(b));
+        return b.toByteArray();
+    }
     static byte[] stationBytes(HammerStation s) throws IOException {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         s.write(new DataOutputStream(b));
@@ -242,6 +247,104 @@ public final class HammerIntegration {
                 d.publish(source, "Public tone", "jazz koto", true, true, key);
                 check(!d.publicObjects.carry(real) && d.publicObjects.station(real.id()) == null,
                       "a host that never held a station doesn't take it once ended");
+                // circles: rooms carried sealed by hosts that can't read them
+                KeyPair starter = HammerCircle.memberKey(), member = HammerCircle.memberKey(), stranger = HammerCircle.memberKey();
+                final HammerCircle room = HammerCircle.start("Late night", "Listening till dawn", true);
+                room.hosts.add(carrier.encode());
+                room.sign(starter);
+                check(Hammer.carryCircle(carrier, room, new Hammer.Job()) && Hammer.circles(carrier, new Hammer.Job()).size() == 1
+                          && Hammer.circles(carrier, new Hammer.Job()).get(0).secret.equals(room.secret),
+                      "an open circle is carried and listed with its key");
+                final HammerCircle impostor = HammerCircle.start("Late night", "", true);
+                impostor.id = room.id;
+                impostor.secret = room.secret;
+                impostor.revision = room.revision + 1;
+                impostor.sign(stranger);
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.carryCircle(carrier, impostor, new Hammer.Job()); }
+                }, "only the circle's starter can change it");
+                HammerCircle.Message hello = new HammerCircle.Message();
+                hello.name = "Ava";
+                hello.body = "hello room";
+                HammerCircle.Envelope said = hello.seal(room, member);
+                check(Hammer.circlePost(carrier, said, new Hammer.Job()) && !Hammer.circlePost(carrier, said, new Hammer.Job()),
+                      "a sealed line is kept once");
+                List<HammerCircle.Envelope> heard = Hammer.circleRead(carrier, room.id, HammerCircle.ROOM, 0, new Hammer.Job());
+                HammerCircle.Message back = heard.size() == 1 ? HammerCircle.Message.open(room, heard.get(0)) : null;
+                check(back != null && back.body.equals("hello room") && back.key.equals(hello.key),
+                      "a member unseals the line and knows who said it");
+                check(!new String(heard.get(0).sealed, "ISO-8859-1").contains("hello room"), "the host holds only ciphertext");
+                HammerCircle other = HammerCircle.start("Elsewhere", "", true);
+                other.sign(starter);
+                check(HammerCircle.Message.open(other, heard.get(0)) == null, "another circle's key opens nothing");
+                final HammerCircle.Envelope moved = HammerCircle.Envelope.read(new DataInputStream(new ByteArrayInputStream(envelopeBytes(said))));
+                moved.time++;
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.circlePost(carrier, moved, new Hammer.Job()); }
+                }, "a message moved in time is refused by its stamp");
+                final HammerCircle.Envelope bent = HammerCircle.Envelope.read(new DataInputStream(new ByteArrayInputStream(envelopeBytes(said))));
+                bent.sealed[bent.sealed.length - 1] ^= 1;
+                bent.stamp = HammerCircle.work(bent.work(), 16);
+                check(HammerCircle.Message.open(room, bent) == null, "a changed sealed line doesn't open");
+                // invite-only: the key travels only in the invitation
+                final HammerCircle quiet = HammerCircle.start("Just us", "", false);
+                quiet.hosts.add(carrier.encode());
+                quiet.sign(starter);
+                check(Hammer.carryCircle(carrier, quiet, new Hammer.Job()) && Hammer.circles(carrier, new Hammer.Job()).size() == 1,
+                      "an invite-only circle is carried but not listed");
+                check(carrierStore.circles.record(quiet.id).secret.isEmpty()
+                          && Hammer.circle(carrier, quiet.id, "", new Hammer.Job()).secret.isEmpty(),
+                      "a host never holds an invite-only circle's key");
+                HammerCircle joined = Hammer.circle(carrier, quiet.id, quiet.secret, new Hammer.Job());
+                HammerCircle.Message whisper = new HammerCircle.Message();
+                whisper.body = "only us";
+                Hammer.circlePost(carrier, whisper.seal(joined, member), new Hammer.Job());
+                HammerCircle.Envelope got = Hammer.circleRead(carrier, quiet.id, HammerCircle.ROOM, 0, new Hammer.Job()).get(0);
+                check("only us".equals(HammerCircle.Message.open(joined, got).body)
+                          && HammerCircle.Message.open(Hammer.circle(carrier, quiet.id, "", new Hammer.Job()), got) == null,
+                      "the invitation's key opens it, the host's copy can't");
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.circle(carrier, quiet.id, Hammer.random(), new Hammer.Job()); }
+                }, "a wrong invitation key is refused");
+                // the board outlives a restart, and a second host catches up
+                HammerCircle.Message post = new HammerCircle.Message();
+                post.kind = "post";
+                post.name = "Ava";
+                post.body = "Tonight's theme: songs about rivers";
+                Hammer.circlePost(carrier, post.seal(room, member), new Hammer.Job());
+                check(new HammerCircles(new File(carrierStore.root, "circles")).read(room.id, HammerCircle.BOARD, 0).size() == 1,
+                      "board posts are kept across a restart");
+                b.circles.carry(room);
+                check(b.circles.sync(carrier, room.id, new Hammer.Job()) == 2
+                          && b.circles.read(room.id, HammerCircle.BOARD, 0).size() == 1,
+                      "a second host of the circle catches up from the first");
+                int took = 0;
+                for (int i = 0; i < 22; i++) {
+                    HammerCircle.Message m = new HammerCircle.Message();
+                    m.kind = "react";
+                    m.body = "!";
+                    try {
+                        if (Hammer.circlePost(carrier, m.seal(room, member), new Hammer.Job()))
+                            took++;
+                    } catch (Exception busy) {
+                    }
+                }
+                check(took < 22, "a circle can't be flooded");
+                HammerCircle.Message song = new HammerCircle.Message();
+                song.kind = "add";
+                song.song = Hammer.catalog(publicCard, new Hammer.Job()).get(0);
+                song.cards.add(publicCard.encode());
+                song.length = 12000;
+                rejects(new Attempt() {
+                    public void run() throws Exception {
+                        HammerCircle.Message m = new HammerCircle.Message();
+                        m.kind = "add";
+                        m.length = 1000;
+                        m.seal(room, HammerCircle.memberKey());
+                    }
+                }, "a song added needs its signed record and a host");
+                check(HammerCircle.Message.open(room, song.seal(room, member)).song.id.equals(song.song.id),
+                      "a song added to the queue carries its signed record");
             } finally {
                 third.close();
             }

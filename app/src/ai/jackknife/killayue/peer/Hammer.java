@@ -18,7 +18,8 @@ public final class Hammer {
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
                             IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23, STATIONS = 24,
-                            CARRY_STATION = 25, LISTENING = 26;
+                            CARRY_STATION = 25, LISTENING = 26,
+                            CIRCLES = 27, CIRCLE = 28, CARRY_CIRCLE = 29, CIRCLE_POST = 30, CIRCLE_READ = 31;
     /** The most songs one STATS_ALL answers for. */
     static final int STATS_MAX = 4096;
     public static String hex(byte[] bytes) {
@@ -269,6 +270,7 @@ public final class Hammer {
         default HammerDirectory directory() { return null; }
         default HammerCommunity community() { return null; }
         default HammerCensus census() { return null; }
+        default HammerCircles circles() { return null; }
         /** A play (the first stream segment) or a whole download was served: kind 0 or 1. */
         default void counted(String id, int kind) {}
         /** {plays, downloads} served for a visible song, or null when not counted. */
@@ -674,6 +676,38 @@ public final class Hammer {
                     out.writeInt(heard.size());
                     for (String t : heard)
                         text(out, t, 16);
+                } else if (op == CIRCLES || op == CIRCLE || op == CARRY_CIRCLE || op == CIRCLE_POST || op == CIRCLE_READ) {
+                    HammerCircles circles = source.circles();
+                    require(circles != null && circles.enabled, "This host doesn't carry circles");
+                    if (op == CIRCLES) {
+                        List<HammerCircle> open = circles.open();
+                        out.writeInt(MAGIC);
+                        out.writeInt(open.size());
+                        for (HammerCircle c : open)
+                            c.write(out);
+                    } else if (op == CIRCLE) {
+                        HammerCircle c = circles.record(text(in, 64));
+                        out.writeInt(MAGIC);
+                        out.writeBoolean(c != null);
+                        if (c != null)
+                            c.write(out);
+                    } else if (op == CARRY_CIRCLE) {
+                        boolean kept = circles.carry(HammerCircle.read(in, ""));
+                        out.writeInt(MAGIC);
+                        out.writeBoolean(kept);
+                    } else if (op == CIRCLE_POST) {
+                        boolean kept = circles.post(HammerCircle.Envelope.read(in));
+                        out.writeInt(MAGIC);
+                        out.writeBoolean(kept);
+                    } else {
+                        String id = text(in, 64);
+                        int lane = in.readUnsignedByte();
+                        List<HammerCircle.Envelope> said = circles.read(id, lane, in.readLong());
+                        out.writeInt(MAGIC);
+                        out.writeInt(said.size());
+                        for (HammerCircle.Envelope e : said)
+                            e.write(out);
+                    }
                 } else if (op == STATS_ALL) {
                     Map<String, long[]> all = source.allStats(token);
                     out.writeInt(MAGIC);
@@ -954,6 +988,66 @@ public final class Hammer {
             Set<String> out = new HashSet<String>();
             for (int i = 0; i < n; i++)
                 out.add(text(c.in, 16));
+            return out;
+        }
+    }
+    /** The open circles a host carries. Hosts before 1.8 refuse. */
+    public static List<HammerCircle> circles(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, CIRCLES, job)) {
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= HammerCircles.CIRCLES, "Invalid circle count");
+            List<HammerCircle> out = new ArrayList<HammerCircle>();
+            for (int i = 0; i < n; i++)
+                out.add(HammerCircle.read(c.in, ""));
+            return out;
+        }
+    }
+    /** One circle's record from a host, or null; {@code secret} is the invitation's key for an invite-only one. */
+    public static HammerCircle circle(Card p, String id, String secret, Job job) throws Exception {
+        try (Connection c = new Connection(p, CIRCLE, job)) {
+            text(c.out, id, 64);
+            c.reply();
+            if (!c.in.readBoolean())
+                return null;
+            HammerCircle got = HammerCircle.read(c.in, secret);
+            require(got.id.equals(id), "The host answered with another circle");
+            return got;
+        }
+    }
+    /** Hands a host a circle to carry; true when it took it as new. */
+    public static boolean carryCircle(Card p, HammerCircle circle, Job job) throws Exception {
+        circle.validate();
+        try (Connection c = new Connection(p, CARRY_CIRCLE, job)) {
+            circle.carried().write(c.out);
+            c.reply();
+            return c.in.readBoolean();
+        }
+    }
+    /** Leaves a sealed envelope with a host of its circle; true when it was new there. */
+    public static boolean circlePost(Card p, HammerCircle.Envelope e, Job job) throws Exception {
+        e.validate();
+        try (Connection c = new Connection(p, CIRCLE_POST, job)) {
+            e.write(c.out);
+            c.reply();
+            return c.in.readBoolean();
+        }
+    }
+    /** A lane's envelopes from {@code since} on, oldest first, at most HammerCircles.READ. */
+    public static List<HammerCircle.Envelope> circleRead(Card p, String id, int lane, long since, Job job) throws Exception {
+        try (Connection c = new Connection(p, CIRCLE_READ, job)) {
+            text(c.out, id, 64);
+            c.out.writeByte(lane);
+            c.out.writeLong(since);
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= HammerCircles.READ, "Invalid message count");
+            List<HammerCircle.Envelope> out = new ArrayList<HammerCircle.Envelope>();
+            for (int i = 0; i < n; i++) {
+                HammerCircle.Envelope e = HammerCircle.Envelope.read(c.in);
+                require(e.circle.equals(id) && e.lane == lane, "The host answered with another circle's messages");
+                out.add(e);
+            }
             return out;
         }
     }
