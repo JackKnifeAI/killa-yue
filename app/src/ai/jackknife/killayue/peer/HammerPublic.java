@@ -208,16 +208,52 @@ public final class HammerPublic {
             Hammer.require(s.revision > old.revision, "Station update must be newer");
         } else {
             int count = 0;
+            long now = System.currentTimeMillis();
             File[] files = root.listFiles();
             if (files != null)
                 for (File x : files)
-                    if (x.getName().endsWith(".station"))
+                    if (x.getName().endsWith(".station")) {
+                        try {
+                            if (!readStation(x).kept(now)) {  // long off air: its room goes to a live one
+                                x.delete();
+                                continue;
+                            }
+                        } catch (Exception damaged) {
+                            x.delete();
+                            continue;
+                        }
                         count++;
+                    }
             Hammer.require(count < 64, "This host holds at most 64 stations");
         }
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         s.write(new DataOutputStream(b));
         HammerStore.atomic(f, b.toByteArray());
+    }
+    /**
+     * Carries someone else's station, so it stays on air while their phone sleeps. Taken only when this host shares
+     * every song on it publicly under the same artist's signature, so a station never points at music missing here
+     * and nobody can fill a host with stations it has no part in. A newer revision replaces the older; an ended one
+     * is taken only to replace a live copy. True when this copy was new here.
+     */
+    public boolean carry(HammerStation s) throws Exception {
+        s.validate();
+        long now = System.currentTimeMillis();
+        if (!s.kept(now))
+            return false;
+        Map<String, String> visible = new HashMap<String, String>();
+        for (Hammer.Song song : store.catalog(""))
+            visible.put(song.id, song.key);
+        for (String id : s.songs)
+            if (!s.key.equals(visible.get(id)))
+                return false;
+        synchronized (this) {
+            HammerStation old = station(s.id());
+            if (old != null ? old.revision >= s.revision : !s.live(now))
+                return false;
+            putStation(s);
+            return true;
+        }
     }
     private static HammerStation readStation(File f) throws Exception {
         return HammerStation.read(new DataInputStream(new ByteArrayInputStream(HammerStore.read(f, 1 << 18))));
@@ -227,7 +263,10 @@ public final class HammerPublic {
         File f = object(artist, ".station");
         return f.isFile() ? readStation(f) : null;
     }
-    /** Stations on air whose every song this caller can reach here: a listener never meets a gap in the music. */
+    /**
+     * Stations whose every song this caller can reach here, so a listener never meets a gap in the music. Ones gone
+     * off air in the last week come too, marked by their end, so phones and hosts holding an older copy learn it ended.
+     */
     public List<HammerStation> stations(String capability) throws Exception {
         Map<String, String> visible = new HashMap<String, String>();
         for (Hammer.Song s : store.catalog(capability))
@@ -246,7 +285,7 @@ public final class HammerPublic {
                 continue;
             try {
                 HammerStation s = readStation(f);
-                boolean all = s.live(now);
+                boolean all = s.kept(now);
                 for (String id : s.songs)
                     all &= s.key.equals(visible.get(id));
                 if (all)

@@ -478,7 +478,8 @@ public final class HammerArtistActivity extends Activity {
             card.addView(row, Ui.gap(this, 12));
         } else {
             card.addView(Ui.text(this, "Play your shared songs in order, for everyone at the same moment, like radio. "
-                                           + "It keeps going while your phone sleeps, as long as a host has your songs.",
+                                           + "Hosts that share all your songs carry it, so it can keep going while "
+                                           + "your phone sleeps.",
                                  Skin.TEXT, 14));
             LinearLayout row = Ui.row(this);
             action(row, "Go on air", true, new Runnable() {
@@ -541,6 +542,7 @@ public final class HammerArtistActivity extends Activity {
         s.sign(HammerAndroid.identity());
         store.publicObjects.putStation(s);
         station = s;
+        HammerActivity.spreadStations(store, s);  // to the hosts sharing these songs, so it plays on while this phone sleeps
         runOnUiThread(new Runnable() {
             public void run() {
                 if (closed)

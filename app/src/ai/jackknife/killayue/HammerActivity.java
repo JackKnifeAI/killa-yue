@@ -1195,6 +1195,68 @@ public final class HammerActivity extends Activity {
             }
         routes.put(key, next);
     }
+    /**
+     * Keeps stations going while their artists sleep: the newest copy of each station seen (and {@code own}, this
+     * phone's, when it has one) goes to every public host seen sharing all its songs that holds an older copy or none,
+     * and is kept here too when this phone shares those songs. In the background, at most 12 handings a call.
+     */
+    static void spreadStations(final HammerStore store, final HammerStation own) {
+        new Thread(new Runnable() {
+            public void run() {
+                List<HammerStation> copies = new ArrayList<HammerStation>();
+                try {
+                    copies.add(own != null ? own : store.publicObjects.station(
+                                                      Hammer.hash(HammerAndroid.identity().getPublic().getEncoded())));
+                } catch (Exception noIdentityYet) {
+                }
+                copies.remove(null);
+                for (List<StationHit> l : stationsByPeer.values())
+                    for (StationHit s : l)
+                        copies.add(s.station);
+                java.util.concurrent.ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+                int handed = 0;
+                try {
+                    for (HammerStation s : HammerStations.newest(copies).values()) {
+                        try {
+                            store.publicObjects.carry(s);
+                        } catch (Exception notHere) {
+                        }
+                        for (Map.Entry<String, List<Hit>> e : songsByPeer.entrySet()) {
+                            if (handed >= 12)
+                                return;
+                            List<Hit> songs = e.getValue();
+                            if (songs.isEmpty() || songs.get(0).peer.card.isPrivate())
+                                continue;
+                            Set<String> has = new HashSet<String>();
+                            for (Hit h : songs)
+                                if (h.song.key.equals(s.key))
+                                    has.add(h.song.id);
+                            if (!has.containsAll(s.songs))
+                                continue;
+                            long theirs = 0;
+                            List<StationHit> held = stationsByPeer.get(e.getKey());
+                            if (held != null)
+                                for (StationHit h : held)
+                                    if (h.station.id().equals(s.id()))
+                                        theirs = h.station.revision;
+                            if (theirs >= s.revision)
+                                continue;
+                            final Hammer.Job one = new Hammer.Job();
+                            java.util.concurrent.ScheduledFuture<?> stop = timer.schedule(new Runnable() {
+                                public void run() { one.cancel(); }
+                            }, 12, TimeUnit.SECONDS);
+                            handed++;
+                            HammerStations.spread(s, java.util.Collections.singletonList(songs.get(0).peer.card), one);
+                            stop.cancel(false);
+                        }
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    timer.shutdownNow();
+                }
+            }
+        }, "hammer-stations").start();
+    }
     /** Shows everything known: songs and artists from every peer that has answered. */
     private void collect() {
         hits.clear();
@@ -1330,17 +1392,16 @@ public final class HammerActivity extends Activity {
                             return;
                         collect();
                         render();
+                        spreadStations(store, null);
                         String tune = getIntent().getStringExtra("tune");  // Tune in on an artist page
-                        if (tune != null)
-                            for (List<StationHit> l : stationsByPeer.values())
-                                for (StationHit s : l)
-                                    try {
-                                        if (s.station.id().equals(tune) && getIntent().hasExtra("tune")) {
-                                            getIntent().removeExtra("tune");
-                                            tuneIn(s);
-                                        }
-                                    } catch (Exception badStation) {
-                                    }
+                        if (tune != null && newestStations().containsKey(tune)) {
+                            getIntent().removeExtra("tune");
+                            StationHit s = newestStations().get(tune);
+                            if (s.station.live(System.currentTimeMillis()))
+                                tuneIn(s);
+                            else
+                                Ui.toast(HammerActivity.this, "That station has gone off air");
+                        }
                         String album = getIntent().getStringExtra("album");  // an album tile on an artist page
                         if (album != null) {
                             for (List<AlbumHit> l : albumsByPeer.values())
@@ -1521,12 +1582,24 @@ public final class HammerActivity extends Activity {
              : (n == null ? -1 : n[1]);
     }
     /** An album as a framed cover with its title; tap to open it. */
+    /** The newest copy of each station seen, by artist: a host still holding an older one doesn't win. */
+    private static Map<String, StationHit> newestStations() {
+        Map<String, StationHit> out = new LinkedHashMap<String, StationHit>();
+        for (List<StationHit> list : stationsByPeer.values())
+            for (StationHit s : list)
+                try {
+                    StationHit old = out.get(s.station.id());
+                    if (old == null || s.station.revision > old.station.revision)
+                        out.put(s.station.id(), s);
+                } catch (Exception badStation) {
+                }
+        return out;
+    }
     /** On air, at the top of Discover: each station once, with the song it has on now. */
     private void onAir() {
         Set<String> seen = new HashSet<String>();
         long now = System.currentTimeMillis();
-        for (List<StationHit> list : stationsByPeer.values())
-            for (final StationHit s : list)
+        for (final StationHit s : newestStations().values())
                 try {
                     if (!s.station.live(now) || !seen.add(s.station.id()))
                         continue;

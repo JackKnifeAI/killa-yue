@@ -28,6 +28,11 @@ public final class HammerIntegration {
         }
         check(failed, name);
     }
+    static byte[] stationBytes(HammerStation s) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        s.write(new DataOutputStream(b));
+        return b.toByteArray();
+    }
     public static File wave(File root, String name, int seconds, int rate, int seed) throws Exception {
         File f = new File(root, name);
         int frames = seconds * rate, bytes = frames * 4;
@@ -174,7 +179,55 @@ public final class HammerIntegration {
             real.revision = 2;
             real.sign(key);
             a.publicObjects.putStation(real);
-            check(Hammer.stations(publicCard, new Hammer.Job()).isEmpty(), "a stopped station is off air everywhere");
+            check(Hammer.stations(publicCard, new Hammer.Job()).size() == 1
+                      && !Hammer.stations(publicCard, new Hammer.Job()).get(0).live(System.currentTimeMillis()),
+                  "a stopped station is still handed out, marked ended, so older copies learn it");
+            // carrying: another host keeps the station going while the artist is away
+            final HammerStore carrierStore = new HammerStore(new File(root, "c"));
+            final Hammer.Server third =
+                new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), carrierStore);
+            try {
+                final Hammer.Card carrier = new Hammer.Card("127.0.0.1", third.port(), fingerprint, "");
+                real.ends = System.currentTimeMillis() + 120000;
+                real.revision = 3;
+                real.sign(key);
+                a.publicObjects.putStation(real);
+                check(!Hammer.carryStation(carrier, real, new Hammer.Job()) && carrierStore.publicObjects.station(real.id()) == null,
+                      "a host without the station's songs doesn't carry it");
+                carrierStore.publish(source, "Public tone", "jazz koto", true, true, key);  // the same signed recording
+                check(Hammer.carryStation(carrier, real, new Hammer.Job()), "a host sharing every song carries the station");
+                check(Hammer.stations(carrier, new Hammer.Job()).size() == 1
+                          && Hammer.stations(carrier, new Hammer.Job()).get(0).revision == 3,
+                      "a carried station is on air from the carrier");
+                check(!Hammer.carryStation(carrier, real, new Hammer.Job()), "a carrier doesn't take the same revision twice");
+                real.note = "a new note";
+                real.revision = 4;
+                real.sign(key);
+                a.publicObjects.putStation(real);
+                check(HammerStations.gather(carrierStore.publicObjects, publicCard, new Hammer.Job()) == 1
+                          && "a new note".equals(Hammer.stations(carrier, new Hammer.Job()).get(0).note),
+                      "a carrier gathers a newer note from another host");
+                real.ends = real.started + 500;
+                real.revision = 5;
+                real.sign(key);
+                a.publicObjects.putStation(real);
+                check(HammerStations.gather(carrierStore.publicObjects, publicCard, new Hammer.Job()) == 1
+                          && !Hammer.stations(carrier, new Hammer.Job()).get(0).live(System.currentTimeMillis()),
+                      "going off air reaches the carrier");
+                final HammerStation forged = HammerStation.read(new DataInputStream(new ByteArrayInputStream(
+                    stationBytes(real))));
+                forged.revision = 6;
+                forged.ends = System.currentTimeMillis() + 120000;
+                rejects(new Attempt() {
+                    public void run() throws Exception { carrierStore.publicObjects.carry(forged); }
+                }, "a carrier can't put a station back on air without the artist's signature");
+                final HammerStore d = new HammerStore(new File(root, "d"));
+                d.publish(source, "Public tone", "jazz koto", true, true, key);
+                check(!d.publicObjects.carry(real) && d.publicObjects.station(real.id()) == null,
+                      "a host that never held a station doesn't take it once ended");
+            } finally {
+                third.close();
+            }
             java.util.Map<String, long[]> counts = Hammer.allStats(publicCard, new Hammer.Job());
             check(counts.size() == 1 && counts.get(seenSong)[0] == 1 && counts.get(seenSong)[1] == 2,
                   "all counts at once match the public songs");

@@ -15,6 +15,8 @@ public final class HammerStation {
     public static final int SONGS = 512, NOTE = 140;
     /** A station stops by itself after this long, so one left behind doesn't stay on air for ever. */
     public static final long LONGEST = 30L * 24 * 3600 * 1000;
+    /** A station that went off air is still handed out this long, so every copy of it learns that it ended. */
+    public static final long KEPT = 7L * 24 * 3600 * 1000;
     public String title = "", note = "", key = "", sig = "";
     public long started, ends, revision;
     public List<String> songs = new ArrayList<String>();
@@ -32,6 +34,8 @@ public final class HammerStation {
     /** The artist's identity, the same id as their profile. */
     public String id() throws Exception { return Hammer.hash(Base64.getDecoder().decode(key)); }
     public boolean live(long now) { return now >= started && now < ends; }
+    /** Still worth holding: on air, or off air recently enough that a stale copy somewhere needs telling. */
+    public boolean kept(long now) { return now < ends + KEPT; }
     /** The song on at {@code now}, or null when the station is not on air then. */
     public Spot at(long now) {
         if (!live(now))

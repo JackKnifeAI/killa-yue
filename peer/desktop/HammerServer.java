@@ -67,7 +67,10 @@ public final class HammerServer {
         server =
             new Hammer.Server(Hammer.serverContext(identity, cert), new InetSocketAddress(bind, port), store);
         discovery.scheduleWithFixedDelay(new Runnable() {
-            public void run() { announce(); }
+            public void run() {
+                announce();
+                stationRound();
+            }
         }, 1, 600, java.util.concurrent.TimeUnit.SECONDS);
     }
     private static void privatePermissions(File file, boolean directory) throws Exception {
@@ -240,6 +243,50 @@ public final class HammerServer {
             Exception invalidAddress) { /* LAN-only hosts remain available through their local address. */
         }
     }
+    /** Public hosts this one knows, other than itself: followed, then those that announced themselves here. */
+    private List<Hammer.Card> stationHosts() {
+        List<Hammer.Card> cards = new ArrayList<Hammer.Card>();
+        Set<String> seen = new HashSet<String>();
+        seen.add(pin);
+        for (HammerStore.Peer p : store.followed())
+            if (!p.card.isPrivate() && seen.add(p.card.pin))
+                cards.add(p.card);
+        try {
+            List<HammerPresence> announced = store.directory().list();
+            Collections.shuffle(announced);
+            for (HammerPresence p : announced)
+                if (seen.add(p.card.pin) && cards.size() < 32)
+                    cards.add(p.card);
+        } catch (Exception noDirectory) {
+        }
+        return cards;
+    }
+    /**
+     * Keeps the stations this host carries current, every ten minutes: asks up to 16 public hosts it knows for their
+     * stations, takes newer copies of the ones whose songs it shares (a new note, or going off air), and hands its
+     * newer copies to hosts still holding older ones.
+     */
+    private void stationRound() {
+        List<Hammer.Card> cards = stationHosts();
+        Collections.shuffle(cards);
+        int asked = 0;
+        for (Hammer.Card card : cards) {
+            if (asked++ >= 16 || announceJob.cancelled)
+                break;
+            try {
+                for (HammerStation theirs : Hammer.stations(card, announceJob)) {
+                    try {
+                        store.publicObjects.carry(theirs);
+                        HammerStation mine = store.publicObjects.station(theirs.id());
+                        if (mine != null && mine.revision > theirs.revision)
+                            HammerStations.spread(mine, Collections.singletonList(card), announceJob);
+                    } catch (Exception refused) {
+                    }
+                }
+            } catch (Exception unavailable) {
+            }
+        }
+    }
     private Hammer.Card card(boolean circle) throws Exception {
         if (KillaNet.running()) return Hammer.Card.p2p(KillaNet.peerId(), pin, circle ? store.token() : "");
         return new Hammer.Card(address, server.port(), pin, circle ? store.token() : "");
@@ -303,6 +350,7 @@ public final class HammerServer {
             + "  stats                                 Plays and downloads served per song\n"
             + "  station TITLE [NOTE]                  Go on air with this artist's public songs, looping\n"
             + "  station-stop                          Go off air\n"
+            + "  stations                              Stations held here, this artist's and carried ones\n"
             + "  profile NAME BIO TAGS                  Publish signed public artist metadata\n"
             + "  withdraw-profile                      Remove this host public artist profile\n"
             + "  join CARD                             Join a public entry peer and announce this host\n"
@@ -459,7 +507,8 @@ public final class HammerServer {
             s.revision = Math.max(s.started, old == null ? 1 : old.revision + 1);
             s.sign(identity);
             store.publicObjects.putStation(s);
-            System.out.println("On air: " + s.title + " (" + s.songs.size() + " songs)");
+            System.out.println("On air: " + s.title + " (" + s.songs.size() + " songs); handed to " +
+                               HammerStations.spread(s, stationHosts(), announceJob) + " hosts that carry it");
         } else if (op.equals("station-stop")) {
             HammerStation s = store.publicObjects.station(Hammer.hash(identity.getPublic().getEncoded()));
             Hammer.require(s != null, "No station here");
@@ -468,7 +517,15 @@ public final class HammerServer {
             s.revision = Math.max(s.revision + 1, now);
             s.sign(identity);
             store.publicObjects.putStation(s);
+            HammerStations.spread(s, stationHosts(), announceJob);
             System.out.println("Off air");
+        } else if (op.equals("stations")) {
+            long now = System.currentTimeMillis();
+            String me = Hammer.hash(identity.getPublic().getEncoded());
+            for (HammerStation s : store.publicObjects.stations(""))
+                System.out.println((s.live(now) ? "on air  " : "ended   ") + s.title +
+                                   (s.id().equals(me) ? " (yours)" : " (carried)") + " | revision " + s.revision);
+            System.out.println("Carried while their artists' phones sleep: a station is held when this host shares all its songs");
         } else if (op.equals("stats")) {
             for (HammerStore.Hosted h : store.hosted()) {
                 long[] n = store.stats(h.song.id, h.publicSong ? "" : store.token());
