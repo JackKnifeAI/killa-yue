@@ -1462,9 +1462,95 @@ public final class HammerActivity extends Activity {
                               : artists + (artists == 1 ? " artist · " : " artists · ") + hits.size() +
                                     (hits.size() == 1 ? " song" : " songs");
     }
+    private boolean touching, renderWaiting;
+    /** A rebuild under a finger moves what it was about to tap: while a finger is down, Discover waits. */
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent e) {
+        int a = e.getActionMasked();
+        if (a == android.view.MotionEvent.ACTION_DOWN)
+            touching = true;
+        else if (a == android.view.MotionEvent.ACTION_UP || a == android.view.MotionEvent.ACTION_CANCEL) {
+            touching = false;
+            if (renderWaiting)
+                scroll.postDelayed(new Runnable() {
+                    public void run() {
+                        if (!touching && renderWaiting)
+                            render();
+                    }
+                }, 350);  // after the tap has landed and any fling has begun
+        }
+        return super.dispatchTouchEvent(e);
+    }
+    /** Names for the rows of the list, so a rebuild can find again the row that was on screen. */
+    private String[] rowKeys() {
+        String[] keys = new String[results.getChildCount()];
+        Map<String, Integer> seen = new HashMap<String, Integer>();
+        String prev = "top";
+        for (int i = 0; i < keys.length; i++) {
+            View c = results.getChildAt(i);
+            Object t = c.getTag(R.id.anchor);
+            String k = t instanceof String ? (String) t
+                     : c instanceof TextView ? "text:" + ((TextView) c).getText()
+                     : prev + ">" + c.getClass().getSimpleName();
+            Integer n = seen.get(k);
+            seen.put(k, n == null ? 1 : n + 1);
+            keys[i] = n == null ? k : k + "#" + n;
+            prev = keys[i];
+        }
+        return keys;
+    }
+    private int topInScroll(View v) {
+        int y = 0;
+        for (View x = v; x != null && x.getParent() != scroll; x = (View) x.getParent())
+            y += x.getTop();
+        return y;
+    }
     private void render() {
         if (closed || results == null)
             return;
+        if (touching) {
+            renderWaiting = true;
+            return;
+        }
+        renderWaiting = false;
+        // keep the row at the top of the screen where it was, and the side-scrolling shelves where they were
+        String anchor = null;
+        int anchorOffset = 0;
+        final Map<String, Integer> sideways = new HashMap<String, Integer>();
+        if (scroll != null && results.getChildCount() > 0) {
+            String[] keys = rowKeys();
+            int sy = scroll.getScrollY();
+            for (int i = 0; i < keys.length; i++) {
+                View c = results.getChildAt(i);
+                if (c instanceof HorizontalScrollView)
+                    sideways.put(keys[i], c.getScrollX());
+                int top = topInScroll(c);
+                if (anchor == null && sy > 0 && top + c.getHeight() > sy) {
+                    anchor = keys[i];
+                    anchorOffset = top - sy;
+                }
+            }
+        }
+        renderRows();
+        if (scroll == null || (anchor == null && sideways.isEmpty()))
+            return;
+        final String[] keys = rowKeys();
+        final String keep = anchor;
+        final int offset = anchorOffset;
+        scroll.post(new Runnable() {
+            public void run() {
+                for (int i = 0; i < keys.length && i < results.getChildCount(); i++) {
+                    View c = results.getChildAt(i);
+                    Integer x = sideways.get(keys[i]);
+                    if (x != null && c instanceof HorizontalScrollView)
+                        c.scrollTo(x, 0);
+                    if (keys[i].equals(keep))
+                        scroll.scrollTo(0, Math.max(0, topInScroll(c) - offset));
+                }
+            }
+        });
+    }
+    private void renderRows() {
         results.removeAllViews();
         String q = query.getText().toString();
         int count = 0;
@@ -1576,7 +1662,9 @@ public final class HammerActivity extends Activity {
                     first = false;
                 }
                 shown.add(hit);
-                results.addView(songCard(hit), Ui.gap(this, 8));
+                View card = songCard(hit);
+                card.setTag(R.id.anchor, "song:" + hit.song.key + "/" + hit.song.id);
+                results.addView(card, Ui.gap(this, 8));
             }
         TextView n = Ui.text(this,
                              count > 100 ? "Showing the first 100 matches. Narrow your search."

@@ -565,6 +565,7 @@ public final class HammerService extends Service {
     private void begin(List<Hammer.Card> peers, final Hammer.Song song, int mode, long frames, final int startAt)
         throws Exception {
         releasePlayer();
+        nowTitle = song.title;
         final int generation = ++playerGeneration;
         final HammerBuffer stream = new HammerBuffer(peers, song, mode, frames);
         buffer = stream;
@@ -713,6 +714,65 @@ public final class HammerService extends Service {
             return;
         }
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(84, notification());
+        media();
+    }
+    private android.media.session.MediaSession session;
+    private String nowTitle = "";
+    /**
+     * Discover's player answers the media keys, headphones and the lock screen like the Library's: a media
+     * session lives while it has a song, playing or paused, and goes when the song is let go.
+     */
+    private void media() {
+        boolean has = player != null && playerReady;
+        if (!has) {
+            if (session != null && player == null && opening == null) {
+                session.setActive(false);
+                session.release();
+                session = null;
+            }
+            return;
+        }
+        if (session == null) {
+            session = new android.media.session.MediaSession(this, "KillaYuE Discover");
+            session.setCallback(new android.media.session.MediaSession.Callback() {
+                @Override
+                public void onPlay() {
+                    if (!playingNow())
+                        pause();  // pause() toggles: paused, it plays
+                }
+                @Override
+                public void onPause() {
+                    if (playingNow())
+                        pause();
+                }
+                @Override
+                public void onStop() { stopPlayback(); }
+                @Override
+                public void onSeekTo(long ms) {
+                    if (tuned == null)
+                        seek((int) ms);
+                }
+            });
+        }
+        boolean playing = playingNow();
+        long actions = android.media.session.PlaybackState.ACTION_PLAY | android.media.session.PlaybackState.ACTION_PAUSE
+                       | android.media.session.PlaybackState.ACTION_PLAY_PAUSE | android.media.session.PlaybackState.ACTION_STOP
+                       | (tuned == null ? android.media.session.PlaybackState.ACTION_SEEK_TO : 0);
+        session.setPlaybackState(new android.media.session.PlaybackState.Builder().setActions(actions)
+            .setState(playing ? android.media.session.PlaybackState.STATE_PLAYING : android.media.session.PlaybackState.STATE_PAUSED,
+                      position(), playing ? 1f : 0f)
+            .build());
+        session.setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, nowTitle)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, "Killa YuE").putLong(MediaMetadata.METADATA_KEY_DURATION, duration())
+            .build());
+        session.setActive(true);
+    }
+    private boolean playingNow() {
+        try {
+            return player != null && playerReady && player.isPlaying();
+        } catch (Exception e) {
+            return false;
+        }
     }
     static String bufferStatus() {
         HammerService s = instance;
@@ -745,6 +805,10 @@ public final class HammerService extends Service {
             host.close();
         host = null;
         releasePlayer();
+        if (session != null) {
+            session.release();
+            session = null;
+        }
         status = "Hosting off";
         instance = null;
         stopForeground(true);
