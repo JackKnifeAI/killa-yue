@@ -19,6 +19,7 @@ final class HammerAndroid {
         if (store == null) {
             store = new HammerStore(new File(c.getFilesDir(), "hammer"));
             HammerMedia.codec = new HammerCodec(c);
+            Circles.carryMine(c);  // this phone carries the circles it started, and no others
         }
         return store;
     }

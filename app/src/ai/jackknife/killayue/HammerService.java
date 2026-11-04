@@ -27,11 +27,72 @@ public final class HammerService extends Service {
         int failures;
         /** Made for this tune-in only: hosts count listeners by it, and it says nothing about who is listening. */
         final String tag = Hammer.random();
+        /** In a circle: where the next song comes from, as the room decides it. Null on a station. */
+        final Next next;
         Tuned(HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts) {
+            this(s, songs, hosts, null);
+        }
+        Tuned(HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts, Next next) {
             station = s;
             this.songs = songs;
             this.hosts = hosts;
+            this.next = next;
         }
+    }
+    /** A circle's player: the song the room has on at a moment, or the next one it has chosen, or null. */
+    interface Next {
+        Slot next(long now);
+    }
+    /** One song of a circle on the room's clock, as a one-song station. */
+    static final class Slot {
+        final HammerStation station;
+        final Hammer.Song song;
+        final List<Hammer.Card> hosts;
+        Slot(String title, Hammer.Song song, List<Hammer.Card> hosts, long start, int length) {
+            station = new HammerStation();
+            station.title = title;
+            station.songs.add(song.id);
+            station.lengths.add(length);
+            station.started = start;
+            station.ends = start + length;
+            this.song = song;
+            this.hosts = hosts;
+        }
+    }
+    /** Listens along in a circle: plays what the room has on, and moves on when the room does. */
+    static void tuneCircle(Context c, Next next) throws Exception {
+        Tuned t = new Tuned(null, new java.util.concurrent.ConcurrentHashMap<String, Hammer.Song>(),
+                            new java.util.concurrent.ConcurrentHashMap<String, List<Hammer.Card>>(), next);
+        tuned = t;
+        joinStation(c, t, System.currentTimeMillis(), -1);
+    }
+    static boolean inCircle() {
+        Tuned t = tuned;
+        return t != null && t.next != null;
+    }
+    static void leaveCircle() {
+        if (inCircle())
+            leaveStation("Left the circle");
+    }
+    /** Nothing on in the circle yet: quiet, and look again in two seconds. */
+    private static void waitForSong(final Context c, final Tuned t) {
+        final HammerService s = instance;
+        stationSong = null;
+        if (s == null)
+            return;
+        s.releasePlayer();
+        playback = "Waiting for the next song in the circle";
+        s.update();
+        s.main.postDelayed(new Runnable() {
+            public void run() {
+                if (tuned == t)
+                    try {
+                        joinStation(c, t, System.currentTimeMillis(), -1);
+                    } catch (Exception e) {
+                        waitForSong(c, t);
+                    }
+            }
+        }, 2000);
     }
     private static volatile Tuned tuned;
     /** The song the tuned station is on, for the player screen. Null when not tuned. */
@@ -50,6 +111,18 @@ public final class HammerService extends Service {
     }
     /** Plays what the station has on at {@code now}, or the song at {@code index} from its start. */
     private static void joinStation(Context c, Tuned t, long now, int index) throws Exception {
+        if (t.next != null && (t.station == null || t.station.at(now) == null)) {
+            Slot slot = t.next.next(now);
+            if (slot == null || slot.station.started > now + 1500) {
+                waitForSong(c, t);
+                return;
+            }
+            t.songs.put(slot.song.id, slot.song);
+            t.hosts.put(slot.song.id, slot.hosts);
+            t.station = slot.station;
+            now = Math.max(now, slot.station.started);
+            index = -1;
+        }
         HammerStation.Spot at = t.station.at(now);
         if (at == null || t.gone) {
             leaveStation("The station has gone off air");
@@ -80,11 +153,15 @@ public final class HammerService extends Service {
     /** Where the tuned station is in this song now, or -1 when it has moved on. */
     private static int stationOffset(String song) {
         Tuned t = tuned;
-        HammerStation.Spot at = t == null ? null : t.station.at(System.currentTimeMillis());
+        HammerStation.Spot at = t == null || t.station == null ? null : t.station.at(System.currentTimeMillis());
         return at != null && at.song.equals(song) ? at.offset : -1;
     }
     /** A song ended by itself. A clock a little behind the music must not play its last moments again. */
     private void nextOnStation(Tuned t, String finished) throws Exception {
+        if (t.next != null) {  // a circle: the song after this one, as the room chose it
+            joinStation(this, t, Math.max(System.currentTimeMillis(), t.station.ends), -1);
+            return;
+        }
         long soon = System.currentTimeMillis() + 2000;
         HammerStation.Spot at = t.station.at(soon);
         if (at != null && at.song.equals(finished) && t.station.songs.size() > 1)
@@ -99,6 +176,8 @@ public final class HammerService extends Service {
      * here. The first that answers is told this phone is listening, by the tag made for this tune-in.
      */
     private static void refreshStation(final Tuned t) {
+        if (t.next != null)
+            return;  // a circle has no station record to look up
         final String song = stationSong;
         new Thread(new Runnable() {
             public void run() {

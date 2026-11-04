@@ -61,6 +61,9 @@ public final class HammerActivity extends Activity {
             station = s;
         }
     }
+    /** Each peer's open circles, with the card they were found at: {HammerCircle, Hammer.Card}. */
+    private static final Map<String, List<Object[]>> circlesByPeer =
+        new java.util.concurrent.ConcurrentHashMap<String, List<Object[]>>();
     /** Each peer's stations on air, kept like its songs. */
     private static final Map<String, List<StationHit>> stationsByPeer =
         new java.util.concurrent.ConcurrentHashMap<String, List<StationHit>>();
@@ -1332,6 +1335,14 @@ public final class HammerActivity extends Activity {
                                                 stations.add(new StationHit(via, s));
                                         } catch (Exception olderHost) {
                                         }
+                                        List<Object[]> open = new ArrayList<Object[]>();
+                                        if (!card.isPrivate())
+                                            try {
+                                                for (HammerCircle c : Hammer.circles(card, one))
+                                                    open.add(new Object[] {c, card});
+                                            } catch (Exception olderHostOrNoCircles) {
+                                            }
+                                        circlesByPeer.put(key, open);
                                         if (!card.isPrivate())
                                             try {
                                                 List<HammerPresence> hints = Hammer.directory(card, one);
@@ -1447,6 +1458,7 @@ public final class HammerActivity extends Activity {
         int count = 0;
         if (artistFilter == null && albumFilter == null) {
             onAir();
+            circlesRow();
             LinearLayout strip = Ui.row(this);
             strip.setGravity(android.view.Gravity.TOP);
             for (final ProfileHit profile : profiles.values())
@@ -1582,6 +1594,40 @@ public final class HammerActivity extends Activity {
              : (n == null ? -1 : n[1]);
     }
     /** An album as a framed cover with its title; tap to open it. */
+    /** Songs Discover has seen on public hosts, each once, with every public host seen offering it. */
+    static LinkedHashMap<Hammer.Song, List<Hammer.Card>> songsSeen() {
+        LinkedHashMap<String, Hammer.Song> byId = new LinkedHashMap<String, Hammer.Song>();
+        Map<String, List<Hammer.Card>> hosts = new HashMap<String, List<Hammer.Card>>();
+        for (List<Hit> l : songsByPeer.values())
+            for (Hit h : l) {
+                if (h.peer.card.isPrivate())
+                    continue;
+                String k = h.song.key + "/" + h.song.id;
+                if (!byId.containsKey(k)) {
+                    byId.put(k, h.song);
+                    hosts.put(k, new ArrayList<Hammer.Card>());
+                }
+                if (hosts.get(k).size() < 3)
+                    hosts.get(k).add(h.peer.card);
+            }
+        LinkedHashMap<Hammer.Song, List<Hammer.Card>> out = new LinkedHashMap<Hammer.Song, List<Hammer.Card>>();
+        for (Map.Entry<String, Hammer.Song> e : byId.entrySet())
+            out.put(e.getValue(), hosts.get(e.getKey()));
+        return out;
+    }
+    /** Every public host Discover has heard from, for asking to carry a circle. */
+    static List<Hammer.Card> publicHosts() {
+        List<Hammer.Card> out = new ArrayList<Hammer.Card>();
+        for (Map.Entry<String, List<Hammer.Card>> e : routes.entrySet())
+            if (lastSeen.containsKey(e.getKey()))
+                for (Hammer.Card c : e.getValue())
+                    if (!c.isPrivate()) {
+                        out.add(c);
+                        break;
+                    }
+        Collections.shuffle(out);
+        return out;
+    }
     /** The public hosts Discover last saw holding this artist's station, any revision. */
     static List<Hammer.Card> stationHolders(String artist) {
         List<Hammer.Card> out = new ArrayList<Hammer.Card>();
@@ -1595,6 +1641,110 @@ public final class HammerActivity extends Activity {
                 } catch (Exception badStation) {
                 }
         return out;
+    }
+    /** Circles, under On air: yours, the open ones found on hosts, and a way to start one. */
+    private void circlesRow() {
+        results.addView(heading("Circles"));
+        LinearLayout box = Ui.column(this);
+        Set<String> mine = new HashSet<String>();
+        for (final Circles.Joined j : Circles.joined(this)) {
+            mine.add(j.circle.id);
+            box.addView(circleRow(j.circle.title, (j.started ? "Yours" : "Joined") + (j.circle.open ? " · open" : " · invite-only"),
+                                  "Open", new Runnable() {
+                public void run() {
+                    startActivity(new Intent(HammerActivity.this, CircleActivity.class).putExtra("circle", j.circle.id));
+                }
+            }), Ui.gap(this, 8));
+        }
+        Map<String, Object[]> found = new LinkedHashMap<String, Object[]>();
+        for (List<Object[]> l : circlesByPeer.values())
+            for (Object[] o : l) {
+                HammerCircle c = (HammerCircle)o[0];
+                Object[] old = found.get(c.id);
+                if (!mine.contains(c.id) && (old == null || c.revision > ((HammerCircle)old[0]).revision))
+                    found.put(c.id, o);
+            }
+        for (final Object[] o : found.values()) {
+            final HammerCircle c = (HammerCircle)o[0];
+            box.addView(circleRow(c.title, c.about.isEmpty() ? "Open circle" : c.about, "Join", new Runnable() {
+                public void run() {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
+                            "killayue://c/" + c.id + "?k=" + c.secret + "&via=" + android.net.Uri.encode(((Hammer.Card)o[1]).encode())),
+                            HammerActivity.this, CircleActivity.class));
+                    } catch (Exception unreadable) {
+                    }
+                }
+            }), Ui.gap(this, 8));
+        }
+        Button start = Ui.chip(this, "Start a circle");
+        start.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { startCircle(); }
+        });
+        box.addView(start, Ui.gap(this, 4));
+        results.addView(box);
+    }
+    private View circleRow(String title, String under, String action, final Runnable go) {
+        LinearLayout row = Ui.row(this);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setBackground(new LuxFrame(14, 8));
+        int across = Ui.dp(this, 24), down = Ui.dp(this, 14);
+        row.setPadding(across, down, across, down);
+        LinearLayout words = Ui.column(this);
+        TextView t = Ui.text(this, "◎ " + title, Skin.ACCENT, 16);
+        t.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+        t.setSingleLine(true);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        words.addView(t);
+        TextView n = Ui.text(this, under, Skin.DIM, 13);
+        n.setSingleLine(true);
+        n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        words.addView(n);
+        row.addView(words, Ui.weight());
+        Button b = Ui.chip(this, action);
+        b.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { go.run(); }
+        });
+        row.addView(b);
+        return row;
+    }
+    private void startCircle() {
+        LinearLayout v = Ui.column(this);
+        final EditText name = Ui.edit(this, "Circle name", 1);
+        final EditText about = Ui.edit(this, "What it's for (optional)", 2);
+        final EditText me = Ui.edit(this, "Your name in it", 1);
+        me.setText(Circles.name(this));
+        final CheckBox open = new CheckBox(this);
+        open.setText("Open: anyone can find it in Discover and join");
+        open.setTextColor(Skin.TEXT);
+        open.setChecked(true);
+        v.addView(name);
+        v.addView(about, Ui.gap(this, 8));
+        v.addView(me, Ui.gap(this, 8));
+        v.addView(open, Ui.gap(this, 8));
+        new Lux.Builder(this).setTitle("Start a circle")
+            .setMessage("Listen together and talk. What's said is sealed with the circle's key: this phone and up to three "
+                        + "helpers carry it without reading it. Invite-only circles can be found only by invitation.")
+            .setView(v)
+            .setPositiveButton("Start", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    final String t = name.getText().toString().trim(), a = about.getText().toString().trim();
+                    final boolean o = open.isChecked();
+                    Circles.name(HammerActivity.this, me.getText().toString().trim());
+                    work("Starting the circle", new Work() {
+                        public void run() throws Exception {
+                            final Circles.Joined j = Circles.start(HammerActivity.this, t, a, o, publicHosts(), new Hammer.Job());
+                            ui.post(new Runnable() {
+                                public void run() {
+                                    HammerService.startHost(HammerActivity.this);
+                                    startActivity(new Intent(HammerActivity.this, CircleActivity.class).putExtra("circle", j.circle.id));
+                                }
+                            });
+                        }
+                    });
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
     }
     /** The newest copy of each station seen, by artist: a host still holding an older one doesn't win. */
     private static Map<String, StationHit> newestStations() {
