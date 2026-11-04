@@ -113,7 +113,8 @@ public final class HammerCircles {
     /** Keeps a sealed envelope for a circle carried here. True when it was new. */
     public boolean post(HammerCircle.Envelope e) throws Exception { return post(e, true); }
     /** {@code paced}: a member's post counts against the circle's pace; one caught up from another host doesn't. */
-    synchronized boolean post(HammerCircle.Envelope e, boolean paced) throws Exception {
+    /** paced false: a copy of what another host already took, as a catch-up, not new talk to pace. */
+    public synchronized boolean post(HammerCircle.Envelope e, boolean paced) throws Exception {
         e.validate();
         Hammer.require(records.containsKey(e.circle), "This host doesn't carry that circle");
         long now = System.currentTimeMillis();

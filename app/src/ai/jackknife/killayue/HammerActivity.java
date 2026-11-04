@@ -1275,6 +1275,18 @@ public final class HammerActivity extends Activity {
                 if (old == null || e.getValue().profile.revision > old.profile.revision)
                     profiles.put(e.getKey(), e.getValue());
             }
+        for (Map.Entry<String, ProfileHit> e : profiles.entrySet())
+            artistNames.put(e.getKey(), e.getValue().profile.name);
+    }
+    /** Artist names Discover has seen, by the hash of the artist's key, for screens that list songs. */
+    private static final Map<String, String> artistNames = new java.util.concurrent.ConcurrentHashMap<String, String>();
+    static String artistOf(String key) {
+        try {
+            String n = artistNames.get(Hammer.hash(java.util.Base64.getDecoder().decode(key)));
+            return n == null ? "" : n;
+        } catch (Exception e) {
+            return "";
+        }
     }
     private void refresh() {
         if (busy) {

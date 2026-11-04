@@ -85,26 +85,56 @@ final class CircleRoom implements HammerService.Next {
             }
         }
     }
-    /** Reads a lane from the first host that answers, each host in turn after a failure. */
+    /**
+     * Reads a lane: this phone's own copy if it carries the circle (at once, no network), and the first other host
+     * that answers, each in turn after a failure. What the other host has, this phone's copy keeps too, so it can
+     * hand it on: its room lives in memory and is empty after a restart.
+     */
     private boolean read(int lane, long since) throws Exception {
-        List<Hammer.Card> hosts = circle.hostCards();
+        long from = Math.max(0, since - 5000);
+        boolean news = false, local = false;
+        List<Hammer.Card> others = new ArrayList<Hammer.Card>();
+        for (Hammer.Card h : circle.hostCards())
+            if (own(h))
+                local = true;
+            else
+                others.add(h);
+        if (local)
+            for (HammerCircle.Envelope e : HammerAndroid.store(app).circles.read(circle.id, lane, from))
+                news |= take(e);
         Exception last = null;
-        for (int i = 0; i < hosts.size(); i++) {
-            Hammer.Card h = hosts.get((hostAt + i) % hosts.size());
+        for (int i = 0; i < others.size(); i++) {
+            Hammer.Card h = others.get((hostAt + i) % others.size());
             try {
-                List<HammerCircle.Envelope> got = Hammer.circleRead(h, circle.id, lane, Math.max(0, since - 5000), new Hammer.Job());
-                hostAt = (hostAt + i) % hosts.size();
-                boolean news = false;
-                for (HammerCircle.Envelope e : got)
+                List<HammerCircle.Envelope> got = Hammer.circleRead(h, circle.id, lane, from, new Hammer.Job());
+                hostAt = (hostAt + i) % others.size();
+                for (HammerCircle.Envelope e : got) {
+                    if (local)
+                        try {
+                            HammerAndroid.store(app).circles.post(e, false);
+                        } catch (Exception heldAlready) {
+                        }
                     news |= take(e);
+                }
                 return news;
             } catch (Exception e) {
                 last = e;
             }
         }
-        if (last != null)
+        if (last != null && !local)
             throw last;
-        return false;
+        return news;
+    }
+    private String ownPin;
+    /** This phone's own copy of a circle it started is read and written here, not over the network to itself. */
+    private boolean own(Hammer.Card h) {
+        try {
+            if (ownPin == null)
+                ownPin = HammerAndroid.pin();
+            return h.pin.equals(ownPin) && HammerAndroid.store(app).circles.record(circle.id) != null;
+        } catch (Exception noPin) {
+            return false;
+        }
     }
     private synchronized boolean take(HammerCircle.Envelope e) {
         Map<String, HammerCircle.Message> lane = e.lane == HammerCircle.BOARD ? board : room;
@@ -127,7 +157,10 @@ final class CircleRoom implements HammerService.Next {
         Exception why = null;
         for (Hammer.Card h : circle.hostCards())
             try {
-                Hammer.circlePost(h, e, new Hammer.Job());
+                if (own(h))
+                    HammerAndroid.store(app).circles.post(e);
+                else
+                    Hammer.circlePost(h, e, new Hammer.Job());
                 took++;
             } catch (Exception refused) {
                 why = refused;
