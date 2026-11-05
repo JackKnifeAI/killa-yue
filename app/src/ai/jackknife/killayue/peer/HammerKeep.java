@@ -14,7 +14,7 @@ import java.util.List;
  */
 public final class HammerKeep {
     /** The most songs one artist may ask one helper to keep. */
-    public static final int SONGS = 25;
+    public static final int SONGS = 100;
     public String key = "", helper = "", from = "", sig = "";
     public long revision;
     public List<String> songs = new ArrayList<String>();

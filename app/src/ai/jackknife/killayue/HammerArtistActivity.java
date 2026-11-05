@@ -638,7 +638,7 @@ public final class HammerArtistActivity extends Activity {
                                            + "take them back at any time.",
                                  Skin.TEXT, 14));
             if (s.over > 0)
-                card.addView(Ui.text(this, "Helpers keep up to 25 songs for one artist: your most played go.", Skin.DIM, 13),
+                card.addView(Ui.text(this, "Helpers keep up to 100 songs for one artist: your most played go.", Skin.DIM, 13),
                              Ui.gap(this, 6));
             action(row, "Keep my songs up", true, new Runnable() {
                 public void run() { if (ready()) keepUp(true); }
@@ -670,7 +670,7 @@ public final class HammerArtistActivity extends Activity {
                                      Skin.DIM, 13), Ui.gap(this, 4));
             if (s.over > 0)
                 card.addView(Ui.text(this, s.over + " more " + (s.over == 1 ? "song stays" : "songs stay")
-                                               + " on this phone alone: helpers keep 25 for one artist.",
+                                               + " on this phone alone: helpers keep 100 for one artist.",
                                      Skin.DIM, 13), Ui.gap(this, 4));
             action(row, "Take them back", false, new Runnable() {
                 public void run() {

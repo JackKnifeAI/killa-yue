@@ -2276,7 +2276,7 @@ public final class HammerActivity extends Activity {
                         ui.post(new Runnable() {
                             public void run() { HammerService.startHost(HammerActivity.this); }
                         });
-                    } catch (Exception full) {  /* at most 256 songs */
+                    } catch (Exception full) {  /* at most Hammer.MAX_SONGS songs */
                     }
                 if (!hit.peer.card.isPrivate())
                     try {

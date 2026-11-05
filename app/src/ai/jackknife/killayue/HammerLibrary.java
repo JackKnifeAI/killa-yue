@@ -536,7 +536,7 @@ final class HammerLibrary {
                     } catch (Exception e) {
                         failed++;
                         if (String.valueOf(e.getMessage()).contains("at most"))
-                            break;  // this phone hosts 256 songs at most
+                            break;  // this phone hosts Hammer.MAX_SONGS songs at most
                     }
                 }
                 if (share && done > 0)

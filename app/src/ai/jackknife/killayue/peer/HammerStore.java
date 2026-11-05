@@ -212,7 +212,14 @@ public final class HammerStore implements Hammer.Source {
     public synchronized List<Hammer.Song> catalog(String capability) throws Exception {
         boolean privateAccess = member(capability);
         List<Hammer.Song> out = new ArrayList<Hammer.Song>();
-        for (Hosted h : songs.values())
+        List<Hosted> newest = new ArrayList<Hosted>(songs.values());
+        Collections.sort(newest, new Comparator<Hosted>() {  // newest first: an older phone reads only the first page
+            public int compare(Hosted a, Hosted b) {
+                int c = Long.compare(b.modified, a.modified);
+                return c != 0 ? c : a.song.id.compareTo(b.song.id);
+            }
+        });
+        for (Hosted h : newest)
             if ((h.publicSong || privateAccess) && available(h))
                 out.add(h.song);
         return out;
@@ -297,7 +304,7 @@ public final class HammerStore implements Hammer.Source {
         synchronized (this) {
             job.check();
             Hammer.require(songs.containsKey(song.id) || songs.size() < Hammer.MAX_SONGS,
-                           "This host holds at most 256 songs");
+                           "This host holds at most " + Hammer.MAX_SONGS + " songs");
             save(song, pub, input, modified, source);
         }
         return song;
@@ -374,7 +381,7 @@ public final class HammerStore implements Hammer.Source {
         song.validate();
         Hammer.require(song.reshare, "Publisher did not enable rehosting");
         Hammer.require(songs.containsKey(song.id) || songs.size() < Hammer.MAX_SONGS,
-                       "This host holds at most 256 songs");
+                       "This host holds at most " + Hammer.MAX_SONGS + " songs");
         File f = downloadFile(song);
         Hammer.require(f.isFile() && f.length() == song.size && Hammer.hash(f).equals(song.id),
                        "Download must finish and verify before hosting");

@@ -45,12 +45,12 @@ public final class HammerStations {
      * Asks helpers to carry a station when no host shares its songs: each song goes through the mixnet to up to
      * three helpers, as a hidden artist's would, the first song to whichever helpers take it and every later one to
      * those same helpers, so they end up with all of them; then they're handed the station. Returns the PeerIds of
-     * the helpers that now carry it. Helpers take at most 25 songs from one artist.
+     * the helpers that now carry it. Helpers take at most 100 songs from one artist.
      */
     public static List<String> askHelpers(HammerStore store, HammerStation s, HammerProfile profile, final Asking asking,
                                           Hammer.Job job) throws Exception {
-        Hammer.require(s.songs.size() <= 25,
-                       "Helpers take up to 25 songs from one artist, and this station has " + s.songs.size()
+        Hammer.require(s.songs.size() <= 100,
+                       "Helpers take up to 100 songs from one artist, and this station has " + s.songs.size()
                        + ". Go on air with an album or fewer songs.");
         String why = HammerMix.unready();
         Hammer.require(why == null, why + " Nothing was sent.");

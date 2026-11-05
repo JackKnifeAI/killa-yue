@@ -832,6 +832,23 @@ public final class HammerIntegration {
                       && Hammer.catalog(helperCard, new Hammer.Job()).get(0).id.equals(owners.id) && keeper.records().isEmpty(),
                   "taking the songs back drops every kept copy, and only those");
 
+            // a big host: more songs than one catalog answer carries
+            final HammerStore big = new HammerStore(new File(root, "big"));
+            for (int i = 0; i < Hammer.PAGE + 44; i++)
+                big.publish(wave(root, "big" + i + ".wav", 1, 8000, 100 + i), "Big " + i, "", true, true, key);
+            Hammer.Server bigServer = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), big);
+            try {
+                Hammer.Card bigCard = new Hammer.Card("127.0.0.1", bigServer.port(), fingerprint, "");
+                List<Hammer.Song> all = Hammer.catalog(bigCard, new Hammer.Job());
+                Set<String> distinct = new HashSet<String>();
+                for (Hammer.Song song : all)
+                    distinct.add(song.id);
+                check(all.size() == Hammer.PAGE + 44 && distinct.size() == all.size(),
+                      "a host past 256 songs gives its whole catalog, page by page");
+            } finally {
+                bigServer.close();
+            }
+
             // the artist's side: proven helpers, three copies, taking back
             HammerKeeping side = new HammerKeeping(new File(root, "keep-artist"));
             long[] clock = {System.currentTimeMillis()};

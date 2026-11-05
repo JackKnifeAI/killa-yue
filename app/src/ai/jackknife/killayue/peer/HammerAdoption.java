@@ -21,7 +21,7 @@ public final class HammerAdoption {
     private final File dir;
     public volatile boolean enabled = true;
     public volatile long bytesPerArtist = 2L << 30;
-    public volatile int songsPerArtist = 25;
+    public volatile int songsPerArtist = 100;
     private final Set<String> removed = new HashSet<String>();
 
     public HammerAdoption(HammerStore store, File dir) throws IOException {

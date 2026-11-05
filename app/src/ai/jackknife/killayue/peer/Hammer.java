@@ -13,14 +13,16 @@ import javax.net.ssl.*;
 /** Shared Android/desktop protocol. TLS authenticates the invite's key before any capability is sent. */
 public final class Hammer {
     private Hammer() {}
-    public static final int MAGIC = 0x484d5231, PORT = 8784, CHUNK = 262144, MAX_SONGS = 256;
+    public static final int MAGIC = 0x484d5231, PORT = 8784, CHUNK = 262144, MAX_SONGS = 4096;
+    /** The songs one catalog answer carries: all a host before 1.8 takes, so they still read a big host's newest. */
+    public static final int PAGE = 256;
     public static final long MAX_AUDIO = 1024L * 1024 * 1024;
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
                             IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23, STATIONS = 24,
                             CARRY_STATION = 25, LISTENING = 26,
                             CIRCLES = 27, CIRCLE = 28, CARRY_CIRCLE = 29, CIRCLE_POST = 30, CIRCLE_READ = 31,
-                            KEEP = 32;
+                            KEEP = 32, CATALOG_PAGE = 33;
     /** The most songs one STATS_ALL answers for. */
     static final int STATS_MAX = 4096;
     public static String hex(byte[] bytes) {
@@ -523,13 +525,23 @@ public final class Hammer {
                 require(in.readInt() == MAGIC, "Unsupported HAMMER protocol");
                 int op = in.readUnsignedByte();
                 String token = text(in, 64);
-                if (op == CATALOG) {
+                if (op == CATALOG) {  // phones before 1.8 read at most PAGE songs: they get the newest
                     List<Song> songs = source.catalog(token);
-                    require(songs.size() <= MAX_SONGS, "Catalog full");
+                    int n = Math.min(songs.size(), PAGE);
+                    out.writeInt(MAGIC);
+                    out.writeInt(n);
+                    for (int i = 0; i < n; i++)
+                        songs.get(i).write(out);
+                } else if (op == CATALOG_PAGE) {  // the whole catalog, a page at a time
+                    List<Song> songs = source.catalog(token);
+                    int from = in.readInt();
+                    require(from >= 0, "Invalid catalog page");
+                    int to = Math.min(songs.size(), from + PAGE);
                     out.writeInt(MAGIC);
                     out.writeInt(songs.size());
-                    for (Song song : songs)
-                        song.write(out);
+                    out.writeInt(Math.max(0, to - from));
+                    for (int i = from; i < to; i++)
+                        songs.get(i).write(out);
                 } else if (op == AUDIO) {
                     String id = text(in, 64);
                     require(digest(id), "Invalid song");
@@ -806,9 +818,10 @@ public final class Hammer {
                     ScheduledFuture<?> end = deadline(s);
                     try {
                         out.writeInt(MAGIC);
-                        out.writeInt(changed == null ? -1 : changed.size());
+                        // a push carries the newest PAGE songs, all a phone before 1.8 takes
+                        out.writeInt(changed == null ? -1 : Math.min(changed.size(), PAGE));
                         if (changed != null) {
-                            for (Song song : changed)
+                            for (Song song : changed.subList(0, Math.min(changed.size(), PAGE)))
                                 song.write(out);
                             last = cursor(changed);
                         }
@@ -1144,11 +1157,47 @@ public final class Hammer {
             return bytes;
         }
     }
+    /** Hosts seen answering only the old catalog request (before 1.8), by pin: asked the old way from then on. */
+    private static final Set<String> onePage = Collections.synchronizedSet(new HashSet<String>());
+    /** A host's whole catalog: page by page from 1.8 hosts, or the one answer an older host gives. */
     public static List<Song> catalog(Card p, Job job) throws Exception {
+        if (!onePage.contains(p.pin))
+            try {
+                return pages(p, job);
+            } catch (Exception maybeOlder) {
+                job.check();
+                List<Song> songs = firstPage(p, job);  // answered the old way: an older host, not an outage
+                if (onePage.size() < 4096)
+                    onePage.add(p.pin);
+                return songs;
+            }
+        return firstPage(p, job);
+    }
+    private static List<Song> pages(Card p, Job job) throws Exception {
+        List<Song> songs = new ArrayList<Song>();
+        Set<String> ids = new HashSet<String>();
+        for (int page = 0; page <= MAX_SONGS / PAGE; page++) {
+            try (Connection c = new Connection(p, CATALOG_PAGE, job)) {
+                c.out.writeInt(songs.size());
+                c.reply();
+                int total = c.in.readInt(), n = c.in.readInt();
+                require(total >= 0 && total <= MAX_SONGS && n >= 0 && n <= PAGE, "Invalid catalog size");
+                for (int i = 0; i < n; i++) {
+                    Song s = Song.read(c.in);
+                    if (ids.add(s.id))  // a song published between pages can shift one along: counted once
+                        songs.add(s);
+                }
+                if (n == 0 || songs.size() >= total)
+                    return songs;
+            }
+        }
+        return songs;
+    }
+    private static List<Song> firstPage(Card p, Job job) throws Exception {
         try (Connection c = new Connection(p, CATALOG, job)) {
             c.reply();
             int n = c.in.readInt();
-            require(n >= 0 && n <= MAX_SONGS, "Invalid catalog size");
+            require(n >= 0 && n <= PAGE, "Invalid catalog size");
             List<Song> songs = new ArrayList<Song>();
             Set<String> ids = new HashSet<String>();
             for (int i = 0; i < n; i++) {
@@ -1299,7 +1348,7 @@ public final class Hammer {
                 int n = c.in.readInt();
                 if (n == -1)
                     continue;
-                require(n >= 0 && n <= MAX_SONGS, "Invalid pushed catalog");
+                require(n >= 0 && n <= PAGE, "Invalid pushed catalog");
                 List<Song> songs = new ArrayList<Song>();
                 Set<String> ids = new HashSet<String>();
                 for (int i = 0; i < n; i++) {

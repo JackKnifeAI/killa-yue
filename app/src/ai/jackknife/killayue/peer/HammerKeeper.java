@@ -22,8 +22,8 @@ public final class HammerKeeper {
     /** This helper's HAMMER pin: requests name it, so one meant for another helper is refused. */
     private final String self;
     public volatile boolean enabled = true;
-    public volatile int artists = 32;
-    public volatile long bytesPerArtist = 2L << 30, bytesInAll = 20L << 30;
+    public volatile int artists = 64;
+    public volatile long bytesPerArtist = 4L << 30, bytesInAll = 50L << 30;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(new ThreadFactory() {
         public Thread newThread(Runnable r) {
             Thread t = new Thread(r, "hammer-keeper");
