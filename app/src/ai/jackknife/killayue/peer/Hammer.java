@@ -19,7 +19,8 @@ public final class Hammer {
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
                             IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23, STATIONS = 24,
                             CARRY_STATION = 25, LISTENING = 26,
-                            CIRCLES = 27, CIRCLE = 28, CARRY_CIRCLE = 29, CIRCLE_POST = 30, CIRCLE_READ = 31;
+                            CIRCLES = 27, CIRCLE = 28, CARRY_CIRCLE = 29, CIRCLE_POST = 30, CIRCLE_READ = 31,
+                            KEEP = 32;
     /** The most songs one STATS_ALL answers for. */
     static final int STATS_MAX = 4096;
     public static String hex(byte[] bytes) {
@@ -271,6 +272,8 @@ public final class Hammer {
         default HammerCommunity community() { return null; }
         default HammerCensus census() { return null; }
         default HammerCircles circles() { return null; }
+        /** Where artists ask this host to keep their songs (null: it doesn't). */
+        default HammerKeeper keeper() { return null; }
         /** A play (the first stream segment) or a whole download was served: kind 0 or 1. */
         default void counted(String id, int kind) {}
         /** {plays, downloads} served for a visible song, or null when not counted. */
@@ -708,6 +711,28 @@ public final class Hammer {
                         for (HammerCircle.Envelope e : said)
                             e.write(out);
                     }
+                } else if (op == KEEP) {
+                    // an artist asks this helper to keep copies of their songs; their signature decides
+                    // a refusal is answered with its reason, so the artist's phone asks another helper instead of
+                    // waiting days on one that will never say yes
+                    List<String> held = null;
+                    String why = null;
+                    try {
+                        HammerKeeper keeper = source.keeper();
+                        require(keeper != null, "This host doesn't keep songs for artists");
+                        held = keeper.ask(HammerKeep.read(in));
+                    } catch (Exception refused) {
+                        why = refused.getMessage() == null ? "Refused" : refused.getMessage();
+                    }
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(why == null);
+                    if (why != null)
+                        text(out, why.length() > 200 ? why.substring(0, 200) : why, 256);
+                    else {
+                        out.writeInt(held.size());
+                        for (String id : held)
+                            text(out, id, 64);
+                    }
                 } else if (op == STATS_ALL) {
                     Map<String, long[]> all = source.allStats(token);
                     out.writeInt(MAGIC);
@@ -966,6 +991,29 @@ public final class Hammer {
      * Hands a host a station to carry. True when the host took it as new; false when it already holds this revision
      * or a newer one, or doesn't share every song on it. Hosts before 1.8 refuse.
      */
+    /** A host that answered no, with its reason: not an outage, so there's no point asking it again soon. */
+    public static final class Refused extends Exception {
+        public Refused(String why) { super(why); }
+    }
+    /**
+     * Asks a helper to keep copies of this artist's songs (an empty list takes them back) and returns the songs it
+     * hosts now. Hosts before 1.8 and ones that don't keep songs refuse.
+     */
+    public static List<String> keep(Card p, HammerKeep k, Job job) throws Exception {
+        k.validate();
+        try (Connection c = new Connection(p, KEEP, job)) {
+            k.write(c.out);
+            c.reply();
+            if (!c.in.readBoolean())
+                throw new Refused(text(c.in, 256));
+            int n = c.in.readInt();
+            require(n >= 0 && n <= HammerKeep.SONGS, "Invalid keep answer");
+            List<String> out = new ArrayList<String>();
+            for (int i = 0; i < n; i++)
+                out.add(text(c.in, 64));
+            return out;
+        }
+    }
     public static boolean carryStation(Card p, HammerStation s, Job job) throws Exception {
         s.validate();
         try (Connection c = new Connection(p, CARRY_STATION, job)) {

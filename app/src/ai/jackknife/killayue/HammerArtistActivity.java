@@ -22,7 +22,8 @@ public final class HammerArtistActivity extends Activity {
     private LinearLayout body, songs, editor;
     private EditText name, bio, tags;
     private TextView status, shownName, shownTags, shownBio, figureSongs, figurePlays, figureDownloads, figureNote;
-    private LinearLayout figures, about, onAir;
+    private LinearLayout figures, about, onAir, keepBox;
+    private HammerKeeping.Status keepStatus;
     private HammerStation station;
     private List<Hammer.Song> titles = new ArrayList<Hammer.Song>();
     private List<HammerAlbum> myAlbums = new ArrayList<HammerAlbum>();
@@ -89,6 +90,8 @@ public final class HammerArtistActivity extends Activity {
         body.addView(about, Ui.gap(this, 14));
         onAir = Ui.column(this);
         body.addView(onAir);
+        keepBox = Ui.column(this);
+        body.addView(keepBox);
         songs = Ui.column(this);
         body.addView(songs);
         load();
@@ -428,6 +431,8 @@ public final class HammerArtistActivity extends Activity {
         titles = selected;
         myAlbums = albums;
         showStation();
+        if (own)
+            keepingNow();
         if (own && counts != null)
             week(counts, selected);
         if (!albums.isEmpty())
@@ -469,7 +474,9 @@ public final class HammerArtistActivity extends Activity {
                 card.addView(Ui.text(this, asking, Skin.DIM, 13), Ui.gap(this, 6));
             else if (own && carriers == 0)
                 card.addView(Ui.text(this, "No other host has been seen carrying it, so it may stop when this phone stops "
-                                               + "hosting. Ask helpers to carry it, or look again after Discover refreshes.",
+                                               + (keepStatus != null && keepStatus.on
+                                                  ? "hosting. Helpers keeping your songs carry it once their copies are whole."
+                                                  : "hosting. Ask helpers to keep your songs, and they carry it too."),
                                      Skin.TEXT, 13), Ui.gap(this, 6));
             else if (own && carriers > 0)
                 card.addView(Ui.text(this, "Carried by " + carriers + (carriers == 1 ? " other host" : " other hosts")
@@ -477,9 +484,9 @@ public final class HammerArtistActivity extends Activity {
                                      Skin.DIM, 13), Ui.gap(this, 6));
             LinearLayout row = Ui.row(this);
             if (own) {
-                if (carriers == 0 && asking == null)
+                if (carriers == 0 && asking == null && (keepStatus == null || !keepStatus.on))
                     action(row, "Ask helpers", false, new Runnable() {
-                        public void run() { if (ready()) askHelpers(); }
+                        public void run() { if (ready()) keepUp(true); }
                     });
                 action(row, "Say something", false, new Runnable() {
                     public void run() { if (ready()) shoutOut(); }
@@ -584,52 +591,120 @@ public final class HammerArtistActivity extends Activity {
                 out.add(h.trim());
         return out;
     }
-    /** Sends this station's songs to helpers through the mixnet, then the station: minutes per song, in the background. */
-    private void askHelpers() {
-        final HammerStation s = station;
-        final HammerProfile p = profile;
-        if (s == null || p == null)
-            return;
-        asking = "Asking helpers to carry your station…";
-        showStation();
-        new Thread(new Runnable() {
+    /** Reads where keeping stands, off the main thread, then shows it. */
+    private final Runnable keepingChanged = new Runnable() {
+        public void run() { if (!closed) keepingNow(); }
+    };
+    private final Runnable keepingAgain = new Runnable() {
+        public void run() { if (!closed) Keeping.tend(HammerArtistActivity.this, true); }
+    };
+    private void keepingNow() {
+        Keeping.changed = keepingChanged;
+        worker.submit(new Runnable() {
             public void run() {
-                String result;
                 try {
-                    HammerAndroid.network(getApplicationContext());
-                    for (int i = 0; i < 120 && HammerMix.unready() != null; i++)  // mix nodes are found in the first minute
-                        Thread.sleep(500);
-                    List<String> took = HammerStations.askHelpers(store, s, p, new HammerStations.Asking() {
-                        public void asking(int song, int songs, int percent) {
-                            asking = "Sending song " + song + " of " + songs + " to helpers: " + percent + "%";
-                            runOnUiThread(new Runnable() {
-                                public void run() { if (!closed) showStation(); }
-                            });
-                        }
-                    }, new Hammer.Job());
-                    StringBuilder b = new StringBuilder();
-                    for (String h : took)
-                        b.append(b.length() == 0 ? "" : ",").append(h);
-                    getSharedPreferences("hammer", MODE_PRIVATE).edit().putString("station-helpers", b.toString()).apply();
-                    carriers = Math.max(0, carriers) + took.size();
-                    result = took.isEmpty() ? "No helper took the whole station. Try again later."
-                                            : took.size() + (took.size() == 1 ? " helper carries" : " helpers carry")
-                                              + " your station now.";
-                } catch (Exception e) {
-                    result = "Helpers couldn't take it: " + e.getMessage();
+                    keepStatus = Keeping.get(HammerArtistActivity.this).status(
+                        store, Hammer.publicKey(HammerAndroid.identity().getPublic()), Keeping.online());
+                } catch (Exception unavailable) {
+                    return;
                 }
-                final String said = result;
-                asking = null;
                 runOnUiThread(new Runnable() {
                     public void run() {
-                        if (closed)
-                            return;
-                        showStation();
-                        Ui.toast(HammerArtistActivity.this, said);
+                        if (!closed) {
+                            showKeeping();
+                            showStation();
+                        }
                     }
                 });
             }
-        }, "hammer-ask-helpers").start();
+        });
+    }
+    /**
+     * Keeping your music up: off, the offer, said plainly; on, how many helpers hold whole copies, and the way to
+     * take them back.
+     */
+    private void showKeeping() {
+        keepBox.removeAllViews();
+        final HammerKeeping.Status s = keepStatus;
+        if (!own || s == null || (s.songs == 0 && !s.on))
+            return;
+        keepBox.addView(heading("WHILE YOUR PHONE SLEEPS"));
+        LinearLayout card = plate();
+        LinearLayout row = Ui.row(this);
+        if (!s.on) {
+            card.addView(Ui.text(this, "When this phone stops hosting, your songs leave Discover. Helpers that have stayed "
+                                           + "online for days can keep copies, three of them on different helpers, so "
+                                           + "listeners still find you. Only songs you allow rehosting go, and you can "
+                                           + "take them back at any time.",
+                                 Skin.TEXT, 14));
+            if (s.over > 0)
+                card.addView(Ui.text(this, "Helpers keep up to 25 songs for one artist: your most played go.", Skin.DIM, 13),
+                             Ui.gap(this, 6));
+            action(row, "Keep my songs up", true, new Runnable() {
+                public void run() { if (ready()) keepUp(true); }
+            });
+        } else {
+            int whole = s.whole();
+            TextView t = Ui.text(this, whole >= HammerKeeping.COPIES ? "Kept by " + whole + " helpers"
+                                       : whole > 0 ? "Kept by " + whole + (whole == 1 ? " helper" : " helpers") + " so far"
+                                       : s.carriers.isEmpty() ? "Looking for helpers" : "Helpers are copying your songs",
+                                 Skin.ACCENT, 17);
+            t.setTypeface(Skin.text(), Typeface.BOLD);
+            card.addView(t);
+            String songsLine = s.songs + (s.songs == 1 ? " song" : " songs") + " kept up while this phone sleeps";
+            card.addView(Ui.text(this, songsLine, Skin.TEXT, 14), Ui.gap(this, 4));
+            int n = 0;
+            for (int[] c : s.carriers)
+                card.addView(Ui.text(this, "Helper " + (++n) + ": " + Math.min(c[0], s.songs) + " of " + s.songs
+                                               + (c[1] == 1 ? " · has stayed online for days" : " · still proving itself"),
+                                     Skin.DIM, 13), Ui.gap(this, 4));
+            if (s.carriers.size() < HammerKeeping.COPIES)
+                card.addView(Ui.text(this, s.helpersOnline == 0
+                                               ? "No helper is online right now. Copies go out when one is."
+                                               : "Only " + s.helpersOnline + (s.helpersOnline == 1 ? " helper is" : " helpers are")
+                                                 + " online now. The other copies go out as more helpers come and stay online.",
+                                     Skin.DIM, 13), Ui.gap(this, 8));
+            if (s.streamingOnly > 0)
+                card.addView(Ui.text(this, s.streamingOnly + (s.streamingOnly == 1 ? " song is" : " songs are")
+                                               + " streaming only, so it stays on this phone alone.",
+                                     Skin.DIM, 13), Ui.gap(this, 4));
+            if (s.over > 0)
+                card.addView(Ui.text(this, s.over + " more " + (s.over == 1 ? "song stays" : "songs stay")
+                                               + " on this phone alone: helpers keep 25 for one artist.",
+                                     Skin.DIM, 13), Ui.gap(this, 4));
+            action(row, "Take them back", false, new Runnable() {
+                public void run() {
+                    if (!ready())
+                        return;
+                    new Lux.Builder(HammerArtistActivity.this).setTitle("Take your songs back?")
+                        .setMessage("Every helper keeping your songs is told to delete its copies. Your songs stay on "
+                                    + "this phone, and leave Discover while it isn't hosting.")
+                        .setPositiveButton("Take them back", new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface d, int w) { keepUp(false); }
+                        })
+                        .setNegativeButton("Cancel", null).show();
+                }
+            });
+        }
+        card.addView(row, Ui.gap(this, 12));
+        keepBox.addView(card);
+        keepBox.removeCallbacks(keepingAgain);
+        if (s.on && (s.whole() < s.carriers.size() || s.carriers.isEmpty()))
+            keepBox.postDelayed(keepingAgain, 45000);  // copying: look again while the page is open
+    }
+    /** The artist's switch: on asks helpers now, off takes every copy back. */
+    private void keepUp(final boolean on) {
+        try {
+            Keeping.get(this).turn(on);
+        } catch (Exception e) {
+            Ui.toast(this, e.getMessage());
+            return;
+        }
+        HammerService.startHost(this);  // helpers fetch the songs from this phone
+        Keeping.tend(this, true);
+        Ui.toast(this, on ? "Asking helpers to keep your songs. It takes a few minutes; keep the app hosting meanwhile."
+                          : "Telling helpers to delete their copies");
+        keepingNow();
     }
     private void startStation(final String title, final String note, final boolean shuffle, final HammerAlbum album) {
         work("Going on air", new Work() {
@@ -1226,6 +1301,7 @@ public final class HammerArtistActivity extends Activity {
     @Override
     protected void onDestroy() {
         closed = true;
+        Keeping.changed = null;
         job.cancel();
         worker.shutdownNow();
         super.onDestroy();

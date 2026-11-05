@@ -453,8 +453,11 @@ public final class HammerService extends Service {
                             starting = false;
                             host = ready;
                             status = ready == null ? message : "Hosting published music";
-                            if (ready != null)
+                            if (ready != null) {
                                 stayAwake();
+                                main.removeCallbacks(keepingTick);
+                                main.postDelayed(keepingTick, 60000);
+                            }
                             advertise();
                             update();
                         }
@@ -780,6 +783,15 @@ public final class HammerService extends Service {
             ? s.buffer.state + " · " + s.buffer.bufferedBytes / 1024 + " KiB buffered"
             : "";
     }
+    /** While hosting, keeping is tended every half hour: helpers watched, copies renewed and repaired. */
+    private final Runnable keepingTick = new Runnable() {
+        public void run() {
+            if (destroyed || host == null)
+                return;
+            Keeping.tend(HammerService.this, false);
+            main.postDelayed(this, 30 * 60 * 1000);
+        }
+    };
     static boolean hosting() { return instance != null && instance.host != null; }
     static void disconnect() {
         HammerService s = instance;

@@ -1416,6 +1416,7 @@ public final class HammerActivity extends Activity {
                         collect();
                         render();
                         spreadStations(store, null);
+                        Keeping.tend(HammerActivity.this, false);  // watches which helpers stay online; sends only if asked
                         String tune = getIntent().getStringExtra("tune");  // Tune in on an artist page
                         if (tune != null && newestStations().containsKey(tune)) {
                             getIntent().removeExtra("tune");

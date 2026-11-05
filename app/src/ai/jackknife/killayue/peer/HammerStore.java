@@ -43,6 +43,9 @@ public final class HammerStore implements Hammer.Source {
     public final HammerCircles circles;
     public HammerCommunity community() { return community; }
     public HammerCircles circles() { return circles; }
+    /** Set on a helper that keeps artists' songs at their request. */
+    public volatile HammerKeeper keeper;
+    public HammerKeeper keeper() { return keeper; }
     public HammerCensus census() { return census; }
     public synchronized boolean blocked(String key) throws Exception {
         return blocked.contains(Hammer.hash(Base64.getDecoder().decode(key)));

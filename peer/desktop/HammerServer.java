@@ -393,6 +393,8 @@ public final class HammerServer {
             + "  unpublish SONG_HASH                    Stop offering a song; keep its master\n"
             + "  adopted                                Hidden artists' songs this helper adopted (mixnet, experimental)\n"
             + "  remove-adopted SONG_HASH               Stop hosting an adopted song and never take it again\n"
+            + "  kept                                   Artists who asked this helper to keep their songs\n"
+            + "  remove-kept ARTIST_ID                  Drop an artist's kept songs and refuse them from now on\n"
             + "  revoke                                Replace all private invitations\n"
             + "  follow CARD NAME                      Follow a peer (no public introduction)\n"
             + "  introduce PEER_NUMBER                 Opt in to introducing a public peer\n"
@@ -615,6 +617,17 @@ public final class HammerServer {
             Hammer.require(HammerMix.adoption != null, "This helper does not adopt hidden songs");
             HammerMix.adoption.remove(a.get(1));  // and never take it again
             server.disconnect();
+        } else if (op.equals("kept")) {
+            HammerKeeper k = store.keeper;
+            if (k == null)
+                System.out.println("This helper doesn't keep songs for artists (start it with --help-network)");
+            else
+                for (String line : k.report())
+                    System.out.println(line);
+        } else if (op.equals("remove-kept")) {
+            Hammer.require(store.keeper != null, "This helper doesn't keep songs for artists");
+            store.keeper.remove(a.get(1));  // drops their songs and refuses them from now on
+            server.disconnect();
         } else if (op.equals("revoke")) {
             store.revoke();
             server.disconnect();
@@ -750,7 +763,8 @@ public final class HammerServer {
     public static void main(String[] args) throws Exception {
         File data = new File(System.getProperty("user.home"), ".hammer");
         String address = "127.0.0.1", bind = "0.0.0.0";
-        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true, circles = true;
+        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true, circles = true, keep = true;
+        long keepBytes = -1;
         int networkPort = KillaNet.PORT; String entry = "", watch = ""; boolean watchPrivate = false;
         boolean updates = true; String updateFrom = null; int updatePeers = -1;
         long updateEvery = -1, updateSpread = -1, updateHealthy = -1, updateDeadline = -1;
@@ -770,6 +784,8 @@ public final class HammerServer {
             else if (args[i].equals("--upnp")) upnp = true;
             else if (args[i].equals("--no-adopt")) adopt = false;
             else if (args[i].equals("--no-circles")) circles = false;
+            else if (args[i].equals("--no-keep")) keep = false;
+            else if (args[i].equals("--keep-gb")) keepBytes = Long.parseLong(args[++i]) << 30;
             else if (args[i].equals("--no-auto-update")) updates = false;
             else if (args[i].equals("--update-from")) updateFrom = args[++i];
             else if (args[i].equals("--update-every")) updateEvery = Long.parseLong(args[++i]);
@@ -783,7 +799,7 @@ public final class HammerServer {
             else if (args[i].equals("--watch-private")) watchPrivate = true;
             else
                 throw new IllegalArgumentException(
-                    "Use --daemon --network --help-network --no-adopt --no-circles --no-auto-update --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --no-adopt --no-circles --no-keep --keep-gb GB --no-auto-update --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -801,6 +817,18 @@ public final class HammerServer {
                 // a helper adopts hidden artists' songs that arrive through the mixnet, unless its owner says no
                 if (helper && adopt)
                     HammerMix.adoption = new HammerAdoption(app.store, new File(data, "adopted"));
+                // and keeps copies of artists' songs when they ask, so their music stays up while their phones sleep
+                if (helper && keep) {
+                    final HammerKeeper keeper = new HammerKeeper(app.store, new File(data, "kept"), app.pin);
+                    if (keepBytes > 0) keeper.bytesInAll = keepBytes;
+                    keeper.log = new HammerKeeper.Log() {
+                        public void said(String line) { System.out.println(line); }
+                    };
+                    app.store.keeper = keeper;
+                    app.discovery.scheduleWithFixedDelay(new Runnable() {
+                        public void run() { keeper.kick(); }  // on its own thread: downloads don't hold up the rest
+                    }, 2, 600, java.util.concurrent.TimeUnit.SECONDS);
+                }
                 HammerMix.start(); // votes, comments and hidden songs that reach this host through the mixnet
                 HelperUpdate update = helper ? HelperUpdate.create() : null;
                 if (update != null) {

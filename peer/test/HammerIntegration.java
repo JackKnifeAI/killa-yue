@@ -247,6 +247,7 @@ public final class HammerIntegration {
                 d.publish(source, "Public tone", "jazz koto", true, true, key);
                 check(!d.publicObjects.carry(real) && d.publicObjects.station(real.id()) == null,
                       "a host that never held a station doesn't take it once ended");
+                keeping(root, key, cert, fingerprint);
                 // circles: rooms carried sealed by hosts that can't read them
                 KeyPair starter = HammerCircle.memberKey(), member = HammerCircle.memberKey(), stranger = HammerCircle.memberKey();
                 final HammerCircle room = HammerCircle.start("Late night", "Listening till dawn", true);
@@ -761,6 +762,117 @@ public final class HammerIntegration {
         } finally {
             first.close();
             second.close();
+        }
+    }
+    /** Keeping: an artist asks a helper to hold copies of their songs, changes the list, and takes them back. */
+    static void keeping(File root, KeyPair key, X509Certificate cert, String fingerprint) throws Exception {
+        final HammerStore artist = new HammerStore(new File(root, "keep-artist")), helper = new HammerStore(new File(root, "keep-helper"));
+        final Hammer.Song one = artist.publish(wave(root, "keep1.wav", 3, 44100, 11), "Kept one", "", true, true, key),
+                          two = artist.publish(wave(root, "keep2.wav", 3, 44100, 12), "Kept two", "", true, true, key);
+        artist.publish(wave(root, "keep3.wav", 3, 44100, 13), "Streaming only", "", false, true, key);
+        final Hammer.Song owners = helper.publish(wave(root, "keep4.wav", 3, 44100, 14), "Owner's own", "", true, true, key);
+        final HammerKeeper keeper = new HammerKeeper(helper, new File(root, "keep-helper-kept"), fingerprint);
+        helper.keeper = keeper;
+        Hammer.Server from = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), artist),
+                      at = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), helper);
+        try {
+            final Hammer.Card fromCard = new Hammer.Card("127.0.0.1", from.port(), fingerprint, ""),
+                              helperCard = new Hammer.Card("127.0.0.1", at.port(), fingerprint, "");
+            final HammerKeep k = new HammerKeep();
+            k.helper = Hammer.hash(new byte[] {1});
+            k.from = fromCard.encode();
+            k.revision = 1;
+            k.songs.add(one.id);
+            k.songs.add(two.id);
+            k.sign(key);
+            rejects(new Attempt() {
+                public void run() throws Exception { Hammer.keep(helperCard, k, new Hammer.Job()); }
+            }, "a keep request meant for another helper is refused");
+            k.helper = fingerprint;
+            k.sign(key);
+            boolean refusedWithReason = false;
+            try {
+                Hammer.keep(helperCard, k, new Hammer.Job());
+            } catch (Hammer.Refused r) {
+                refusedWithReason = r.getMessage().contains("stamp");
+            }
+            check(refusedWithReason, "a new artist must pay the stamp, and the refusal says why");
+            k.stamp = HammerHidden.stamp(k.id(), new Hammer.Job());
+            check(Hammer.keep(helperCard, k, new Hammer.Job()).isEmpty(), "a keep request is taken before anything is copied");
+            final HammerKeep tampered = HammerKeep.read(new DataInputStream(new ByteArrayInputStream(k.bytes())));
+            tampered.songs.remove(1);
+            rejects(new Attempt() {
+                public void run() throws Exception { keeper.ask(tampered); }
+            }, "a changed keep request is refused");
+            keeper.round(new Hammer.Job());
+            List<String> held = Hammer.keep(helperCard, k, new Hammer.Job());
+            check(held.size() == 2 && held.contains(one.id) && held.contains(two.id),
+                  "the helper fetched both songs from the artist and says so");
+            check(Hammer.catalog(helperCard, new Hammer.Job()).size() == 3, "kept songs are hosted publicly with the owner's own");
+            from.close();
+            check(Hammer.catalog(helperCard, new Hammer.Job()).size() == 3, "kept songs stay up while the artist is away");
+            from = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), artist);
+            final Hammer.Card again = new Hammer.Card("127.0.0.1", from.port(), fingerprint, "");
+            k.revision = 2;
+            k.songs.remove(two.id);
+            k.sign(key);
+            check(Hammer.keep(helperCard, k, new Hammer.Job()).size() == 1
+                      && Hammer.catalog(helperCard, new Hammer.Job()).size() == 2
+                      && !helper.downloadFile(two).isFile(),
+                  "a song left out of a newer request is dropped and deleted");
+            final HammerKeep older = HammerKeep.read(new DataInputStream(new ByteArrayInputStream(k.bytes())));
+            older.revision = 1;
+            older.songs.clear();
+            older.sign(key);
+            check(Hammer.keep(helperCard, older, new Hammer.Job()).size() == 1, "an older request changes nothing");
+            k.revision = 3;
+            k.songs.clear();
+            k.sign(key);
+            check(Hammer.keep(helperCard, k, new Hammer.Job()).isEmpty() && Hammer.catalog(helperCard, new Hammer.Job()).size() == 1
+                      && Hammer.catalog(helperCard, new Hammer.Job()).get(0).id.equals(owners.id) && keeper.records().isEmpty(),
+                  "taking the songs back drops every kept copy, and only those");
+
+            // the artist's side: proven helpers, three copies, taking back
+            HammerKeeping side = new HammerKeeping(new File(root, "keep-artist"));
+            long[] clock = {System.currentTimeMillis()};
+            side.clock = clock;
+            Map<String, Hammer.Card> online = new HashMap<String, Hammer.Card>();
+            online.put(fingerprint, helperCard);
+            side.look(online);
+            check(!side.proven(fingerprint), "a helper seen once isn't proven");
+            for (int i = 0; i < 80; i++) {
+                clock[0] += HammerKeeping.HOUR;
+                side.look(i % 10 == 0 ? new HashMap<String, Hammer.Card>() : online);
+            }
+            check(side.proven(fingerprint), "a helper online at nine looks in ten over three days is proven");
+            String flaky = Hammer.hash(new byte[] {2});
+            for (int i = 0; i < 80; i++) {
+                clock[0] += HammerKeeping.HOUR;
+                Map<String, Hammer.Card> m = new HashMap<String, Hammer.Card>(online);
+                if (i % 2 == 0)
+                    m.put(flaky, helperCard);
+                side.look(m);
+            }
+            check(!side.proven(flaky), "a helper online at half the looks isn't proven");
+            Map<String, Hammer.Card> steady = new HashMap<String, Hammer.Card>(online);
+            check(side.tend(artist, key, again, steady, new Hammer.Job()).isEmpty() && keeper.records().isEmpty(),
+                  "nothing is copied before the artist turns keeping on");
+            side.turn(true);
+            side.tend(artist, key, again, steady, new Hammer.Job());
+            keeper.round(new Hammer.Job());
+            side.tend(artist, key, again, steady, new Hammer.Job());
+            HammerKeeping.Status st = side.status(artist, Hammer.publicKey(key.getPublic()), steady);
+            check(st.songs == 2 && st.streamingOnly == 1 && st.whole() == 1 && st.carriers.size() == 1 && st.carriers.get(0)[1] == 1,
+                  "turned on, the artist's songs that allow rehosting go to the proven helper");
+            side.turn(false);
+            side.tend(artist, key, again, steady, new Hammer.Job());
+            check(keeper.records().isEmpty() && Hammer.catalog(helperCard, new Hammer.Job()).size() == 1
+                      && side.status(artist, Hammer.publicKey(key.getPublic()), steady).carriers.isEmpty(),
+                  "turned off, every copy is taken back");
+        } finally {
+            from.close();
+            at.close();
+            keeper.close();
         }
     }
     public static void main(String[] args) throws Exception {
