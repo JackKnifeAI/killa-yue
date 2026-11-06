@@ -431,6 +431,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
+        Resume.prune(getApplicationContext()); // unfinished songs older than a month go, once per app start
         CommunityCountActivity.onLaunch(this);
         HammerService.resume(this);  // hosting you left on comes back by itself
         Updates.resume(this);   // back from allowing Killa YuE to install apps
