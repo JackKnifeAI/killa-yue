@@ -1346,7 +1346,7 @@ public class MainActivity extends Activity {
             return;
         }
         String heat = gpuHeat();
-        if (heat.length() > 0) {
+        if (heat.length() > 0 || (HeatGuard.on(this) && HeatGuard.read(this).hot())) {
             queueNote = "Queue is waiting for the phone to cool down.";
             return;
         }
@@ -1622,15 +1622,18 @@ public class MainActivity extends Activity {
         jobId = id;
         jobMsg = "";
         int misses = 0;
+        final int runs = EngineService.engineRuns;   // the engine this job was sent to
         while (true) {
             Thread.sleep(1500);
             if (EngineService.recovering) {
-                jobMsg = "The GPU driver crashed: restarting it";
                 while (EngineService.recovering) {
+                    jobMsg = EngineService.cooling ? EngineService.coolNote() : "The GPU driver crashed: restarting it";
                     if (jobCancel) throw new Exception("Cancelled");
                     Thread.sleep(500);
                 }
-                if (EngineService.running) throw new EngineService.Restarted();
+                jobMsg = "";
+                // a new engine lost the job: send it again (it carries on from its checkpoint)
+                if (EngineService.running && EngineService.engineRuns != runs) throw new EngineService.Restarted();
             }
             if (!EngineService.running) {
                 String why = EngineService.lastError;
@@ -1648,6 +1651,7 @@ public class MainActivity extends Activity {
                 throw e;
             }
             if ("done".equals(s)) return;
+            if ("cancelled".equals(s) && (EngineService.cooling || EngineService.recovering)) continue; // a cooling break, not the user
             if ("cancelled".equals(s)) {
                 jobCancel = true;
                 throw new Exception("Cancelled");
@@ -3951,6 +3955,17 @@ public class MainActivity extends Activity {
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
         gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
+        final CheckBox coolBox = new CheckBox(this);
+        coolBox.setText("Cooling breaks (when the phone gets hot, a song pauses and carries on once it has cooled)");
+        coolBox.setTextColor(TEXT);
+        coolBox.setShadowLayer(4, 0, 1, 0x99000000);
+        coolBox.setChecked(HeatGuard.on(this));
+        coolBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                HeatGuard.on(MainActivity.this, on);   // read at every check: applies at once, no restart
+            }
+        });
+        c.addView(coolBox, gap(8));
         final CheckBox stemsFast = new CheckBox(this);
         stemsFast.setText("Studio jobs at full speed (stems split faster; playback may stutter while one runs)");
         stemsFast.setTextColor(TEXT);
@@ -4684,6 +4699,9 @@ public class MainActivity extends Activity {
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);
             String heat = snapHeat;
             String eta = Eta.text();
+            if (EngineService.cooling && !EngineService.coolingStopping) {
+                eta = "It carries on by itself when the phone is cooler" + (eta.length() > 0 ? ", then " + eta : "");
+            }
             // the estimate gets its own line, so the status never wraps in the middle of a phrase
             progText.setText(st + "   ·   " + clock(el) + " elapsed"
                     + (eta.length() > 0 ? "\n" + Character.toUpperCase(eta.charAt(0)) + eta.substring(1) : "")

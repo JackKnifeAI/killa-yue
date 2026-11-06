@@ -36,6 +36,9 @@ public class Eta {
     private static volatile double songSec;
     private static volatile int chunks, chunksDone, step, stepMs;
     private static volatile double speed = 1.0; // remembered time / live time; above 1 means faster than usual
+    // the engine was started again mid-song (a cooling break or a GPU restart): its render carries on from a checkpoint
+    private static volatile boolean resumed;
+    private static volatile int resumedRuns;
 
     /** Called when a job starts. lengthSec is the requested upper limit, renderSteps the passes per chunk. */
     static void begin(Context c, int lengthSec, int renderSteps, boolean gentle) {
@@ -50,7 +53,15 @@ public class Eta {
         songSec = 0;
         chunks = chunksDone = step = stepMs = 0;
         speed = 1.0;
+        resumed = false;
+        resumedRuns = 0;
         active = true;
+    }
+
+    /** The engine is starting again for the same song: keep what the render had done, and learn no speeds from it. */
+    static void restarted() {
+        resumed = true;
+        resumedRuns++;
     }
 
     static void end() {
@@ -64,6 +75,7 @@ public class Eta {
     }
 
     private static void learn(String key, double value) {
+        if (resumedRuns > 0) return; // breaks and restarts would teach a wrong speed
         if (prefs == null || !(value > 0) || Double.isInfinite(value)) return;
         double old = prefs.getFloat(key + "_" + mode, -1f);
         double v = old > 0 ? old * 0.5 + value * 0.5 : value;
@@ -121,6 +133,12 @@ public class Eta {
         }
         m = P_SONG.matcher(s);
         if (m.find()) {
+            if (resumed && phase == RENDER) {
+                // the same song again: the render picks up where it stopped, the chunks done stay done
+                resumed = false;
+                return;
+            }
+            resumed = false;
             enter(RENDER, now);
             songSec = Double.parseDouble(m.group(1));
             chunks = Integer.parseInt(m.group(2));

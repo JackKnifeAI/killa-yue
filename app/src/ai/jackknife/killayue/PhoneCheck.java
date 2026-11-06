@@ -148,6 +148,7 @@ public class PhoneCheck {
             float v = eta.getFloat(keys[i], -1f);
             if (v > 0) b.append("Measured ").append(names[i]).append(": ").append(String.format(Locale.US, "%.1f", v)).append('\n');
         }
+        b.append(HeatGuard.report(c));
         String last = EngineService.lastError;
         if (last != null && last.length() > 0) b.append("Last engine error: ").append(last).append('\n');
         return b.toString();
