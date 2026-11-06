@@ -24,8 +24,9 @@ public class HeatGuard {
 
     // battery temperatures, °C: the battery warms more slowly than the chip, so these sit below phone warnings
     static final double BATTERY_HOT = 44.0, BATTERY_CRITICAL = 47.0, BATTERY_COOL = 39.5;
-    // thermal headroom: 1.0 means the phone is at the point where it throttles hard
-    static final double HEADROOM_HOT = 0.95, HEADROOM_COOL = 0.75;
+    // thermal headroom: 1.0 is what Android calls severe (it throttles hard); a break ends just under "light" (0.87).
+    // Measured on the S25 charging: 0.95 came within 3 minutes of rendering, and 0.75 kept it resting 4+ minutes.
+    static final double HEADROOM_HOT = 1.0, HEADROOM_COOL = 0.85;
 
     /** A break lasts at least this long, so the engine is not restarted for a few seconds of cooling. */
     static final long BREAK_MIN_MS = 60_000;
