@@ -175,7 +175,7 @@ public class StudioActivity extends Activity implements StudioSession.Listener {
     }
 
     public void projectChanged() {
-        title.setText(session.project() == null ? "Studio" : session.project().name);
+        title.setText(Ui.lettered(this, session.project() == null ? "Studio" : session.project().name, 46));
     }
 
     @Override
