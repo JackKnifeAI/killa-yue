@@ -1157,7 +1157,8 @@ public class MainActivity extends Activity {
                         waitJob(id);
                         break;
                     } catch (EngineService.Restarted r) {
-                        // the engine is back on the GPU: the same request carries on from its checkpoint
+                        // the engine is back (cooled down, or on the GPU again): carry on from the checkpoint
+                        Resume.carryOn(req);
                     }
                 }
                 jobMsg = "Saving";

@@ -190,6 +190,30 @@ public class Resume {
         return (s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
     }
 
+    /**
+     * After the engine restarted mid-song (a cooling break, or the GPU driver crashed): adds the composition the song
+     * has already written, so the engine skips the writing and the render carries on from its last saved step.
+     * Without this the same request would write the whole song again.
+     */
+    static void carryOn(JSONObject req) {
+        try {
+            String cp = req.optString("checkpoint");
+            if (cp.length() == 0 || req.has("semantic_tokens")) return;
+            File comp = new File(cp, "composed-0.json");
+            if (!comp.isFile()) return; // still writing when it stopped: it starts the writing again
+            JSONObject c = new JSONObject(new String(Store.read(comp), "UTF-8"));
+            req.put("semantic_tokens", c.getString("semantic_tokens"));
+            req.put("seed", c.getLong("seed"));
+            String abc = c.optString("abc");
+            if (abc.length() > 0) {
+                req.put("abc", abc);
+                req.put("abc_tokens", c.optString("abc_tokens"));
+            }
+        } catch (Exception e) {
+            // an unreadable composition: the song is written again
+        }
+    }
+
     /** The request that plays the song as far as it got, leaving its checkpoint as it was. */
     static JSONObject previewRequest(Unfinished u) throws Exception {
         JSONObject r = request(u);
