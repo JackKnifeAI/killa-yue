@@ -435,6 +435,8 @@ public final class HammerArtistActivity extends Activity {
             keepingNow();
         if (own && counts != null)
             week(counts, selected);
+        if (own)
+            remixesOfMine();
         if (!albums.isEmpty())
             albums(albums, selected);
         if (!selected.isEmpty())
@@ -935,6 +937,42 @@ public final class HammerArtistActivity extends Activity {
         h.setHorizontalScrollBarEnabled(false);
         h.addView(shelf);
         songs.addView(h);
+    }
+    /** Remixes other artists linked to your songs (Remixes): a section only when there are some. */
+    private void remixesOfMine() {
+        final LinearLayout box = Ui.column(this);
+        songs.addView(box);
+        new Thread(new Runnable() {
+            public void run() {
+                final List<Remixes.Child> list;
+                try {
+                    list = Remixes.ofMine(HammerArtistActivity.this);
+                } catch (Exception e) {
+                    return;
+                }
+                if (list.isEmpty())
+                    return;
+                runOnUiThread(new Runnable() {
+                    public void run() {
+                        box.addView(heading("REMIXED BY OTHERS"));
+                        LinearLayout card = plate();
+                        for (final Remixes.Child ch : list) {
+                            TextView t = Ui.text(HammerArtistActivity.this, "“" + ch.remix.title + "”" + (ch.by.isEmpty() ? "" : " by " + ch.by)
+                                                     + "\nremix of your “" + ch.original.title + "”", Skin.TEXT, 14);
+                            t.setPadding(0, Ui.dp(HammerArtistActivity.this, 6), 0, Ui.dp(HammerArtistActivity.this, 6));
+                            t.setOnClickListener(new View.OnClickListener() {
+                                public void onClick(View v) {
+                                    // the song's conversation lists the remix links, and opens them
+                                    BackstageActivity.open(HammerArtistActivity.this, null, "track", ch.original.id, false);
+                                }
+                            });
+                            card.addView(t);
+                        }
+                        box.addView(card);
+                    }
+                });
+            }
+        }, "remixes-of-mine").start();
     }
     /**
      * Your week: what this phone served since about a week ago. A note of the counts is kept here each day the page

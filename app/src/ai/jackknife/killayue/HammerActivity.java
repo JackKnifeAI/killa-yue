@@ -2156,10 +2156,12 @@ public final class HammerActivity extends Activity {
             .setItems(new String[] {"Listen · choose the quality",
                                     hit.song.reshare ? "Download / resume" : "Streaming only", "Comments",
                                     "Up / down votes", "Follow this artist", "Artist profile", "Song conversation / remixes",
-                                    "Lyrics"},
+                                    "Lyrics", "Remix this song"},
                       new DialogInterface.OnClickListener() {
                           public void onClick(DialogInterface d, int which) {
-                              if (which == 7) {
+                              if (which == 8) {
+                                  remix(hit);
+                              } else if (which == 7) {
                                   showLyrics(hit);
                               } else if (which == 6) {
                                   BackstageActivity.open(HammerActivity.this, hit.peer.card, "track", hit.song.id, false);
@@ -2193,6 +2195,27 @@ public final class HammerActivity extends Activity {
                       })
             .setNegativeButton("Close", null)
             .show();
+    }
+    /** Opens Create with this song's style and lyrics; the song made from it credits this one. */
+    private void remix(final Hit hit) {
+        work("Opening a remix", new Work() {
+            public void run() throws Exception {
+                HammerLyrics l = null;
+                try {
+                    l = Hammer.lyrics(hit.peer.card, hit.song, job);
+                } catch (Exception olderHost) {
+                    // a host from before lyrics were shared: style only
+                }
+                String artist = "";
+                try {
+                    for (HammerProfile p : store.publicObjects.profiles())
+                        if (p.key.equals(hit.song.key))
+                            artist = p.name;
+                } catch (Exception noProfile) {
+                }
+                Remixes.start(HammerActivity.this, hit.song, hit.peer.card, artist, l);
+            }
+        });
     }
     private void showLyrics(final Hit hit) {
         work("Reading lyrics", new Work() {

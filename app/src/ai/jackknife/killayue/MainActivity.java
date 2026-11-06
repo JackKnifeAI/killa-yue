@@ -108,6 +108,9 @@ public class MainActivity extends Activity {
     EditText songTitle;
     static volatile String pendingTitle = "";
     static volatile String pendingAlbum = "";
+    // a remix: its parent (Remixes), set by Remix on a shared song, given to the next song made
+    static volatile JSONObject pendingRemix;
+    static volatile JSONObject savingRemix;
     /** When an album is playing, its songs in album order; otherwise null and the library order is used. */
     ArrayList<JSONObject> albumOrder;
     String playTitle = "";
@@ -432,6 +435,7 @@ public class MainActivity extends Activity {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
         Resume.prune(getApplicationContext()); // unfinished songs older than a month go, once per app start
+        Remixes.retry(getApplicationContext()); // remix links whose original's phone was off
         CommunityCountActivity.onLaunch(this);
         HammerService.resume(this);  // hosting you left on comes back by itself
         Updates.resume(this);   // back from allowing Killa YuE to install apps
@@ -570,6 +574,7 @@ public class MainActivity extends Activity {
                     songTitle.setText("");
                     style.setText("");
                     lyrics.setText("");
+                    pendingRemix = null;
                     settle();
                     toast("Cleared. Undo brings it back.");
                 }
@@ -1136,10 +1141,13 @@ public class MainActivity extends Activity {
         final Context app = getApplicationContext();
         pendingTitle = title;
         // a checkpoint folder: the song can carry on from where it stops (Resume)
-        Resume.prepare(app, req, title, pendingAlbum);
+        final JSONObject remixOf = fromQueue ? null : pendingRemix;
+        if (!fromQueue) pendingRemix = null;
+        Resume.prepare(app, req, title, pendingAlbum, remixOf);
         startJob("Starting", new Task() {
             public void run() throws Exception {
                 String id;
+                savingRemix = remixOf;
                 while (true) {
                     ensureEngine(app);
                     jobMsg = "Queued";
@@ -1153,7 +1161,12 @@ public class MainActivity extends Activity {
                     }
                 }
                 jobMsg = "Saving";
-                int n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
+                int n;
+                try {
+                    n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
+                } finally {
+                    savingRemix = null;
+                }
                 if (n == 0) throw new Exception("The engine finished but returned no audio.");
                 Resume.finished(req);
                 runningCheckpoint = "";
@@ -1542,6 +1555,7 @@ public class MainActivity extends Activity {
     void resume(Resume.Unfinished u) {
         try {
             pendingAlbum = u.request.optString("_album");
+            pendingRemix = u.request.optJSONObject("_remix_of");
             startSong(Resume.request(u), u.title, false);
         } catch (Exception e) {
             alert("Could not resume", String.valueOf(e.getMessage()));
@@ -1695,6 +1709,7 @@ public class MainActivity extends Activity {
                 meta.put("_created", System.currentTimeMillis());
                 meta.put("_seconds", frames / 25);
                 Store.write(new File(lib, base + ".json"), meta.toString().getBytes("UTF-8"));
+                if (savingRemix != null) meta.put("_remix_of", savingRemix); // a remix credits its original
                 if (pendingAlbum.length() > 0) Albums.add(app, pendingAlbum, base + ".json"); // made for an album
                 try {
                     Tags.write(new File(lib, base + ext), meta.optString("_title"),
@@ -2044,7 +2059,8 @@ public class MainActivity extends Activity {
             "Open in Studio", "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
             "Nearby download · unencrypted", "Change the title", "Details", "Delete",
         };
-        new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
+        String credit = Remixes.credit(m);
+        new Lux.Builder(this).setTitle(credit.length() > 0 ? title + "\n" + credit : title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 final String pick = items[w];
                 if ("Play".equals(pick)) {
@@ -2561,6 +2577,12 @@ public class MainActivity extends Activity {
     public static final String SING_LYRICS = "singLyrics", SING_STYLE = "singStyle";
 
     void handleLink(Intent in) {
+        if (in != null && Remixes.ACTION.equals(in.getAction())) {
+            String r = in.getStringExtra("recipe");
+            in.setAction(Intent.ACTION_MAIN);  // once
+            if (r != null) openRemix(r);
+            return;
+        }
         // "Share → Killa YuE" from any app: songs made anywhere join the Library and, if wanted, the network
         if (in != null && (Intent.ACTION_SEND.equals(in.getAction()) || Intent.ACTION_SEND_MULTIPLE.equals(in.getAction()))) {
             ArrayList<Uri> shared = new ArrayList<Uri>();
@@ -3401,6 +3423,24 @@ public class MainActivity extends Activity {
             startActivity(Intent.createChooser(s, "Share this song's recipe"));
         } catch (Exception e) {
             toast("Could not write the recipe: " + e.getMessage());
+        }
+    }
+
+    /** Remix on a shared song: Create gets its style and lyrics, and the next song made credits it. */
+    void openRemix(String recipe) {
+        try {
+            JSONObject r = new JSONObject(recipe);
+            clearCarry();
+            loadPrompt(r, true);
+            songTitle.setText(r.optString("_title"));
+            pendingRemix = r.optJSONObject("_remix_of");
+            settle();
+            showTab(TAB_CREATE);
+            alert("Remix", Remixes.credit(r) + ": its style and lyrics are in Create. Change anything you like, then "
+                    + "Generate. Your song will credit the original, and when you share it publicly the original artist "
+                    + "sees your remix.");
+        } catch (Exception e) {
+            toast("That remix could not be opened");
         }
     }
 

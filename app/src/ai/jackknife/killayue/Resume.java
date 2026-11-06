@@ -57,6 +57,11 @@ public class Resume {
 
     /** Gives a new song its checkpoint folder and keeps the request there. */
     static void prepare(Context c, JSONObject req, String title, String album) {
+        prepare(c, req, title, album, null);
+    }
+
+    /** remixOf: the parent of a remix (Remixes), kept so a resumed remix still credits it. */
+    static void prepare(Context c, JSONObject req, String title, String album, JSONObject remixOf) {
         try {
             req.remove("preview"); // a song is always made in full; only listen() asks for a preview
             if (req.has("checkpoint")) return; // a resumed song keeps its folder
@@ -68,6 +73,7 @@ public class Resume {
             JSONObject keep = new JSONObject(req.toString());
             keep.put("_title", title == null ? "" : title);
             keep.put("_album", album == null ? "" : album);
+            if (remixOf != null) keep.put("_remix_of", remixOf);
             Store.write(new File(d, "request.json"), keep.toString().getBytes("UTF-8"));
         } catch (Exception e) {
             // without a checkpoint the song is made as before
@@ -196,6 +202,7 @@ public class Resume {
         JSONObject r = new JSONObject(u.request.toString());
         r.remove("_title");
         r.remove("_album");
+        r.remove("_remix_of");
         r.put("checkpoint", u.dir.getAbsolutePath());
         r.put("semantic_tokens", u.composed.getString("semantic_tokens"));
         r.put("seed", u.composed.getLong("seed"));

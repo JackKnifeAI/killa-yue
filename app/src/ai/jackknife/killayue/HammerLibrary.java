@@ -189,6 +189,8 @@ final class HammerLibrary {
                                         store.publicObjects.cover(song, art);
                                     }
                                     attachLyrics(store, song, file);
+                                    if (scope == 1)
+                                        Remixes.shared(a, song, meta);  // a public remix links to its original
                                 }
                                 if (existing != null && existing.publicSong && scope == 2)
                                     HammerService.disconnect();
@@ -553,6 +555,7 @@ final class HammerLibrary {
         File file = audio(c, meta);
         Hammer.Song song = store.publish(file, meta.optString("_title", "Untitled"), meta.optString("style", ""),
                                          true, true, HammerAndroid.identity());
+        Remixes.shared(c, song, meta);  // a public remix links to its original
         byte[] image = null;
         File cover = Covers.coverFor(c, meta);
         if (cover.isFile())
