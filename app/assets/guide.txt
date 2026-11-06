@@ -81,7 +81,7 @@ Lets Android keep the engine running while the app is closed, so songs finish wh
 ## Downloads
 Share the models by QR sends the models to another phone on the same Wi-Fi. Album covers, the GPU cover model and the lyric sync model download here; each file is checked against its published checksum.
 ## Developer options and Device report
-Details about the phone and the engine, for reporting problems.
+Details about the phone and the engine, for reporting problems. Device report opens the report form on GitHub already filled in, with the end of the engine log; read it and remove anything you would rather not share (the log holds your style and lyrics) before you submit it. Copy log copies the engine log, also after the app was restarted.
 
 # Studio
 A small music studio inside the app. Open it from the Studio tab, or from a song's options with Open in Studio. The round button at the top left goes back.

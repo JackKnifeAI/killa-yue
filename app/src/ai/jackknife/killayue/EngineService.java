@@ -130,6 +130,47 @@ public class EngineService extends Service {
         return b.toString();
     }
 
+    /**
+     * The log to copy or report: this run's, or, when the app was restarted since (the lines in memory are gone),
+     * the end of the last run's log file, then the one before it. Reads storage: call it off the screen thread.
+     */
+    static String savedLog(Context c, int maxChars) {
+        String now = logText();
+        if (now.trim().length() > 0) return tail(now, maxChars);
+        File dir = Store.dir(c, "logs");
+        String[] names = {"engine-last.log", "engine-previous.log"};
+        for (String n : names) {
+            File f = new File(dir, n);
+            if (!f.isFile() || f.length() == 0) continue;
+            try {
+                java.io.RandomAccessFile r = new java.io.RandomAccessFile(f, "r");
+                try {
+                    long len = r.length(), from = Math.max(0, len - maxChars * 2L);
+                    byte[] b = new byte[(int) (len - from)];
+                    r.seek(from);
+                    r.readFully(b);
+                    String text = new String(b, "UTF-8");
+                    if (text.trim().length() == 0) continue;
+                    String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(new java.util.Date(f.lastModified()));
+                    return "[" + n + ", last written " + when + "]\n" + tail(text, maxChars);
+                } finally {
+                    r.close();
+                }
+            } catch (Exception e) {
+                // try the older one
+            }
+        }
+        return "";
+    }
+
+    /** The last maxChars of the text, starting at a whole line. */
+    static String tail(String s, int maxChars) {
+        if (s.length() <= maxChars) return s;
+        s = s.substring(s.length() - maxChars);
+        int nl = s.indexOf('\n');
+        return nl >= 0 ? s.substring(nl + 1) : s;
+    }
+
     static volatile EngineService self;
 
     static void setStage(String s, int cur, int max) {

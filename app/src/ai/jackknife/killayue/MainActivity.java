@@ -2750,21 +2750,39 @@ public class MainActivity extends Activity {
         }, "album-share").start();
     }
 
-    /** Copies what the project needs to know about this phone, and opens the GitHub form for it. */
+    /**
+     * Opens the GitHub device-report form already filled in: the phone, chip, Android and app version, the measured
+     * speeds and temperatures, and the end of the engine log. The whole report is also copied, for a form that
+     * comes up empty. Nothing is sent by the app: the person reads the form and submits it.
+     */
     void deviceReport() {
-        final String r = PhoneCheck.report(this);
-        new Lux.Builder(this).setTitle("Device report").setMessage(r + "\nCopy this and paste it into the device report on GitHub. "
-                + "It helps make Killa YuE work on more phones. Nothing is sent by the app.")
-                .setPositiveButton("Copy and open GitHub", new DialogInterface.OnClickListener() {
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                final String r = PhoneCheck.report(app);
+                final String log = EngineService.savedLog(app, 3500);   // a link has room for the end of it
+                ui.post(new Runnable() {
+                    public void run() {
+                        showDeviceReport(r, log);
+                    }
+                });
+            }
+        }, "device-report").start();
+    }
+
+    void showDeviceReport(final String r, final String log) {
+        new Lux.Builder(this).setTitle("Device report").setMessage(r + "\nThis opens the device report on GitHub, filled in "
+                + "with these details and the end of the engine log. The log holds your song's style and lyrics: read the "
+                + "form, remove anything you would rather not share, then submit it. Nothing is sent by the app.")
+                .setPositiveButton("Open GitHub, filled in", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        cm.setPrimaryClip(ClipData.newPlainText("Killa YuE device report", r));
-                        toast("Copied. Paste it into the form.");
+                        cm.setPrimaryClip(ClipData.newPlainText("Killa YuE device report", r + "\n" + log));
                         try {
-                            startActivity(new Intent(Intent.ACTION_VIEW,
-                                    Uri.parse("https://github.com/JackKnifeAI/killa-yue/issues/new?template=device-report.yml")));
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(PhoneCheck.reportLink(MainActivity.this, r, log))));
+                            toast("Also copied, in case the form comes up empty");
                         } catch (Exception e) {
-                            toast("No browser to open the form");
+                            toast("No browser to open the form. The report is copied.");
                         }
                     }
                 }).setNegativeButton("Close", null).show();
@@ -4220,9 +4238,24 @@ public class MainActivity extends Activity {
         c.addView(copy);
         copy.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(ClipData.newPlainText("Killa YuE log", EngineService.logText()));
-                toast("Log copied");
+                final Context app = getApplicationContext();
+                new Thread(new Runnable() {
+                    public void run() {
+                        // after a restart the lines in memory are gone: the saved log file is copied instead
+                        final String text = EngineService.savedLog(app, 200000);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (text.trim().length() == 0) {
+                                    toast("The log is empty: no song has been made since the app was installed");
+                                    return;
+                                }
+                                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                cm.setPrimaryClip(ClipData.newPlainText("Killa YuE log", text));
+                                toast("Log copied");
+                            }
+                        });
+                    }
+                }, "copy-log").start();
             }
         });
         logView = text("", DIM, 10);

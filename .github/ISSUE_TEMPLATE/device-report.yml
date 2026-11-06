@@ -53,7 +53,7 @@ body:
     id: log
     attributes:
       label: Engine log
-      description: Engine tab, then "Copy log", and paste it here. It contains your style and lyrics, so remove anything you would rather not share.
+      description: Filled in by the app's Settings, Device report. Or Settings, then "Copy log", and paste it here. It contains your style and lyrics, so remove anything you would rather not share.
       render: text
   - type: textarea
     id: notes
