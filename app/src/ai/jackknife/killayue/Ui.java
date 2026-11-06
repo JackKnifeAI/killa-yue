@@ -61,7 +61,8 @@ public final class Ui {
     /** A screen's title in the skin's script lettering, as the sheet viewer and the wake-up screen show theirs. */
     public static TextView title(Context c, String s) {
         TextView t = new TextView(c);
-        t.setText(s);
+        t.setText(lettered(c, s, 46));
+        t.setContentDescription(s);
         t.setTextColor(Skin.ACCENT);
         t.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
         t.setTextSize(Skin.SCRIPT_TITLES ? 30 : 22);
@@ -71,6 +72,51 @@ public final class Ui {
         }
         t.setShadowLayer(8, 0, 2, 0xCC000000);
         return t;
+    }
+
+    // ---- Killa Gold's lettered page names: the app icon's gold gel script, made in Pixella from the icon ----
+
+    private static final String[][] LETTERED = {
+            {"Killa YuE", "killa-yue"}, {"Discover", "discover"}, {"Artist", "artist"}, {"Studio", "studio"},
+            {"Backstage · artist board", "backstage"}, {"Sharing and hosting", "hosting"}, {"Community headcount", "community"}};
+    private static final java.util.HashMap<String, android.graphics.Bitmap> letteredArt = new java.util.HashMap<String, android.graphics.Bitmap>();
+    /** The art's height for the tallest name (Backstage, with its g): the names share one letter size. */
+    private static final int LETTERED_PX = 200;
+
+    /**
+     * A page name as Killa Gold's lettering (assets/skins/gold/titles), or the text itself for other skins and for
+     * names without art. tallestDp is the height the tallest name is drawn at.
+     */
+    public static CharSequence lettered(Context c, String s, int tallestDp) {
+        if (!"gold".equals(Skin.id(c))) return s;
+        String file = null;
+        for (String[] l : LETTERED) if (l[0].equals(s)) file = l[1];
+        if (file == null) return s;
+        android.graphics.Bitmap b;
+        synchronized (letteredArt) {
+            b = letteredArt.get(file);
+            if (b == null) {
+                try {
+                    java.io.InputStream in = c.getAssets().open("skins/gold/titles/" + file + ".webp");
+                    try {
+                        b = android.graphics.BitmapFactory.decodeStream(in);
+                    } finally {
+                        in.close();
+                    }
+                } catch (Exception e) {
+                    b = null;
+                }
+                if (b == null) return s;
+                letteredArt.put(file, b);
+            }
+        }
+        float px = tallestDp * c.getResources().getDisplayMetrics().density / LETTERED_PX;
+        android.graphics.drawable.BitmapDrawable d = new android.graphics.drawable.BitmapDrawable(c.getResources(), b);
+        d.setBounds(0, 0, Math.round(b.getWidth() * px), Math.round(b.getHeight() * px));
+        android.text.SpannableString out = new android.text.SpannableString(s);
+        out.setSpan(new android.text.style.ImageSpan(d, android.text.style.DynamicDrawableSpan.ALIGN_BOTTOM), 0, s.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return out;
     }
 
     public static EditText edit(Context c, String hint, int minLines) {

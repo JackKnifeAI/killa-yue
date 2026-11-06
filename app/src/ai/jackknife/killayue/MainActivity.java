@@ -316,6 +316,8 @@ public class MainActivity extends Activity {
         TextView title = text(Skin.SCRIPT_TITLES ? "Killa YuE" : "KILLA YuE", Skin.ACCENT, Skin.SCRIPT_TITLES ? 30 : 22);
         title.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
         if (!Skin.SCRIPT_TITLES) title.setLetterSpacing(0.12f);
+        title.setText(Ui.lettered(this, title.getText().toString(), 44)); // Killa Gold: the icon's own lettering
+        title.setContentDescription("Killa YuE");
         top.addView(title, weight());
         header = text("", DIM, 12);
         top.addView(header);
