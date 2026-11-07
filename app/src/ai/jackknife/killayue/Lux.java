@@ -56,6 +56,11 @@ public class Lux {
 
     private static final Object DONE = new Object();
 
+    /** Leaves a view's own colours and faces alone when a dialog holding it is dressed. */
+    static void keep(TextView t) {
+        t.setTag(R.id.lux_done, DONE);
+    }
+
     static void style(View v, Context c) {
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
@@ -91,7 +96,9 @@ public class Lux {
             if (text != null) t.setTypeface(text);
             t.setTextColor(Skin.TEXT);
             t.setHintTextColor(Skin.DIM);
-            t.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Skin.ACCENT));
+            // the app's own fields already wear dark glass; tinting that gold left cream text on gold, hard to read
+            if (!(t.getBackground() instanceof android.graphics.drawable.GradientDrawable))
+                t.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Skin.ACCENT));
         } else {
             if (text != null) t.setTypeface(text);
             t.setTextColor(Skin.TEXT);

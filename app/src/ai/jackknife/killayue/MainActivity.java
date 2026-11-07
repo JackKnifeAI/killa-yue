@@ -108,6 +108,9 @@ public class MainActivity extends Activity {
     EditText songTitle;
     static volatile String pendingTitle = "";
     static volatile String pendingAlbum = "";
+    // a remix: its parent (Remixes), set by Remix on a shared song, given to the next song made
+    static volatile JSONObject pendingRemix;
+    static volatile JSONObject savingRemix;
     /** When an album is playing, its songs in album order; otherwise null and the library order is used. */
     ArrayList<JSONObject> albumOrder;
     String playTitle = "";
@@ -288,6 +291,7 @@ public class MainActivity extends Activity {
         setTheme(Skin.themeFor(this, Skin.id(this)));
         super.onCreate(b);
         inst = this;
+        Protection.watch(this); // before this screen starts, so the count of open screens includes it
         cfg = getSharedPreferences("cfg", 0);
         // Apply device defaults before the controls read them.
         String check = PhoneCheck.firstLaunch(this);
@@ -312,6 +316,8 @@ public class MainActivity extends Activity {
         TextView title = text(Skin.SCRIPT_TITLES ? "Killa YuE" : "KILLA YuE", Skin.ACCENT, Skin.SCRIPT_TITLES ? 30 : 22);
         title.setTypeface(Skin.script(), Skin.SCRIPT_TITLES ? Typeface.NORMAL : Typeface.BOLD);
         if (!Skin.SCRIPT_TITLES) title.setLetterSpacing(0.12f);
+        title.setText(Ui.lettered(this, title.getText().toString(), 44)); // Killa Gold: the icon's own lettering
+        title.setContentDescription("Killa YuE");
         top.addView(title, weight());
         header = text("", DIM, 12);
         top.addView(header);
@@ -430,6 +436,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Ringtones.resume(this); // back from allowing Killa YuE to change the phone's sounds
+        Resume.prune(getApplicationContext()); // unfinished songs older than a month go, once per app start
+        Remixes.retry(getApplicationContext()); // remix links whose original's phone was off
         CommunityCountActivity.onLaunch(this);
         HammerService.resume(this);  // hosting you left on comes back by itself
         Updates.resume(this);   // back from allowing Killa YuE to install apps
@@ -568,6 +576,7 @@ public class MainActivity extends Activity {
                     songTitle.setText("");
                     style.setText("");
                     lyrics.setText("");
+                    pendingRemix = null;
                     settle();
                     toast("Cleared. Undo brings it back.");
                 }
@@ -1134,10 +1143,13 @@ public class MainActivity extends Activity {
         final Context app = getApplicationContext();
         pendingTitle = title;
         // a checkpoint folder: the song can carry on from where it stops (Resume)
-        Resume.prepare(app, req, title, pendingAlbum);
+        final JSONObject remixOf = fromQueue ? null : pendingRemix;
+        if (!fromQueue) pendingRemix = null;
+        Resume.prepare(app, req, title, pendingAlbum, remixOf);
         startJob("Starting", new Task() {
             public void run() throws Exception {
                 String id;
+                savingRemix = remixOf;
                 while (true) {
                     ensureEngine(app);
                     jobMsg = "Queued";
@@ -1147,11 +1159,17 @@ public class MainActivity extends Activity {
                         waitJob(id);
                         break;
                     } catch (EngineService.Restarted r) {
-                        // the engine is back on the GPU: the same request carries on from its checkpoint
+                        // the engine is back (cooled down, or on the GPU again): carry on from the checkpoint
+                        Resume.carryOn(req);
                     }
                 }
                 jobMsg = "Saving";
-                int n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
+                int n;
+                try {
+                    n = saveTracks(app, Api.parts(Api.resultRaw(id)), req);
+                } finally {
+                    savingRemix = null;
+                }
                 if (n == 0) throw new Exception("The engine finished but returned no audio.");
                 Resume.finished(req);
                 runningCheckpoint = "";
@@ -1345,7 +1363,7 @@ public class MainActivity extends Activity {
             return;
         }
         String heat = gpuHeat();
-        if (heat.length() > 0) {
+        if (heat.length() > 0 || (HeatGuard.on(this) && HeatGuard.read(this).hot())) {
             queueNote = "Queue is waiting for the phone to cool down.";
             return;
         }
@@ -1540,6 +1558,7 @@ public class MainActivity extends Activity {
     void resume(Resume.Unfinished u) {
         try {
             pendingAlbum = u.request.optString("_album");
+            pendingRemix = u.request.optJSONObject("_remix_of");
             startSong(Resume.request(u), u.title, false);
         } catch (Exception e) {
             alert("Could not resume", String.valueOf(e.getMessage()));
@@ -1621,15 +1640,18 @@ public class MainActivity extends Activity {
         jobId = id;
         jobMsg = "";
         int misses = 0;
+        final int runs = EngineService.engineRuns;   // the engine this job was sent to
         while (true) {
             Thread.sleep(1500);
             if (EngineService.recovering) {
-                jobMsg = "The GPU driver crashed: restarting it";
                 while (EngineService.recovering) {
+                    jobMsg = EngineService.cooling ? EngineService.coolNote() : "The GPU driver crashed: restarting it";
                     if (jobCancel) throw new Exception("Cancelled");
                     Thread.sleep(500);
                 }
-                if (EngineService.running) throw new EngineService.Restarted();
+                jobMsg = "";
+                // a new engine lost the job: send it again (it carries on from its checkpoint)
+                if (EngineService.running && EngineService.engineRuns != runs) throw new EngineService.Restarted();
             }
             if (!EngineService.running) {
                 String why = EngineService.lastError;
@@ -1647,6 +1669,7 @@ public class MainActivity extends Activity {
                 throw e;
             }
             if ("done".equals(s)) return;
+            if ("cancelled".equals(s) && (EngineService.cooling || EngineService.recovering)) continue; // a cooling break, not the user
             if ("cancelled".equals(s)) {
                 jobCancel = true;
                 throw new Exception("Cancelled");
@@ -1689,6 +1712,7 @@ public class MainActivity extends Activity {
                 meta.put("_created", System.currentTimeMillis());
                 meta.put("_seconds", frames / 25);
                 Store.write(new File(lib, base + ".json"), meta.toString().getBytes("UTF-8"));
+                if (savingRemix != null) meta.put("_remix_of", savingRemix); // a remix credits its original
                 if (pendingAlbum.length() > 0) Albums.add(app, pendingAlbum, base + ".json"); // made for an album
                 try {
                     Tags.write(new File(lib, base + ext), meta.optString("_title"),
@@ -2038,7 +2062,8 @@ public class MainActivity extends Activity {
             "Open in Studio", "Continue from this song", "Use the same style and lyrics", "Make a cover", "Make a lyric video", "Make it a ringtone", "Sheet music and MIDI", "Add to an album", "Share", "Share as a recipe",
             "Nearby download · unencrypted", "Change the title", "Details", "Delete",
         };
-        new Lux.Builder(this).setTitle(title).setItems(items, new DialogInterface.OnClickListener() {
+        String credit = Remixes.credit(m);
+        new Lux.Builder(this).setTitle(credit.length() > 0 ? title + "\n" + credit : title).setItems(items, new DialogInterface.OnClickListener() {
             public void onClick(DialogInterface d, int w) {
                 final String pick = items[w];
                 if ("Play".equals(pick)) {
@@ -2555,6 +2580,12 @@ public class MainActivity extends Activity {
     public static final String SING_LYRICS = "singLyrics", SING_STYLE = "singStyle";
 
     void handleLink(Intent in) {
+        if (in != null && Remixes.ACTION.equals(in.getAction())) {
+            String r = in.getStringExtra("recipe");
+            in.setAction(Intent.ACTION_MAIN);  // once
+            if (r != null) openRemix(r);
+            return;
+        }
         // "Share → Killa YuE" from any app: songs made anywhere join the Library and, if wanted, the network
         if (in != null && (Intent.ACTION_SEND.equals(in.getAction()) || Intent.ACTION_SEND_MULTIPLE.equals(in.getAction()))) {
             ArrayList<Uri> shared = new ArrayList<Uri>();
@@ -2722,21 +2753,39 @@ public class MainActivity extends Activity {
         }, "album-share").start();
     }
 
-    /** Copies what the project needs to know about this phone, and opens the GitHub form for it. */
+    /**
+     * Opens the GitHub device-report form already filled in: the phone, chip, Android and app version, the measured
+     * speeds and temperatures, and the end of the engine log. The whole report is also copied, for a form that
+     * comes up empty. Nothing is sent by the app: the person reads the form and submits it.
+     */
     void deviceReport() {
-        final String r = PhoneCheck.report(this);
-        new Lux.Builder(this).setTitle("Device report").setMessage(r + "\nCopy this and paste it into the device report on GitHub. "
-                + "It helps make Killa YuE work on more phones. Nothing is sent by the app.")
-                .setPositiveButton("Copy and open GitHub", new DialogInterface.OnClickListener() {
+        final Context app = getApplicationContext();
+        new Thread(new Runnable() {
+            public void run() {
+                final String r = PhoneCheck.report(app);
+                final String log = EngineService.savedLog(app, 3500);   // a link has room for the end of it
+                ui.post(new Runnable() {
+                    public void run() {
+                        showDeviceReport(r, log);
+                    }
+                });
+            }
+        }, "device-report").start();
+    }
+
+    void showDeviceReport(final String r, final String log) {
+        new Lux.Builder(this).setTitle("Device report").setMessage(r + "\nThis opens the device report on GitHub, filled in "
+                + "with these details and the end of the engine log. The log holds your song's style and lyrics: read the "
+                + "form, remove anything you would rather not share, then submit it. Nothing is sent by the app.")
+                .setPositiveButton("Open GitHub, filled in", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        cm.setPrimaryClip(ClipData.newPlainText("Killa YuE device report", r));
-                        toast("Copied. Paste it into the form.");
+                        cm.setPrimaryClip(ClipData.newPlainText("Killa YuE device report", r + "\n" + log));
                         try {
-                            startActivity(new Intent(Intent.ACTION_VIEW,
-                                    Uri.parse("https://github.com/JackKnifeAI/killa-yue/issues/new?template=device-report.yml")));
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(PhoneCheck.reportLink(MainActivity.this, r, log))));
+                            toast("Also copied, in case the form comes up empty");
                         } catch (Exception e) {
-                            toast("No browser to open the form");
+                            toast("No browser to open the form. The report is copied.");
                         }
                     }
                 }).setNegativeButton("Close", null).show();
@@ -3398,6 +3447,24 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Remix on a shared song: Create gets its style and lyrics, and the next song made credits it. */
+    void openRemix(String recipe) {
+        try {
+            JSONObject r = new JSONObject(recipe);
+            clearCarry();
+            loadPrompt(r, true);
+            songTitle.setText(r.optString("_title"));
+            pendingRemix = r.optJSONObject("_remix_of");
+            settle();
+            showTab(TAB_CREATE);
+            alert("Remix", Remixes.credit(r) + ": its style and lyrics are in Create. Change anything you like, then "
+                    + "Generate. Your song will credit the original, and when you share it publicly the original artist "
+                    + "sees your remix.");
+        } catch (Exception e) {
+            toast("That remix could not be opened");
+        }
+    }
+
     void openRecipe(Uri u) {
         try {
             InputStream in = getContentResolver().openInputStream(u);
@@ -3794,12 +3861,13 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        c.addView(chipRow(new String[] {"Hosting", "Circles and invitations", "Peers and artists", "Downloads", "Computer"}, new Runnable[] {
+        c.addView(chipRow(new String[] {"Hosting", "Circles and invitations", "Peers and artists", "Downloads", "Computer", "Protection"}, new Runnable[] {
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.HOSTING); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.CIRCLES); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.PEERS); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.TRANSFERS); } },
             new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.COMPUTER); } },
+            new Runnable() { public void run() { HammerActivity.settings(MainActivity.this, HammerActivity.PROTECTION); } },
         }));
         TextView why = text("Only songs you share from the Library are offered. Public songs show in Discover; private ones need an invitation.", DIM, 12);
         c.addView(why, gap(6));
@@ -3949,6 +4017,17 @@ public class MainActivity extends Activity {
         gentleBox.setShadowLayer(4, 0, 1, 0x99000000);
         gentleBox.setChecked(cfg.getBoolean("gentle", true));
         c.addView(gentleBox, gap(8));
+        final CheckBox coolBox = new CheckBox(this);
+        coolBox.setText("Cooling breaks (when the phone gets hot, a song pauses and carries on once it has cooled)");
+        coolBox.setTextColor(TEXT);
+        coolBox.setShadowLayer(4, 0, 1, 0x99000000);
+        coolBox.setChecked(HeatGuard.on(this));
+        coolBox.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                HeatGuard.on(MainActivity.this, on);   // read at every check: applies at once, no restart
+            }
+        });
+        c.addView(coolBox, gap(8));
         final CheckBox stemsFast = new CheckBox(this);
         stemsFast.setText("Studio jobs at full speed (stems split faster; playback may stutter while one runs)");
         stemsFast.setTextColor(TEXT);
@@ -4162,9 +4241,24 @@ public class MainActivity extends Activity {
         c.addView(copy);
         copy.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
-                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(ClipData.newPlainText("Killa YuE log", EngineService.logText()));
-                toast("Log copied");
+                final Context app = getApplicationContext();
+                new Thread(new Runnable() {
+                    public void run() {
+                        // after a restart the lines in memory are gone: the saved log file is copied instead
+                        final String text = EngineService.savedLog(app, 200000);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (text.trim().length() == 0) {
+                                    toast("The log is empty: no song has been made since the app was installed");
+                                    return;
+                                }
+                                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                                cm.setPrimaryClip(ClipData.newPlainText("Killa YuE log", text));
+                                toast("Log copied");
+                            }
+                        });
+                    }
+                }, "copy-log").start();
             }
         });
         logView = text("", DIM, 10);
@@ -4682,6 +4776,9 @@ public class MainActivity extends Activity {
             int el = (int) ((System.currentTimeMillis() - jobStart) / 1000);
             String heat = snapHeat;
             String eta = Eta.text();
+            if (EngineService.cooling && !EngineService.coolingStopping) {
+                eta = "It carries on by itself when the phone is cooler" + (eta.length() > 0 ? ", then " + eta : "");
+            }
             // the estimate gets its own line, so the status never wraps in the middle of a phrase
             progText.setText(st + "   ·   " + clock(el) + " elapsed"
                     + (eta.length() > 0 ? "\n" + Character.toUpperCase(eta.charAt(0)) + eta.substring(1) : "")

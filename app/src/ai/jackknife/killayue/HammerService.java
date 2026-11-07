@@ -9,10 +9,243 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.util.*;
 
-/** Explicit, non-sticky phone host and peer player. No boot receiver, polling or permanent wake lock. */
+/**
+ * The phone host and peer player. Hosting, once the person turns it on, does not stop until they turn it off: Android
+ * restarting the service, a reboot, an update, deep sleep and moving between Wi-Fi and mobile data all leave it
+ * running. While hosting it holds a partial wake lock (keep-alives to the relay must run with the screen off, or the
+ * carrier forgets the phone) and a Wi-Fi lock; neither is held when hosting is off.
+ */
 public final class HammerService extends Service {
     static volatile HammerService instance;
     static volatile String status = "Hosting off", playback = "Stopped";
+    /** A station this phone is tuned to: the music plays where the station's clock says, and moves on by itself. */
+    private static final class Tuned {
+        volatile HammerStation station;
+        final Map<String, Hammer.Song> songs;
+        final Map<String, List<Hammer.Card>> hosts;
+        volatile boolean gone;
+        int failures;
+        /** Made for this tune-in only: hosts count listeners by it, and it says nothing about who is listening. */
+        final String tag = Hammer.random();
+        /** In a circle: where the next song comes from, as the room decides it. Null on a station. */
+        final Next next;
+        Tuned(HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts) {
+            this(s, songs, hosts, null);
+        }
+        Tuned(HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts, Next next) {
+            station = s;
+            this.songs = songs;
+            this.hosts = hosts;
+            this.next = next;
+        }
+    }
+    /** A circle's player: the song the room has on at a moment, or the next one it has chosen, or null. */
+    interface Next {
+        Slot next(long now);
+    }
+    /** One song of a circle on the room's clock, as a one-song station. */
+    static final class Slot {
+        final HammerStation station;
+        final Hammer.Song song;
+        final List<Hammer.Card> hosts;
+        Slot(String title, Hammer.Song song, List<Hammer.Card> hosts, long start, int length) {
+            station = new HammerStation();
+            station.title = title;
+            station.songs.add(song.id);
+            station.lengths.add(length);
+            station.started = start;
+            station.ends = start + length;
+            this.song = song;
+            this.hosts = hosts;
+        }
+    }
+    /** Listens along in a circle: plays what the room has on, and moves on when the room does. */
+    static void tuneCircle(Context c, Next next) throws Exception {
+        Tuned t = new Tuned(null, new java.util.concurrent.ConcurrentHashMap<String, Hammer.Song>(),
+                            new java.util.concurrent.ConcurrentHashMap<String, List<Hammer.Card>>(), next);
+        tuned = t;
+        joinStation(c, t, System.currentTimeMillis(), -1);
+    }
+    static boolean inCircle() {
+        Tuned t = tuned;
+        return t != null && t.next != null;
+    }
+    static void leaveCircle() {
+        if (inCircle())
+            leaveStation("Left the circle");
+    }
+    /** Nothing on in the circle yet: quiet, and look again in two seconds. */
+    private static void waitForSong(final Context c, final Tuned t) {
+        final HammerService s = instance;
+        stationSong = null;
+        if (s == null)
+            return;
+        s.releasePlayer();
+        playback = "Waiting for the next song in the circle";
+        s.update();
+        s.main.postDelayed(new Runnable() {
+            public void run() {
+                if (tuned == t)
+                    try {
+                        joinStation(c, t, System.currentTimeMillis(), -1);
+                    } catch (Exception e) {
+                        waitForSong(c, t);
+                    }
+            }
+        }, 2000);
+    }
+    private static volatile Tuned tuned;
+    /** The song the tuned station is on, for the player screen. Null when not tuned. */
+    static volatile String stationSong;
+    static boolean onStation() { return tuned != null; }
+    static HammerStation station() {
+        Tuned t = tuned;
+        return t == null ? null : t.station;
+    }
+    static void tune(Context c, HammerStation s, Map<String, Hammer.Song> songs, Map<String, List<Hammer.Card>> hosts)
+        throws Exception {
+        Tuned t = new Tuned(s, songs, hosts);
+        tuned = t;
+        joinStation(c, t, System.currentTimeMillis(), -1);
+        refreshStation(t);
+    }
+    /** Plays what the station has on at {@code now}, or the song at {@code index} from its start. */
+    private static void joinStation(Context c, Tuned t, long now, int index) throws Exception {
+        if (t.next != null && (t.station == null || t.station.at(now) == null)) {
+            Slot slot = t.next.next(now);
+            if (slot == null || slot.station.started > now + 1500) {
+                waitForSong(c, t);
+                return;
+            }
+            t.songs.put(slot.song.id, slot.song);
+            t.hosts.put(slot.song.id, slot.hosts);
+            t.station = slot.station;
+            now = Math.max(now, slot.station.started);
+            index = -1;
+        }
+        HammerStation.Spot at = t.station.at(now);
+        if (at == null || t.gone) {
+            leaveStation("The station has gone off air");
+            return;
+        }
+        int pick = index >= 0 ? index : at.index, offset = index >= 0 ? 0 : at.offset;
+        for (int i = 0; i < t.station.songs.size(); i++) {
+            int n = (pick + i) % t.station.songs.size();
+            Hammer.Song song = t.songs.get(t.station.songs.get(n));
+            if (song != null) {
+                stationSong = song.id;
+                play(c, t.hosts.get(song.id), song, HammerBuffer.AUTO, i == 0 ? offset : 0, true);
+                return;
+            }
+        }
+        leaveStation("This station's songs can't be reached right now");
+    }
+    private static void leaveStation(String why) {
+        tuned = null;
+        stationSong = null;
+        HammerService s = instance;
+        if (s != null) {
+            s.releasePlayer();
+            playback = why;
+            s.update();
+        }
+    }
+    /** Where the tuned station is in this song now, or -1 when it has moved on. */
+    private static int stationOffset(String song) {
+        Tuned t = tuned;
+        HammerStation.Spot at = t == null || t.station == null ? null : t.station.at(System.currentTimeMillis());
+        return at != null && at.song.equals(song) ? at.offset : -1;
+    }
+    /** A song ended by itself. A clock a little behind the music must not play its last moments again. */
+    private void nextOnStation(Tuned t, String finished) throws Exception {
+        if (t.next != null) {  // a circle: the song after this one, as the room chose it
+            joinStation(this, t, Math.max(System.currentTimeMillis(), t.station.ends), -1);
+            return;
+        }
+        long soon = System.currentTimeMillis() + 2000;
+        HammerStation.Spot at = t.station.at(soon);
+        if (at != null && at.song.equals(finished) && t.station.songs.size() > 1)
+            joinStation(this, t, soon, (at.index + 1) % t.station.songs.size());
+        else
+            joinStation(this, t, soon - 2000, -1);
+        refreshStation(t);
+    }
+    /**
+     * Between songs, ask up to three hosts of the song for the station again: a new shout-out, or that it has gone
+     * off air. The newest copy any of them holds wins, so one host still holding an old copy can't keep it on air
+     * here. The first that answers is told this phone is listening, by the tag made for this tune-in.
+     */
+    private static void refreshStation(final Tuned t) {
+        if (t.next != null)
+            return;  // a circle has no station record to look up
+        final String song = stationSong;
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    String id = t.station.id();
+                    int asked = 0, answered = 0, holding = 0;
+                    List<Hammer.Card> hosts = t.hosts.get(song);
+                    for (Hammer.Card host : hosts == null ? new ArrayList<Hammer.Card>() : hosts) {
+                        if (asked++ >= 3)
+                            break;
+                        try {
+                            boolean found = false;
+                            for (HammerStation s : Hammer.stations(host, new Hammer.Job()))
+                                if (s.id().equals(id)) {
+                                    found = true;
+                                    if (s.revision > t.station.revision)
+                                        t.station = s;
+                                }
+                            if (found && holding++ == 0)
+                                try {
+                                    Hammer.listening(host, id, t.tag, new Hammer.Job());
+                                } catch (Exception olderHost) {
+                                }
+                            answered++;
+                        } catch (Exception tryAnother) {
+                        }
+                    }
+                    if (answered > 0)
+                        t.gone = holding == 0;
+                } catch (Exception ignored) {
+                }
+            }
+        }, "hammer-station").start();
+    }
+    /** The clock said a moment, and buffering took some of it: catch up once if the music fell well behind. */
+    private void catchUp(final int generation, final String song) {
+        main.postDelayed(new Runnable() {
+            public void run() {
+                if (generation != playerGeneration || !playerReady || player == null)
+                    return;
+                int wanted = stationOffset(song);
+                try {
+                    if (wanted >= 0 && player.isPlaying() && Math.abs(wanted - player.getCurrentPosition()) > 2500)
+                        player.seekTo(wanted);
+                } catch (Exception ignored) {
+                }
+            }
+        }, 6000);
+    }
+    private void stationFailed() {
+        final Tuned t = tuned;
+        if (t == null)
+            return;
+        if (++t.failures > 5) {
+            leaveStation("Lost the station. Tune in again from Discover.");
+            return;
+        }
+        main.postDelayed(new Runnable() {
+            public void run() {
+                if (tuned == t)
+                    try {
+                        joinStation(HammerService.this, t, System.currentTimeMillis(), -1);
+                    } catch (Exception e) {
+                        leaveStation("Lost the station. Tune in again from Discover.");
+                    }
+            }
+        }, 3000);
+    }
     static volatile boolean starting;
     private volatile Hammer.Server host;
     private HammerNearby.Announcement announcement;
@@ -25,10 +258,18 @@ public final class HammerService extends Service {
     private boolean destroyed;
     private android.media.AudioFocusRequest focus;
     private final Handler main = new Handler(Looper.getMainLooper());
+    private PowerManager.WakeLock awake;
+    private android.net.wifi.WifiManager.WifiLock wifi;
     static void startHost(Context c) {
         wanted(c, true);  // remembered: hosting comes back by itself after an update, a crash or a restart
         Intent i = new Intent(c, HammerService.class).setAction("host");
         c.startForegroundService(i);
+        // battery optimisation cuts a sleeping phone off the network; Android's own dialog, asked once per start
+        if (c instanceof Activity && !Background.exempt(c))
+            Background.askExemption((Activity)c);
+    }
+    static boolean wanted(Context c) {
+        return c.getSharedPreferences("hammer", Context.MODE_PRIVATE).getBoolean("hostWanted", false);
     }
     /** Stopped by the person: hosting stays off until they start it again. */
     static void stopHost(Context c) {
@@ -53,6 +294,7 @@ public final class HammerService extends Service {
         if (s != null) {
             s.hostGeneration++;
             starting = false;
+            s.letSleep();
             KillaNet.serve(null);
             KillaNet.announce(false);
             if (s.host != null)
@@ -67,6 +309,8 @@ public final class HammerService extends Service {
         }
     }
     static void stopPlayback() {
+        tuned = null;
+        stationSong = null;
         HammerService s = instance;
         if (s != null) {
             s.releasePlayer();
@@ -102,6 +346,9 @@ public final class HammerService extends Service {
             if (s.player.isPlaying()) {
                 s.player.pause();
                 playback = "Paused";
+            } else if (tuned != null) {
+                joinStation(s, tuned, System.currentTimeMillis(), -1);  // radio doesn't wait: back to what's on now
+                return;
             } else if (s.requestFocus()) {
                 s.player.start();
                 playback = "Playing";
@@ -114,6 +361,14 @@ public final class HammerService extends Service {
         play(c, peers, song, mode, 0);
     }
     static void play(Context c, List<Hammer.Card> peers, Hammer.Song song, int mode, int startAt) throws Exception {
+        play(c, peers, song, mode, startAt, false);
+    }
+    private static void play(Context c, List<Hammer.Card> peers, Hammer.Song song, int mode, int startAt, boolean station)
+        throws Exception {
+        if (!station) {  // choosing a song leaves the station
+            tuned = null;
+            stationSong = null;
+        }
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         song.write(new DataOutputStream(b));
         ArrayList<String> cards = new ArrayList<String>();
@@ -135,13 +390,17 @@ public final class HammerService extends Service {
                                                             NotificationManager.IMPORTANCE_LOW));
     }
     @Override
-    public int onStartCommand(final Intent intent, int flags, int id) {
+    public int onStartCommand(Intent received, int flags, int id) {
+        // Android restarting the service after killing it delivers no intent: carry on hosting if it was on
+        final Intent intent = received != null ? received
+                            : wanted(this) ? new Intent(this, HammerService.class).setAction("host") : null;
         if (intent == null) {
             stopSelf();
             return START_NOT_STICKY;
         }
         startForeground(84, notification());
         if ("stop".equals(intent.getAction())) {
+            wanted(this, false);  // the person stopped it from the notification: off until they start it again
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -158,6 +417,15 @@ public final class HammerService extends Service {
                 public void run() {
                     Hammer.Server opened = null;
                     String error = null;
+                    try {
+                        // songs shared before 1.8.0 went out as they were; share them again as clean copies
+                        int moved = HammerAndroid.store(HammerService.this)
+                                        .recleanShared(HammerAndroid.identity(), new Hammer.Job());
+                        if (moved > 0)
+                            EngineService.addLog("[Network] Shared " + moved + " songs again without hidden data");
+                    } catch (Exception e) {
+                        EngineService.addLog("[Network] " + e.getMessage());
+                    }
                     try {
                         opened = new Hammer.Server(
                             Hammer.serverContext(HammerAndroid.identity(), HammerAndroid.certificate()),
@@ -185,6 +453,11 @@ public final class HammerService extends Service {
                             starting = false;
                             host = ready;
                             status = ready == null ? message : "Hosting published music";
+                            if (ready != null) {
+                                stayAwake();
+                                main.removeCallbacks(keepingTick);
+                                main.postDelayed(keepingTick, 60000);
+                            }
                             advertise();
                             update();
                         }
@@ -253,7 +526,29 @@ public final class HammerService extends Service {
         }
         if (host != null)
             advertise();
-        return START_NOT_STICKY;
+        // sticky while hosting is wanted, so Android brings the host back if it ever has to kill the service
+        return wanted(this) ? START_STICKY : START_NOT_STICKY;
+    }
+    /** Hosting needs the CPU and Wi-Fi awake with the screen off: keep-alives hold the relay spot and the NAT open. */
+    private void stayAwake() {
+        if (awake == null) {
+            awake = ((PowerManager)getSystemService(POWER_SERVICE))
+                        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "KillaYuE:Hosting");
+            awake.setReferenceCounted(false);
+        }
+        awake.acquire();
+        if (wifi == null) {
+            wifi = ((android.net.wifi.WifiManager)getApplicationContext().getSystemService(WIFI_SERVICE))
+                       .createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "KillaYuE:Hosting");
+            wifi.setReferenceCounted(false);
+        }
+        wifi.acquire();
+    }
+    private void letSleep() {
+        if (awake != null && awake.isHeld())
+            awake.release();
+        if (wifi != null && wifi.isHeld())
+            wifi.release();
     }
     private void advertise() {
         try {
@@ -273,6 +568,7 @@ public final class HammerService extends Service {
     private void begin(List<Hammer.Card> peers, final Hammer.Song song, int mode, long frames, final int startAt)
         throws Exception {
         releasePlayer();
+        nowTitle = song.title;
         final int generation = ++playerGeneration;
         final HammerBuffer stream = new HammerBuffer(peers, song, mode, frames);
         buffer = stream;
@@ -295,10 +591,16 @@ public final class HammerService extends Service {
                 if (generation != playerGeneration)
                     return;
                 playerReady = true;
-                if (startAt > 0) mp.seekTo(Math.min(startAt, Math.max(0, mp.getDuration() - 1)));
+                int live = stationOffset(song.id);
+                int from = live >= 0 ? live : startAt;
+                if (from > 0) mp.seekTo(Math.min(from, Math.max(0, mp.getDuration() - 1)));
                 if (requestFocus()) {
                     mp.start();
                     playback = "Playing: " + song.title;
+                    if (tuned != null) {
+                        tuned.failures = 0;
+                        catchUp(generation, song.id);
+                    }
                 } else
                     playback = "Audio focus unavailable — tap Play";
                 update();
@@ -321,6 +623,7 @@ public final class HammerService extends Service {
                     releasePlayer();
                     playback = "Stream interrupted. Open the song and Retry stream.";
                     update();
+                    stationFailed();
                 }
                 return true;
             }
@@ -331,6 +634,13 @@ public final class HammerService extends Service {
                     releasePlayer();
                     playback = "Finished: " + song.title;
                     update();
+                    Tuned t = tuned;
+                    if (t != null)
+                        try {
+                            nextOnStation(t, song.id);
+                        } catch (Exception e) {
+                            stationFailed();
+                        }
                 }
             }
         });
@@ -407,6 +717,65 @@ public final class HammerService extends Service {
             return;
         }
         ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(84, notification());
+        media();
+    }
+    private android.media.session.MediaSession session;
+    private String nowTitle = "";
+    /**
+     * Discover's player answers the media keys, headphones and the lock screen like the Library's: a media
+     * session lives while it has a song, playing or paused, and goes when the song is let go.
+     */
+    private void media() {
+        boolean has = player != null && playerReady;
+        if (!has) {
+            if (session != null && player == null && opening == null) {
+                session.setActive(false);
+                session.release();
+                session = null;
+            }
+            return;
+        }
+        if (session == null) {
+            session = new android.media.session.MediaSession(this, "KillaYuE Discover");
+            session.setCallback(new android.media.session.MediaSession.Callback() {
+                @Override
+                public void onPlay() {
+                    if (!playingNow())
+                        pause();  // pause() toggles: paused, it plays
+                }
+                @Override
+                public void onPause() {
+                    if (playingNow())
+                        pause();
+                }
+                @Override
+                public void onStop() { stopPlayback(); }
+                @Override
+                public void onSeekTo(long ms) {
+                    if (tuned == null)
+                        seek((int) ms);
+                }
+            });
+        }
+        boolean playing = playingNow();
+        long actions = android.media.session.PlaybackState.ACTION_PLAY | android.media.session.PlaybackState.ACTION_PAUSE
+                       | android.media.session.PlaybackState.ACTION_PLAY_PAUSE | android.media.session.PlaybackState.ACTION_STOP
+                       | (tuned == null ? android.media.session.PlaybackState.ACTION_SEEK_TO : 0);
+        session.setPlaybackState(new android.media.session.PlaybackState.Builder().setActions(actions)
+            .setState(playing ? android.media.session.PlaybackState.STATE_PLAYING : android.media.session.PlaybackState.STATE_PAUSED,
+                      position(), playing ? 1f : 0f)
+            .build());
+        session.setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, nowTitle)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, "Killa YuE").putLong(MediaMetadata.METADATA_KEY_DURATION, duration())
+            .build());
+        session.setActive(true);
+    }
+    private boolean playingNow() {
+        try {
+            return player != null && playerReady && player.isPlaying();
+        } catch (Exception e) {
+            return false;
+        }
     }
     static String bufferStatus() {
         HammerService s = instance;
@@ -414,6 +783,15 @@ public final class HammerService extends Service {
             ? s.buffer.state + " · " + s.buffer.bufferedBytes / 1024 + " KiB buffered"
             : "";
     }
+    /** While hosting, keeping is tended every half hour: helpers watched, copies renewed and repaired. */
+    private final Runnable keepingTick = new Runnable() {
+        public void run() {
+            if (destroyed || host == null)
+                return;
+            Keeping.tend(HammerService.this, false);
+            main.postDelayed(this, 30 * 60 * 1000);
+        }
+    };
     static boolean hosting() { return instance != null && instance.host != null; }
     static void disconnect() {
         HammerService s = instance;
@@ -434,10 +812,15 @@ public final class HammerService extends Service {
             announcement = null;
         }
         destroyed = true;
+        letSleep();
         if (host != null)
             host.close();
         host = null;
         releasePlayer();
+        if (session != null) {
+            session.release();
+            session = null;
+        }
         status = "Hosting off";
         instance = null;
         stopForeground(true);

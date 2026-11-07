@@ -4,7 +4,14 @@
 #   2. worldwide lookup: no mDNS; the listener knows one entry peer and finds the host in the DHT's public host list;
 #   3. behind NAT: the host has no reachable address at all and is reached through a relay peer.
 #   4. moved from Wi-Fi to mobile data: the listener remembers peers that no longer answer and still finds the host.
-#   5. a crowd: ten listeners at once reach the host behind NAT through the same relay.
+#   5. a host changes networks: it drops its relay links, takes a new relay spot and is reached through it again.
+#   6. a crowd: ten listeners at once reach the host behind NAT through the same relay.
+#   7. the mixnet: three helpers carry a message between two clients, the answer and cover loops come back.
+#   8. Protection: a vote and a two-packet comment reach a host behind NAT through the mixnet, and are taken.
+#   9. a hidden artist: a song goes in pieces through the mixnet to three helpers that adopt and host it.
+#  10. mixes behind routers: three computers nobody can dial serve as the only mixes, through relay spots.
+# Run it on a machine with real network interfaces: steps 1-6 need mDNS and dialable addresses. In a PRoot, where
+# interfaces cannot be listed, only step 7 can run, with KILLANET_LOOPBACK=1 so nodes bind loopback and find each other.
 # Needs the host builds of libhammer.so (peer/test/run.sh makes it) and libkillanet.so (net/build.sh host).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -33,7 +40,7 @@ background() {  # name, then NetworkTest arguments; waits for "ready"
     cat "$tmp/$name.log"; echo "$name did not start"; exit 1
 }
 stop_all() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; pids=(); sleep 1; }
-for who in relay host1 listen1 host2 listen2 host3 listen3 listen4 crowd{1..10}; do key $who; done
+for who in relay host1 listen1 host2 listen2 host3 listen3 listen4 host5 listen5 crowd{1..10} mix1 mix2 mix3 mixsend mixlisten mixhost mixvote adopt1 adopt2 adopt3 hidden natrelay natmix{1..3} natsend natlisten; do key $who; done
 NOMAIN=4; NOMDNS=2; RELAYONLY=8; NOUPNP=16
 
 echo "== 1. same network (mDNS)"
@@ -59,7 +66,12 @@ mkdir -p "$tmp/listen4/network"
 cp peer/test/remembered-elsewhere.txt "$tmp/listen4/network/peers.txt"
 run listen "$tmp/listen4.p12" "$tmp/listen4" "$tmp/card3" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/entry" relayed
 
-echo "== 5. a crowd (ten listeners at once reach the host behind NAT through one relay and stay connected)"
+echo "== 5. a host changes networks (drops its relay links, takes a new spot, reached through it again)"
+MOVE_AFTER=4 background host5 host "$tmp/host5.p12" "$tmp/host5" "$tmp/card5" $((NOMAIN|NOMDNS|NOUPNP|RELAYONLY)) "$tmp/entry"
+sleep 4  # the new relay spot and the signed address record that names it
+run listen "$tmp/listen5.p12" "$tmp/listen5" "$tmp/card5" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/entry" relayed
+
+echo "== 6. a crowd (ten listeners at once reach the host behind NAT through one relay and stay connected)"
 crowd=()
 for i in $(seq 1 10); do
     LINGER=20 run listen "$tmp/crowd$i.p12" "$tmp/crowd$i" "$tmp/card3" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/entry" relayed > "$tmp/crowd$i.log" 2>&1 &
@@ -69,3 +81,46 @@ failed=0
 for i in $(seq 1 10); do wait "${crowd[$((i-1))]}" || { failed=$((failed+1)); grep -vE "^\[killanet\]|^\s+at " "$tmp/crowd$i.log" | tail -4; }; done
 [ "$failed" = 0 ] || { echo "$failed of 10 listeners could not reach the host"; exit 1; }
 echo "all 10 listeners reached the host through the relay"
+
+stop_all
+echo "== 7. the mixnet (three helpers mix a message between two clients; only the gateway sees the sender)"
+# three helpers serve as mix nodes (reachable, so they publish descriptors and offer themselves), and two clients
+# talk through them: the sender's message rides three hops, and the answer comes back through a reply block
+background mix1 relay "$tmp/mix1.p12" "$tmp/mix1" "$tmp/mixentry"
+background mix2 relay "$tmp/mix2.p12" "$tmp/mix2" "$tmp/mix2entry" 0 "$tmp/mixentry"
+background mix3 relay "$tmp/mix3.p12" "$tmp/mix3" "$tmp/mix3entry" 0 "$tmp/mixentry"
+sleep 3  # the helpers publish their mix descriptors and offer themselves in the DHT
+background mixlisten mixlisten "$tmp/mixlisten.p12" "$tmp/mixlisten" "$tmp/mixpeer" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/mixentry"
+for i in $(seq 1 100); do [ -s "$tmp/mixpeer" ] && break; sleep 0.2; done
+run mixsend "$tmp/mixsend.p12" "$tmp/mixsend" "$tmp/mixpeer" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/mixentry"
+echo "a message went through three helpers and the answer came back through the reply block"
+
+echo "== 8. Protection (a vote and a long comment reach a host behind NAT through the mixnet and are taken)"
+background mixhost mixhost "$tmp/mixhost.p12" "$tmp/mixhost" "$tmp/mixcard" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/mixentry"
+sleep 4  # the host takes a relay spot and publishes the address record that names it
+run mixvote "$tmp/mixvote.p12" "$tmp/mixvote" "$tmp/mixcard" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/mixentry"
+echo "the host took a protected vote and comment, and its refusal came back with the reason"
+
+echo "== 9. a hidden artist (a song in pieces through the mixnet to three helpers that adopt it)"
+for i in 1 2 3; do
+    background adopt$i adopter "$tmp/adopt$i.p12" "$tmp/adopt$i" "$tmp/adopt${i}entry" 0 "$tmp/mixentry"
+done
+cat "$tmp"/adopt{1,2,3}entry.card > "$tmp/adopters"
+sleep 3  # the adopters publish their mix descriptors too
+run hidden "$tmp/hidden.p12" "$tmp/hidden" "$tmp/adopters" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/mixentry"
+echo "three helpers adopted a hidden song, and a listener downloaded it whole from one"
+
+echo "== 10. mixes behind routers (three computers with no address of their own are the only mixes, reached through relay spots)"
+# a network of its own: a relay that does not mix, and three computers behind "routers" (relay only, no test switch)
+# that must find out for themselves that they can serve through their relay spots
+stop_all
+background natrelay natrelay "$tmp/natrelay.p12" "$tmp/natrelay" "$tmp/natentry"
+for i in 1 2 3; do
+    background natmix$i natmix "$tmp/natmix$i.p12" "$tmp/natmix$i" "$tmp/natmix${i}id" 0 "$tmp/natentry"
+done
+grep -h "^ok" "$tmp"/natmix1.log
+sleep 3  # the mixes publish their descriptors
+background natlisten mixlisten "$tmp/natlisten.p12" "$tmp/natlisten" "$tmp/natpeer" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/natentry"
+for i in $(seq 1 100); do [ -s "$tmp/natpeer" ] && break; sleep 0.2; done
+run mixsend "$tmp/natsend.p12" "$tmp/natsend" "$tmp/natpeer" $((NOMAIN|NOMDNS|NOUPNP)) "$tmp/natentry"
+echo "a message went through three mixes behind routers and the answer came back"

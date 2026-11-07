@@ -68,6 +68,8 @@ Short songs, Normal, Long songs or Maximum. Longer songs need this set higher, a
 Keeps the engine in memory between songs: faster, but it needs much more memory.
 ## Gentle mode
 Songs take longer, and the phone stays smooth while one is made.
+## Cooling breaks
+On by default. When Android says the phone is getting hot (or the battery passes 44 °C), the song pauses between render steps: the engine stops completely so the phone can cool, and the song carries on from the same step once it is cooler (at least 1 minute, at most 15). The screen shows the temperature while it waits. Nothing is lost, and Cancel still works during a break. A queue also waits for a hot phone to cool before it starts the next song.
 ## Studio jobs at full speed
 Studio jobs such as splitting stems run on the phone's fast cores instead of in the background. Faster, but music may stutter while one runs. Off by default.
 ## Run the engine in its own app process
@@ -79,7 +81,7 @@ Lets Android keep the engine running while the app is closed, so songs finish wh
 ## Downloads
 Share the models by QR sends the models to another phone on the same Wi-Fi. Album covers, the GPU cover model and the lyric sync model download here; each file is checked against its published checksum.
 ## Developer options and Device report
-Details about the phone and the engine, for reporting problems.
+Details about the phone and the engine, for reporting problems. Device report opens the report form on GitHub already filled in, with the end of the engine log; read it and remove anything you would rather not share (the log holds your style and lyrics) before you submit it. Copy log copies the engine log, also after the app was restarted.
 
 # Studio
 A small music studio inside the app. Open it from the Studio tab, or from a song's options with Open in Studio. The round button at the top left goes back.
@@ -266,7 +268,7 @@ MIDI connects USB or Bluetooth keyboards: notes 36–51 play pads 1–16 on any 
 The Chamber uses gold-framed, dark rubber pads in the Killa Gold skin. A pressed pad glows amber for as long as you hold it; a MIDI note-on flashes it for 120 ms. The selection outline still marks the pad being edited. Pattern playback does not flash this artwork. This is appearance only and has no saved project setting. Other skins keep their existing pads.
 
 ## Listen to an unfinished song
-Create > Resume a song lists saved checkpoints. Listen to how far it got makes a playable preview from a saved render without changing the checkpoint. It starts only when you choose Listen. The preview may cover the whole song at unfinished quality, or just the chunks begun so far. It can sound rough. Its progress shows elapsed time, without a full-song countdown or render-step bar.
+Create > Resume a song lists saved checkpoints. An unfinished song is kept for 30 days after it was last worked on, then deleted by itself; the list shows the date. Delete removes one at once, and a finished song's checkpoint is removed as soon as it is saved. Listen to how far it got makes a playable preview from a saved render without changing the checkpoint. It starts only when you choose Listen. The preview may cover the whole song at unfinished quality, or just the chunks begun so far. It can sound rough. Its progress shows elapsed time, without a full-song countdown or render-step bar.
 When it plays, Keep in library saves a separate copy; Close leaves the checkpoint available; Resume finishes the original render. Previewing does not teach the normal song-time estimator.
 
 # Discover and Library sharing

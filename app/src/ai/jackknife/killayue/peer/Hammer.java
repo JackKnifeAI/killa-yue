@@ -13,11 +13,18 @@ import javax.net.ssl.*;
 /** Shared Android/desktop protocol. TLS authenticates the invite's key before any capability is sent. */
 public final class Hammer {
     private Hammer() {}
-    public static final int MAGIC = 0x484d5231, PORT = 8784, CHUNK = 262144, MAX_SONGS = 256;
+    public static final int MAGIC = 0x484d5231, PORT = 8784, CHUNK = 262144, MAX_SONGS = 4096;
+    /** The songs one catalog answer carries: all a host before 1.8 takes, so they still read a big host's newest. */
+    public static final int PAGE = 256;
     public static final long MAX_AUDIO = 1024L * 1024 * 1024;
     public static final int CATALOG = 1, AUDIO = 2, COMMENTS = 3, COMMENT = 4, PEERS = 5, INFO = 6,
                             SEGMENT = 7, VOTES = 8, VOTE = 9, SUBSCRIBE = 10, PROFILES = 11, COVER = 12,
-                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22;
+                            IMAGE = 13, DIRECTORY = 14, ANNOUNCE = 15, LYRICS = 20, ALBUMS = 21, STATS = 22, STATS_ALL = 23, STATIONS = 24,
+                            CARRY_STATION = 25, LISTENING = 26,
+                            CIRCLES = 27, CIRCLE = 28, CARRY_CIRCLE = 29, CIRCLE_POST = 30, CIRCLE_READ = 31,
+                            KEEP = 32, CATALOG_PAGE = 33;
+    /** The most songs one STATS_ALL answers for. */
+    static final int STATS_MAX = 4096;
     public static String hex(byte[] bytes) {
         StringBuilder b = new StringBuilder();
         for (byte v : bytes)
@@ -266,10 +273,15 @@ public final class Hammer {
         default HammerDirectory directory() { return null; }
         default HammerCommunity community() { return null; }
         default HammerCensus census() { return null; }
+        default HammerCircles circles() { return null; }
+        /** Where artists ask this host to keep their songs (null: it doesn't). */
+        default HammerKeeper keeper() { return null; }
         /** A play (the first stream segment) or a whole download was served: kind 0 or 1. */
         default void counted(String id, int kind) {}
         /** {plays, downloads} served for a visible song, or null when not counted. */
         default long[] stats(String id, String capability) throws Exception { return null; }
+        /** The same for every song this caller can see, or null when not counted. */
+        default Map<String, long[]> allStats(String capability) throws Exception { return null; }
     }
     public static final class Vote {
         public String song, key, sig, audience = "public";
@@ -451,6 +463,8 @@ public final class Hammer {
             t.start();
         }
         public int port() { return listener.getLocalPort(); }
+        /** What this server hosts: requests that come through the mixnet are handled by it too. */
+        public Source source() { return source; }
         private void accept() {
             while (!listener.isClosed())
                 try {
@@ -511,13 +525,23 @@ public final class Hammer {
                 require(in.readInt() == MAGIC, "Unsupported HAMMER protocol");
                 int op = in.readUnsignedByte();
                 String token = text(in, 64);
-                if (op == CATALOG) {
+                if (op == CATALOG) {  // phones before 1.8 read at most PAGE songs: they get the newest
                     List<Song> songs = source.catalog(token);
-                    require(songs.size() <= MAX_SONGS, "Catalog full");
+                    int n = Math.min(songs.size(), PAGE);
+                    out.writeInt(MAGIC);
+                    out.writeInt(n);
+                    for (int i = 0; i < n; i++)
+                        songs.get(i).write(out);
+                } else if (op == CATALOG_PAGE) {  // the whole catalog, a page at a time
+                    List<Song> songs = source.catalog(token);
+                    int from = in.readInt();
+                    require(from >= 0, "Invalid catalog page");
+                    int to = Math.min(songs.size(), from + PAGE);
                     out.writeInt(MAGIC);
                     out.writeInt(songs.size());
-                    for (Song song : songs)
-                        song.write(out);
+                    out.writeInt(Math.max(0, to - from));
+                    for (int i = from; i < to; i++)
+                        songs.get(i).write(out);
                 } else if (op == AUDIO) {
                     String id = text(in, 64);
                     require(digest(id), "Invalid song");
@@ -643,6 +667,99 @@ public final class Hammer {
                         out.writeLong(n[0]);
                         out.writeLong(n[1]);
                     }
+                } else if (op == STATIONS) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Stations unavailable");
+                    List<HammerStation> stations = objects.stations(token);
+                    out.writeInt(MAGIC);
+                    out.writeInt(stations.size());
+                    for (HammerStation on : stations)
+                        on.write(out);
+                } else if (op == CARRY_STATION) {
+                    // anyone may hand over a station; it is the artist's signature and the songs here that decide
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Stations unavailable");
+                    HammerStation offered = HammerStation.read(in);
+                    boolean kept = objects.carry(offered);
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(kept);
+                } else if (op == LISTENING) {
+                    HammerPublic objects = source.publicObjects();
+                    require(objects != null, "Stations unavailable");
+                    List<String> heard = objects.listening(text(in, 64), text(in, 64));
+                    out.writeInt(MAGIC);
+                    out.writeInt(heard.size());
+                    for (String t : heard)
+                        text(out, t, 16);
+                } else if (op == CIRCLES || op == CIRCLE || op == CARRY_CIRCLE || op == CIRCLE_POST || op == CIRCLE_READ) {
+                    HammerCircles circles = source.circles();
+                    require(circles != null && circles.enabled, "This host doesn't carry circles");
+                    if (op == CIRCLES) {
+                        List<HammerCircle> open = circles.open();
+                        out.writeInt(MAGIC);
+                        out.writeInt(open.size());
+                        for (HammerCircle c : open)
+                            c.write(out);
+                    } else if (op == CIRCLE) {
+                        HammerCircle c = circles.record(text(in, 64));
+                        out.writeInt(MAGIC);
+                        out.writeBoolean(c != null);
+                        if (c != null)
+                            c.write(out);
+                    } else if (op == CARRY_CIRCLE) {
+                        boolean kept = circles.carry(HammerCircle.read(in, ""));
+                        out.writeInt(MAGIC);
+                        out.writeBoolean(kept);
+                    } else if (op == CIRCLE_POST) {
+                        boolean kept = circles.post(HammerCircle.Envelope.read(in));
+                        out.writeInt(MAGIC);
+                        out.writeBoolean(kept);
+                    } else {
+                        String id = text(in, 64);
+                        int lane = in.readUnsignedByte();
+                        List<HammerCircle.Envelope> said = circles.read(id, lane, in.readLong());
+                        out.writeInt(MAGIC);
+                        out.writeInt(said.size());
+                        for (HammerCircle.Envelope e : said)
+                            e.write(out);
+                    }
+                } else if (op == KEEP) {
+                    // an artist asks this helper to keep copies of their songs; their signature decides
+                    // a refusal is answered with its reason, so the artist's phone asks another helper instead of
+                    // waiting days on one that will never say yes
+                    List<String> held = null;
+                    String why = null;
+                    try {
+                        HammerKeeper keeper = source.keeper();
+                        require(keeper != null, "This host doesn't keep songs for artists");
+                        held = keeper.ask(HammerKeep.read(in));
+                    } catch (Exception refused) {
+                        why = refused.getMessage() == null ? "Refused" : refused.getMessage();
+                    }
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(why == null);
+                    if (why != null)
+                        text(out, why.length() > 200 ? why.substring(0, 200) : why, 256);
+                    else {
+                        out.writeInt(held.size());
+                        for (String id : held)
+                            text(out, id, 64);
+                    }
+                } else if (op == STATS_ALL) {
+                    Map<String, long[]> all = source.allStats(token);
+                    out.writeInt(MAGIC);
+                    out.writeBoolean(all != null);
+                    if (all != null) {
+                        int n = Math.min(all.size(), STATS_MAX), sent = 0;
+                        out.writeInt(n);
+                        for (Map.Entry<String, long[]> e : all.entrySet()) {
+                            if (sent++ == n)
+                                break;
+                            text(out, e.getKey(), 64);
+                            out.writeLong(e.getValue()[0]);
+                            out.writeLong(e.getValue()[1]);
+                        }
+                    }
                 } else if (op == IMAGE) {
                     HammerPublic objects = source.publicObjects();
                     require(objects != null, "Artwork unavailable");
@@ -701,9 +818,10 @@ public final class Hammer {
                     ScheduledFuture<?> end = deadline(s);
                     try {
                         out.writeInt(MAGIC);
-                        out.writeInt(changed == null ? -1 : changed.size());
+                        // a push carries the newest PAGE songs, all a phone before 1.8 takes
+                        out.writeInt(changed == null ? -1 : Math.min(changed.size(), PAGE));
                         if (changed != null) {
-                            for (Song song : changed)
+                            for (Song song : changed.subList(0, Math.min(changed.size(), PAGE)))
                                 song.write(out);
                             last = cursor(changed);
                         }
@@ -870,6 +988,130 @@ public final class Hammer {
             return out;
         }
     }
+    /** The stations on air at this host. Hosts before 1.8 refuse. */
+    public static List<HammerStation> stations(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, STATIONS, job)) {
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= 64, "Invalid station count");
+            List<HammerStation> out = new ArrayList<HammerStation>();
+            for (int i = 0; i < n; i++)
+                out.add(HammerStation.read(c.in));
+            return out;
+        }
+    }
+    /**
+     * Hands a host a station to carry. True when the host took it as new; false when it already holds this revision
+     * or a newer one, or doesn't share every song on it. Hosts before 1.8 refuse.
+     */
+    /** A host that answered no, with its reason: not an outage, so there's no point asking it again soon. */
+    public static final class Refused extends Exception {
+        public Refused(String why) { super(why); }
+    }
+    /**
+     * Asks a helper to keep copies of this artist's songs (an empty list takes them back) and returns the songs it
+     * hosts now. Hosts before 1.8 and ones that don't keep songs refuse.
+     */
+    public static List<String> keep(Card p, HammerKeep k, Job job) throws Exception {
+        k.validate();
+        try (Connection c = new Connection(p, KEEP, job)) {
+            k.write(c.out);
+            c.reply();
+            if (!c.in.readBoolean())
+                throw new Refused(text(c.in, 256));
+            int n = c.in.readInt();
+            require(n >= 0 && n <= HammerKeep.SONGS, "Invalid keep answer");
+            List<String> out = new ArrayList<String>();
+            for (int i = 0; i < n; i++)
+                out.add(text(c.in, 64));
+            return out;
+        }
+    }
+    public static boolean carryStation(Card p, HammerStation s, Job job) throws Exception {
+        s.validate();
+        try (Connection c = new Connection(p, CARRY_STATION, job)) {
+            s.write(c.out);
+            c.reply();
+            return c.in.readBoolean();
+        }
+    }
+    /**
+     * Tells a host holding a station that this phone is listening, by a tag made for this tune-in (empty: only
+     * asking), and returns the short tags it heard lately. Hosts before 1.8 refuse.
+     */
+    public static Set<String> listening(Card p, String station, String tag, Job job) throws Exception {
+        try (Connection c = new Connection(p, LISTENING, job)) {
+            text(c.out, station, 64);
+            text(c.out, tag, 64);
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= 4096, "Invalid listener count");
+            Set<String> out = new HashSet<String>();
+            for (int i = 0; i < n; i++)
+                out.add(text(c.in, 16));
+            return out;
+        }
+    }
+    /** The open circles a host carries. Hosts before 1.8 refuse. */
+    public static List<HammerCircle> circles(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, CIRCLES, job)) {
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= HammerCircles.CIRCLES, "Invalid circle count");
+            List<HammerCircle> out = new ArrayList<HammerCircle>();
+            for (int i = 0; i < n; i++)
+                out.add(HammerCircle.read(c.in, ""));
+            return out;
+        }
+    }
+    /** One circle's record from a host, or null; {@code secret} is the invitation's key for an invite-only one. */
+    public static HammerCircle circle(Card p, String id, String secret, Job job) throws Exception {
+        try (Connection c = new Connection(p, CIRCLE, job)) {
+            text(c.out, id, 64);
+            c.reply();
+            if (!c.in.readBoolean())
+                return null;
+            HammerCircle got = HammerCircle.read(c.in, secret);
+            require(got.id.equals(id), "The host answered with another circle");
+            return got;
+        }
+    }
+    /** Hands a host a circle to carry; true when it took it as new. */
+    public static boolean carryCircle(Card p, HammerCircle circle, Job job) throws Exception {
+        circle.validate();
+        try (Connection c = new Connection(p, CARRY_CIRCLE, job)) {
+            circle.carried().write(c.out);
+            c.reply();
+            return c.in.readBoolean();
+        }
+    }
+    /** Leaves a sealed envelope with a host of its circle; true when it was new there. */
+    public static boolean circlePost(Card p, HammerCircle.Envelope e, Job job) throws Exception {
+        e.validate();
+        try (Connection c = new Connection(p, CIRCLE_POST, job)) {
+            e.write(c.out);
+            c.reply();
+            return c.in.readBoolean();
+        }
+    }
+    /** A lane's envelopes from {@code since} on, oldest first, at most HammerCircles.READ. */
+    public static List<HammerCircle.Envelope> circleRead(Card p, String id, int lane, long since, Job job) throws Exception {
+        try (Connection c = new Connection(p, CIRCLE_READ, job)) {
+            text(c.out, id, 64);
+            c.out.writeByte(lane);
+            c.out.writeLong(since);
+            c.reply();
+            int n = c.in.readInt();
+            require(n >= 0 && n <= HammerCircles.READ, "Invalid message count");
+            List<HammerCircle.Envelope> out = new ArrayList<HammerCircle.Envelope>();
+            for (int i = 0; i < n; i++) {
+                HammerCircle.Envelope e = HammerCircle.Envelope.read(c.in);
+                require(e.circle.equals(id) && e.lane == lane, "The host answered with another circle's messages");
+                out.add(e);
+            }
+            return out;
+        }
+    }
     /** {plays, downloads} the host has served for a song, or null when it does not count. */
     public static long[] stats(Card p, String song, Job job) throws Exception {
         try (Connection c = new Connection(p, STATS, job)) {
@@ -880,6 +1122,24 @@ public final class Hammer {
             long plays = c.in.readLong(), downloads = c.in.readLong();
             require(plays >= 0 && downloads >= 0, "Invalid counts");
             return new long[] {plays, downloads};
+        }
+    }
+    /** {plays, downloads} per song for every song the host counts and shows us, or null. Hosts before 1.8 refuse. */
+    public static Map<String, long[]> allStats(Card p, Job job) throws Exception {
+        try (Connection c = new Connection(p, STATS_ALL, job)) {
+            c.reply();
+            if (!c.in.readBoolean())
+                return null;
+            int n = c.in.readInt();
+            require(n >= 0 && n <= STATS_MAX, "Invalid counts");
+            Map<String, long[]> out = new HashMap<String, long[]>();
+            for (int i = 0; i < n; i++) {
+                String id = text(c.in, 64);
+                long plays = c.in.readLong(), downloads = c.in.readLong();
+                require(digest(id) && plays >= 0 && downloads >= 0, "Invalid counts");
+                out.put(id, new long[] {plays, downloads});
+            }
+            return out;
         }
     }
     public static byte[] image(Card p, String owner, String hash, boolean profile, Job job) throws Exception {
@@ -897,11 +1157,47 @@ public final class Hammer {
             return bytes;
         }
     }
+    /** Hosts seen answering only the old catalog request (before 1.8), by pin: asked the old way from then on. */
+    private static final Set<String> onePage = Collections.synchronizedSet(new HashSet<String>());
+    /** A host's whole catalog: page by page from 1.8 hosts, or the one answer an older host gives. */
     public static List<Song> catalog(Card p, Job job) throws Exception {
+        if (!onePage.contains(p.pin))
+            try {
+                return pages(p, job);
+            } catch (Exception maybeOlder) {
+                job.check();
+                List<Song> songs = firstPage(p, job);  // answered the old way: an older host, not an outage
+                if (onePage.size() < 4096)
+                    onePage.add(p.pin);
+                return songs;
+            }
+        return firstPage(p, job);
+    }
+    private static List<Song> pages(Card p, Job job) throws Exception {
+        List<Song> songs = new ArrayList<Song>();
+        Set<String> ids = new HashSet<String>();
+        for (int page = 0; page <= MAX_SONGS / PAGE; page++) {
+            try (Connection c = new Connection(p, CATALOG_PAGE, job)) {
+                c.out.writeInt(songs.size());
+                c.reply();
+                int total = c.in.readInt(), n = c.in.readInt();
+                require(total >= 0 && total <= MAX_SONGS && n >= 0 && n <= PAGE, "Invalid catalog size");
+                for (int i = 0; i < n; i++) {
+                    Song s = Song.read(c.in);
+                    if (ids.add(s.id))  // a song published between pages can shift one along: counted once
+                        songs.add(s);
+                }
+                if (n == 0 || songs.size() >= total)
+                    return songs;
+            }
+        }
+        return songs;
+    }
+    private static List<Song> firstPage(Card p, Job job) throws Exception {
         try (Connection c = new Connection(p, CATALOG, job)) {
             c.reply();
             int n = c.in.readInt();
-            require(n >= 0 && n <= MAX_SONGS, "Invalid catalog size");
+            require(n >= 0 && n <= PAGE, "Invalid catalog size");
             List<Song> songs = new ArrayList<Song>();
             Set<String> ids = new HashSet<String>();
             for (int i = 0; i < n; i++) {
@@ -1052,7 +1348,7 @@ public final class Hammer {
                 int n = c.in.readInt();
                 if (n == -1)
                     continue;
-                require(n >= 0 && n <= MAX_SONGS, "Invalid pushed catalog");
+                require(n >= 0 && n <= PAGE, "Invalid pushed catalog");
                 List<Song> songs = new ArrayList<Song>();
                 Set<String> ids = new HashSet<String>();
                 for (int i = 0; i < n; i++) {

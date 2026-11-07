@@ -130,6 +130,47 @@ public class EngineService extends Service {
         return b.toString();
     }
 
+    /**
+     * The log to copy or report: this run's, or, when the app was restarted since (the lines in memory are gone),
+     * the end of the last run's log file, then the one before it. Reads storage: call it off the screen thread.
+     */
+    static String savedLog(Context c, int maxChars) {
+        String now = logText();
+        if (now.trim().length() > 0) return tail(now, maxChars);
+        File dir = Store.dir(c, "logs");
+        String[] names = {"engine-last.log", "engine-previous.log"};
+        for (String n : names) {
+            File f = new File(dir, n);
+            if (!f.isFile() || f.length() == 0) continue;
+            try {
+                java.io.RandomAccessFile r = new java.io.RandomAccessFile(f, "r");
+                try {
+                    long len = r.length(), from = Math.max(0, len - maxChars * 2L);
+                    byte[] b = new byte[(int) (len - from)];
+                    r.seek(from);
+                    r.readFully(b);
+                    String text = new String(b, "UTF-8");
+                    if (text.trim().length() == 0) continue;
+                    String when = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(new java.util.Date(f.lastModified()));
+                    return "[" + n + ", last written " + when + "]\n" + tail(text, maxChars);
+                } finally {
+                    r.close();
+                }
+            } catch (Exception e) {
+                // try the older one
+            }
+        }
+        return "";
+    }
+
+    /** The last maxChars of the text, starting at a whole line. */
+    static String tail(String s, int maxChars) {
+        if (s.length() <= maxChars) return s;
+        s = s.substring(s.length() - maxChars);
+        int nl = s.indexOf('\n');
+        return nl >= 0 ? s.substring(nl + 1) : s;
+    }
+
     static volatile EngineService self;
 
     static void setStage(String s, int cur, int max) {
@@ -171,6 +212,18 @@ public class EngineService extends Service {
     /** Driver restarts since the engine was started for a job; each one runs the driver more carefully (recoveryEnv). */
     static volatile int gpuRestarts;
     static final int GPU_RESTARTS_MAX = 2;
+
+    /** Each start of the engine counts up: a job sent before the count changed was lost and is sent again. */
+    static volatile int engineRuns;
+    /** When the engine last started, for the time a song must run between cooling breaks. */
+    static volatile long runSince;
+    /** True during a cooling break (HeatGuard): the engine is stopped, and starts again once the phone has cooled. */
+    static volatile boolean cooling;
+    /** True while the break waits for the render step in progress to finish (its checkpoint is saved after it). */
+    static volatile boolean coolingStopping;
+    static volatile long coolSince;
+    static volatile String coolWhy = "";
+    private volatile Thread heatThread;
 
     /** Thrown to a waiting job when the engine came back on the GPU after a driver crash: send the job again. */
     static final class Restarted extends Exception {
@@ -240,6 +293,7 @@ public class EngineService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         self = this;
         startForeground(1, note("Engine running"));
+        startHeatWatch();
         // Starting touches shared storage, which can stall under load, so it runs off the main thread.
         if (proc == null && !launching && !recovering) {
             launching = true;
@@ -389,6 +443,8 @@ public class EngineService extends Service {
             }
             if (!wake.isHeld()) wake.acquire();
             fault = "";
+            engineRuns++;
+            runSince = System.currentTimeMillis();
             List<String> args = buildArgs(this);
             boolean gentle = gentle(this);
             // Gentle mode, CPU side: the engine runs at a lower priority than everything on screen.
@@ -464,6 +520,10 @@ public class EngineService extends Service {
 
     /** After the engine stops, in either mode: explain why, if it was not a clean exit. code: exit code, 128+signal for a signal. */
     private void engineEnded(int code) {
+        if (cooling && !destroyed) {
+            coolWait();   // stopped for a cooling break, not a failure
+            return;
+        }
         if ((code == 137 || code == 9) && lastError.length() == 0) {
             lastError = Background.killedMessage(EngineService.this); // SIGKILL: Android stopped it
         }
@@ -508,10 +568,170 @@ public class EngineService extends Service {
                     running = false;
                     return;
                 }
+                Eta.restarted();
                 launch();
                 recovering = false;
             }
         }, "engine-recover").start();
+    }
+
+    // ---------------- cooling breaks (HeatGuard) ----------------
+
+    /** Looks at the phone's temperature every 10 s while this service runs. */
+    private void startHeatWatch() {
+        if (heatThread != null) return;
+        Thread t = new Thread(new Runnable() {
+            public void run() {
+                while (!destroyed) {
+                    try {
+                        Thread.sleep(10000);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                    try {
+                        heatCheck();
+                    } catch (Throwable e) {
+                        addLog("[App] Temperature check failed: " + e);
+                    }
+                }
+            }
+        }, "heat-guard");
+        t.setDaemon(true);
+        heatThread = t;
+        t.start();
+    }
+
+    private void heatCheck() {
+        // only for a full song being made, with a checkpoint to carry on from
+        if (!MainActivity.jobBusy || MainActivity.jobPreview || MainActivity.jobCancel) return;
+        if (MainActivity.runningCheckpoint.length() == 0) return;
+        if (!running || recovering || launching || cooling || destroyed) return;
+        HeatGuard.Reading r = HeatGuard.read(this);
+        HeatGuard.noteReading(this, r);
+        if (!HeatGuard.on(this) || !r.hot()) return;
+        if (System.currentTimeMillis() - runSince < HeatGuard.RUN_MIN_MS) return;
+        // between render steps nothing is lost; while the song is being written, only when the phone is very hot
+        boolean rendering = "Rendering audio".equals(stage) && progCur >= 1;
+        if (!rendering && !r.critical()) return;
+        coolDown(r);
+    }
+
+    /**
+     * Starts a cooling break: the job is cancelled, which the engine does after the render step in progress (that
+     * step's checkpoint is saved first), the engine is stopped so the GPU and CPU rest, and coolWait starts it again.
+     * The waiting job (MainActivity.waitJob) then sends the same request, which carries on from the checkpoint.
+     */
+    private void coolDown(HeatGuard.Reading r) {
+        final String id = MainActivity.jobId;
+        coolSince = System.currentTimeMillis();
+        coolWhy = r.describe();
+        coolingStopping = true;
+        cooling = true;
+        recovering = true;   // the waiting job holds on, then sends its work again
+        addLog("[App] Cooling break: the phone is hot (" + coolWhy + "). The engine stops after this render step, "
+                + "and the song carries on from its checkpoint once the phone has cooled.");
+        new Thread(new Runnable() {
+            public void run() {
+                String s = "";
+                if (id != null) {
+                    Api.cancel(id);
+                    long t0 = System.currentTimeMillis();
+                    // a render step can take a minute on a long song; after three, stop anyway (only that step is lost)
+                    while (!destroyed && System.currentTimeMillis() - t0 < 180000) {
+                        try {
+                            s = Api.status(id);
+                        } catch (Exception e) {
+                            s = "gone";
+                        }
+                        if ("cancelled".equals(s) || "done".equals(s) || "failed".equals(s) || "gone".equals(s)) break;
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                }
+                coolingStopping = false;
+                if ("done".equals(s) || "failed".equals(s)) {
+                    // the song ended on its own before the step did: nothing to carry on, the job reads its result
+                    addLog("[App] The song " + ("done".equals(s) ? "finished" : "stopped") + " before the cooling break began.");
+                    cooling = false;
+                    recovering = false;
+                    return;
+                }
+                stopForBreak();
+            }
+        }, "heat-stop").start();
+    }
+
+    /** Stops the engine, in either mode; engineEnded follows when it has gone, and calls coolWait. */
+    private void stopForBreak() {
+        ServiceConnection hc = hostConn;
+        Process p = proc;
+        if (hc != null) {
+            hostGone = true;   // the log reader ends once the engine's process has gone
+            try {
+                unbindService(hc);   // EngineHost ends its process when unbound
+            } catch (Exception e) {
+                // already unbound
+            }
+        }
+        if (p != null) p.destroy();
+        if (hc == null && p == null) coolWait();   // nothing was running
+    }
+
+    /** Waits for the phone to cool (HeatGuard), then starts the engine again. */
+    private void coolWait() {
+        setStage("Cooling down", 0, 0);
+        new Thread(new Runnable() {
+            public void run() {
+                HeatGuard.Reading r = null;
+                while (true) {
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                    if (destroyed) {
+                        cooling = false;
+                        recovering = false;
+                        running = false;
+                        return;
+                    }
+                    if (MainActivity.jobCancel) {
+                        addLog("[App] The song was cancelled during its cooling break.");
+                        cooling = false;
+                        recovering = false;
+                        running = false;
+                        setStage("", 0, 0);
+                        stopSelf();
+                        return;
+                    }
+                    long el = System.currentTimeMillis() - coolSince;
+                    r = HeatGuard.read(EngineService.this);
+                    coolWhy = r.describe();
+                    if (el >= HeatGuard.BREAK_MIN_MS && r.cool()) break;
+                    if (el >= HeatGuard.BREAK_MAX_MS) {
+                        addLog("[App] The phone is still warm after " + (el / 60000) + " minutes (" + coolWhy + "); carrying on anyway.");
+                        break;
+                    }
+                }
+                long ms = System.currentTimeMillis() - coolSince;
+                HeatGuard.noteBreak(EngineService.this, ms, r == null ? Double.NaN : r.battery);
+                addLog("[App] Cooling break over after " + (ms / 1000) + " s (" + coolWhy + "): the song carries on from its checkpoint.");
+                cooling = false;
+                Eta.restarted();
+                launch();
+                recovering = false;
+            }
+        }, "heat-wait").start();
+    }
+
+    /** What the screen says during a break. */
+    static String coolNote() {
+        if (coolingStopping) return "Phone is hot: pausing after this render step to cool down";
+        long s = Math.max(0, (System.currentTimeMillis() - coolSince) / 1000);
+        return "Cooling down " + (s / 60) + ":" + String.format(java.util.Locale.US, "%02d", s % 60) + " (" + coolWhy + ")";
     }
 
     // ---------------- the engine in its own app process (EngineHost, JNI) ----------------

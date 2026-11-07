@@ -10,6 +10,7 @@ import android.widget.*;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /** Library owns publication and the single persistent audio copy. Nothing publishes on import. */
@@ -72,11 +73,16 @@ final class HammerLibrary {
             return null;
         }
     }
+    /** Said wherever a song is shared: hosting is direct, so listeners see this phone's address. */
+    static final String ADDRESS_VISIBLE = "People who connect to you can see your internet address.";
     static String state(Context c, JSONObject meta) {
+        String hidden = c.getSharedPreferences("hammer-hidden", 0).getString(meta.optString("_audio"), null);
+        if (hidden != null)
+            return hidden;
         try {
             File f = audio(c, meta);
             for (HammerStore.Hosted h : HammerAndroid.store(c).hosted())
-                if (h.file.getCanonicalFile().equals(f))
+                if (h.source.getCanonicalFile().equals(f))
                     return h.publicSong ? "Public" : "Private circle";
         } catch (Exception ignored) {
         }
@@ -88,10 +94,23 @@ final class HammerLibrary {
         final Spinner visibility = new Spinner(a);
         visibility.setAdapter(new ArrayAdapter<String>(
             a, android.R.layout.simple_spinner_dropdown_item,
-            new String[] {"Only on this device", "Public network", "Private circle"}));
+            new String[] {"Only on this device", "Public network", "Private circle", "Hidden artist (experimental)"}));
         String old = state(a, meta);
-        visibility.setSelection(old.equals("Public") ? 1 : old.equals("Private circle") ? 2 : 0);
+        visibility.setSelection(old.equals("Public") ? 1 : old.equals("Private circle") ? 2 : old.startsWith("Hidden") ? 3 : 0);
         view.addView(visibility);
+        final EditText hiddenName = Ui.edit(a, "Hidden artist name (never your own)", 1);
+        hiddenName.setText(a.getSharedPreferences("hammer-hidden", 0).getString("last-name", ""));
+        final TextView hiddenText = Ui.text(a, HIDDEN_TEXT, Skin.DIM, 12);
+        view.addView(hiddenName);
+        view.addView(hiddenText);
+        visibility.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> parent, android.view.View v, int at, long id) {
+                int show = at == 3 ? android.view.View.VISIBLE : android.view.View.GONE;
+                hiddenName.setVisibility(show);
+                hiddenText.setVisibility(show);
+            }
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
         final EditText tags = Ui.edit(a, "Public style and tags", 2);
         tags.setText(meta.optString("_hammer_tags"));
         view.addView(tags);
@@ -103,7 +122,7 @@ final class HammerLibrary {
         try {
             File f = audio(a, meta);
             for (HammerStore.Hosted h : HammerAndroid.store(a).hosted())
-                if (h.file.getCanonicalFile().equals(f)) {
+                if (h.source.getCanonicalFile().equals(f)) {
                     tags.setText(h.song.tags);
                     copies.setChecked(h.song.reshare);
                 }
@@ -118,8 +137,12 @@ final class HammerLibrary {
             .setTitle("Sharing · " + meta.optString("_title", "Untitled"))
             .setMessage(
                 "Share this recording and its cover. Prompts, projects and other files stay on your device. "
-                + "Publishing starts hosting. Copies already downloaded cannot be recalled.")
+                + "Publishing starts hosting. Copies already downloaded cannot be recalled. " + ADDRESS_VISIBLE)
             .setView(view)
+            .setNeutralButton(hiddenSongs(a.getSharedPreferences("hammer-hidden", 0)).length() == 0 ? null : "Hidden station",
+                              new DialogInterface.OnClickListener() {
+                                  public void onClick(DialogInterface d, int which) { hiddenStation(a); }
+                              })
             .setPositiveButton(
                 "Apply",
                 new DialogInterface.OnClickListener() {
@@ -127,13 +150,17 @@ final class HammerLibrary {
                         final int scope = visibility.getSelectedItemPosition();
                         final boolean allow = copies.isChecked();
                         final String labels = tags.getText().toString();
+                        if (scope == 3) {
+                            hidden(a, meta, hiddenName.getText().toString().trim(), labels);
+                            return;
+                        }
                         work(a, "Updating song sharing", new Work() {
                             public void run() throws Exception {
                                 HammerStore store = HammerAndroid.store(a);
                                 File file = audio(a, meta);
                                 HammerStore.Hosted existing = null;
                                 for (HammerStore.Hosted h : store.hosted())
-                                    if (h.file.getCanonicalFile().equals(file))
+                                    if (h.source.getCanonicalFile().equals(file))
                                         existing = h;
                                 if (scope == 0) {
                                     if (existing != null) {
@@ -162,6 +189,8 @@ final class HammerLibrary {
                                         store.publicObjects.cover(song, art);
                                     }
                                     attachLyrics(store, song, file);
+                                    if (scope == 1)
+                                        Remixes.shared(a, song, meta);  // a public remix links to its original
                                 }
                                 if (existing != null && existing.publicSong && scope == 2)
                                     HammerService.disconnect();
@@ -174,6 +203,222 @@ final class HammerLibrary {
                 })
             .setNegativeButton("Cancel", null)
             .show();
+    }
+    /** Said where a song can be published as a hidden artist. */
+    static final String HIDDEN_TEXT =
+        "Experimental, not yet reviewed by outside security experts. The song goes through the mixnet to three "
+        + "helpers, which host it under this name; no helper and no listener learns it came from this phone, and the "
+        + "phone never serves it itself. Choose a song you never shared from this phone, and a name that is not "
+        + "yours. At most 32 MB (MP3 for long songs). Helpers choose what they keep: if every one drops it, it is gone "
+        + "from the network and only your copy remains. Your provider can see that you uploaded a lot through the "
+        + "mixnet, not to whom.";
+
+    /** Publishes a Library song as a hidden artist, in the background; its sharing line shows how far it got. */
+    static void hidden(final Activity a, final JSONObject meta, final String name, final String labels) {
+        final Context app = a.getApplicationContext();
+        final SharedPreferences prefs = app.getSharedPreferences("hammer-hidden", 0);
+        final String key = meta.optString("_audio");
+        if (name.isEmpty() || !Hammer.displayText(name)) {
+            Ui.toast(a, "Give the hidden artist a name");
+            return;
+        }
+        if (meta.has("_hammer_id")) {
+            Ui.toast(a, "Only your own songs can be published hidden");
+            return;
+        }
+        prefs.edit().putString("last-name", name).putString(key, "Hidden · preparing").apply();
+        work(a, "Publishing as " + name, new Work() {
+            public void run() throws Exception {
+                try {
+                    File file = audio(app, meta);
+                    for (HammerStore.Hosted h : HammerAndroid.store(app).hosted())
+                        Hammer.require(!h.source.getCanonicalFile().equals(file),
+                                       "This song is shared from this phone already, which would link it to the "
+                                       + "hidden name. Stop sharing it first, or choose another song");
+                    HammerAndroid.network(app);
+                    String why = HammerMix.unready();
+                    for (int i = 0; i < 120 && why != null; i++) {  // the mix nodes are found in the first minute
+                        Thread.sleep(500);
+                        why = HammerMix.unready();
+                    }
+                    Hammer.require(why == null, why + " Nothing was sent.");
+                    HammerHidden.Prepared p = HammerHidden.prepare(
+                        file, new File(app.getFilesDir(), "hidden"), meta.optString("_title", "Untitled"), labels, name,
+                        HammerAndroid.hiddenIdentity(name), new Hammer.Job());
+                    HammerHidden.Progress shown = new HammerHidden.Progress() {
+                        public void progress(int done, int total, List<String> hosting) {
+                            prefs.edit().putString(key, "Hidden · uploading " + (100 * done / Math.max(1, total)) + "%")
+                                .apply();
+                        }
+                    };
+                    // the helpers that hold this name's other songs first, so one helper can carry its station
+                    List<String> before = hiddenHelpers(prefs, name);
+                    List<String> hosts = before.size() >= HammerHidden.COPIES
+                        ? HammerHidden.publish(p, before, shown, new Hammer.Job()) : new ArrayList<String>();
+                    if (hosts.size() < HammerHidden.COPIES)
+                        hosts = HammerHidden.publish(p, KillaNet.mixNodes(), shown, new Hammer.Job());
+                    prefs.edit().putString(key, "Hidden · hosted by " + hosts.size() +
+                                                (hosts.size() == 1 ? " helper" : " helpers")).apply();
+                    rememberHidden(prefs, name, p, hosts);
+                    Hammer.require(hosts.size() >= HammerHidden.COPIES,
+                                   "only " + hosts.size() + " of " + HammerHidden.COPIES + " helpers took it; publish "
+                                   + "again later for more copies");
+                } catch (Exception e) {
+                    if (!prefs.getString(key, "").startsWith("Hidden · hosted"))
+                        prefs.edit().remove(key).apply(); // nothing hosted: the song is only on this device
+                    throw e;
+                } finally {
+                    Protection.refresh(app);
+                }
+            }
+        });
+    }
+    /** The hidden songs sent from this phone: name, song, title, length and the helpers holding each. */
+    private static JSONArray hiddenSongs(SharedPreferences prefs) {
+        try {
+            return new JSONArray(prefs.getString("songs", "[]"));
+        } catch (Exception unreadable) {
+            return new JSONArray();
+        }
+    }
+    private static synchronized void rememberHidden(SharedPreferences prefs, String name, HammerHidden.Prepared p,
+                                                    List<String> hosts) throws Exception {
+        JSONArray old = hiddenSongs(prefs), next = new JSONArray();
+        for (int i = 0; i < old.length(); i++)
+            if (!old.getJSONObject(i).optString("id").equals(p.song.id))
+                next.put(old.getJSONObject(i));
+        JSONObject s = new JSONObject();
+        s.put("name", name).put("id", p.song.id).put("title", p.song.title)
+            .put("ms", HammerMedia.codec.frames(p.file) * 1000 / HammerMedia.RATE).put("helpers", new JSONArray(hosts));
+        next.put(s);
+        prefs.edit().putString("songs", next.toString()).apply();
+    }
+    /** Every helper holding a song of this hidden name, the ones holding most first. */
+    private static List<String> hiddenHelpers(SharedPreferences prefs, String name) {
+        final Map<String, Integer> held = new HashMap<String, Integer>();
+        JSONArray songs = hiddenSongs(prefs);
+        for (int i = 0; i < songs.length(); i++) {
+            JSONObject s = songs.optJSONObject(i);
+            if (s == null || !name.equals(s.optString("name")))
+                continue;
+            JSONArray h = s.optJSONArray("helpers");
+            for (int k = 0; h != null && k < h.length(); k++) {
+                Integer n = held.get(h.optString(k));
+                held.put(h.optString(k), n == null ? 1 : n + 1);
+            }
+        }
+        List<String> out = new ArrayList<String>(held.keySet());
+        Collections.sort(out, new Comparator<String>() {
+            public int compare(String x, String y) { return held.get(y) - held.get(x); }
+        });
+        return out;
+    }
+    /**
+     * A station under a hidden name, carried only by helpers: the songs of that name the best-stocked helper holds,
+     * signed with the hidden key and handed through the mixnet to every helper that holds them all. This phone never
+     * hosts it, so nobody learns where it comes from.
+     */
+    static void hiddenStation(final Activity a) {
+        final SharedPreferences prefs = a.getApplicationContext().getSharedPreferences("hammer-hidden", 0);
+        JSONArray songs = hiddenSongs(prefs);
+        final List<String> names = new ArrayList<String>();
+        for (int i = 0; i < songs.length(); i++) {
+            String n = songs.optJSONObject(i) == null ? "" : songs.optJSONObject(i).optString("name");
+            if (!n.isEmpty() && !names.contains(n))
+                names.add(n);
+        }
+        if (names.isEmpty()) {
+            Ui.toast(a, "Publish a song as a hidden artist first");
+            return;
+        }
+        LinearLayout v = new LinearLayout(a);
+        v.setOrientation(LinearLayout.VERTICAL);
+        final Spinner who = new Spinner(a);
+        who.setAdapter(new ArrayAdapter<String>(a, android.R.layout.simple_spinner_dropdown_item, names));
+        v.addView(who);
+        final EditText title = Ui.edit(a, "Station name", 1);
+        final EditText note = Ui.edit(a, "A few words for your listeners (optional)", 2);
+        v.addView(title);
+        v.addView(note);
+        title.setText(names.get(0) + " Radio");
+        new Lux.Builder(a)
+            .setTitle("Hidden station")
+            .setMessage("Experimental. Plays this hidden name's songs like radio, carried only by the helpers that hold "
+                        + "them, through the mixnet. Going off air also goes through the mixnet and reaches each helper "
+                        + "when it answers.")
+            .setView(v)
+            .setPositiveButton("Go on air", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    sendHidden(a, prefs, names.get(who.getSelectedItemPosition()), title.getText().toString().trim(),
+                               note.getText().toString().trim(), false);
+                }
+            })
+            .setNeutralButton("Go off air", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    sendHidden(a, prefs, names.get(who.getSelectedItemPosition()), "", "", true);
+                }
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+    private static void sendHidden(final Activity a, final SharedPreferences prefs, final String name, final String title,
+                                   final String note, final boolean stop) {
+        work(a, stop ? "Going off air" : "Going on air as " + name, new Work() {
+            public void run() throws Exception {
+                HammerStation s;
+                List<String> helpers;
+                String saved = prefs.getString("station:" + name, "");
+                if (stop) {
+                    Hammer.require(!saved.isEmpty(), name + " isn't on air");
+                    s = HammerStation.read(new DataInputStream(new ByteArrayInputStream(
+                        android.util.Base64.decode(saved, 0))));
+                    s.ends = Math.max(s.started + 1, System.currentTimeMillis());
+                    helpers = hiddenHelpers(prefs, name);
+                } else {
+                    Hammer.require(!title.isEmpty(), "Give your station a name");
+                    Hammer.require(note.length() <= HammerStation.NOTE, "Keep your words to 140 letters");
+                    List<String> ranked = hiddenHelpers(prefs, name);
+                    Hammer.require(!ranked.isEmpty(), "No helper holds " + name + "'s songs");
+                    String best = ranked.get(0);
+                    s = new HammerStation();
+                    s.title = title;
+                    s.note = note;
+                    JSONArray songs = hiddenSongs(prefs);
+                    for (int i = 0; i < songs.length(); i++) {
+                        JSONObject o = songs.getJSONObject(i);
+                        if (name.equals(o.optString("name")) && o.optJSONArray("helpers") != null &&
+                            o.getJSONArray("helpers").toString().contains("\"" + best + "\"") &&
+                            s.songs.size() < 25) {
+                            s.songs.add(o.getString("id"));
+                            s.lengths.add((int)o.getLong("ms"));
+                        }
+                    }
+                    s.started = System.currentTimeMillis();
+                    s.ends = s.started + HammerStation.LONGEST;
+                    helpers = ranked;
+                    if (!saved.isEmpty())
+                        s.revision = HammerStation.read(new DataInputStream(new ByteArrayInputStream(
+                            android.util.Base64.decode(saved, 0)))).revision;
+                }
+                s.revision = Math.max(System.currentTimeMillis(), s.revision + 1);
+                s.sign(HammerAndroid.hiddenIdentity(name));
+                HammerAndroid.network(a.getApplicationContext());
+                for (int i = 0; i < 120 && HammerMix.unready() != null; i++)
+                    Thread.sleep(500);
+                int took = 0;  // on air: helpers that kept it; off air: helpers that answered
+                for (String h : helpers)
+                    try {
+                        if (HammerMix.station(h, s, new Hammer.Job()) || stop)
+                            took++;
+                    } catch (Exception refusedOrGone) {
+                    }
+                ByteArrayOutputStream b = new ByteArrayOutputStream();
+                s.write(new DataOutputStream(b));
+                prefs.edit().putString("station:" + name, android.util.Base64.encodeToString(b.toByteArray(), 2)).apply();
+                Hammer.require(took > 0, stop ? "No helper answered through the mixnet. Try again later."
+                                              : "No helper took the station through the mixnet. Try again later.");
+            }
+        });
     }
     static void importAudio(Activity a) {
         Intent i =
@@ -266,10 +511,10 @@ final class HammerLibrary {
             .setMessage(uris.size() == 1
                             ? "It goes into your Library. Share it on the Killa YuE network too, and anyone can find, "
                               + "play and download it from Discover, with the cover and title inside the file. "
-                              + "Share only music you made or may share."
+                              + "Share only music you made or may share. " + ADDRESS_VISIBLE
                             : "They go into your Library. Share them on the Killa YuE network too, and anyone can find, "
                               + "play and download them from Discover, with the cover and title inside each file. "
-                              + "Share only music you made or may share.")
+                              + "Share only music you made or may share. " + ADDRESS_VISIBLE)
             .setPositiveButton("Add and share", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) { importAll(a, uris, true); }
             })
@@ -280,7 +525,8 @@ final class HammerLibrary {
             .show();
     }
     private static void importAll(final MainActivity a, final List<Uri> uris, final boolean share) {
-        work(a, share ? "Adding and sharing " + uris.size() + " songs" : "Adding " + uris.size() + " songs", new Work() {
+        String count = uris.size() == 1 ? "1 song" : uris.size() + " songs";
+        work(a, (share ? "Adding and sharing " : "Adding ") + count, new Work() {
             public void run() throws Exception {
                 int done = 0, failed = 0;
                 for (Uri u : uris) {
@@ -292,7 +538,7 @@ final class HammerLibrary {
                     } catch (Exception e) {
                         failed++;
                         if (String.valueOf(e.getMessage()).contains("at most"))
-                            break;  // this phone hosts 256 songs at most
+                            break;  // this phone hosts Hammer.MAX_SONGS songs at most
                     }
                 }
                 if (share && done > 0)
@@ -309,6 +555,7 @@ final class HammerLibrary {
         File file = audio(c, meta);
         Hammer.Song song = store.publish(file, meta.optString("_title", "Untitled"), meta.optString("style", ""),
                                          true, true, HammerAndroid.identity());
+        Remixes.shared(c, song, meta);  // a public remix links to its original
         byte[] image = null;
         File cover = Covers.coverFor(c, meta);
         if (cover.isFile())

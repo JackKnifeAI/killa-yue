@@ -53,6 +53,20 @@ public final class HammerActivity extends Activity {
             album = a;
         }
     }
+    private static final class StationHit {
+        final HammerStore.Peer peer;
+        final HammerStation station;
+        StationHit(HammerStore.Peer p, HammerStation s) {
+            peer = p;
+            station = s;
+        }
+    }
+    /** Each peer's open circles, with the card they were found at: {HammerCircle, Hammer.Card}. */
+    private static final Map<String, List<Object[]>> circlesByPeer =
+        new java.util.concurrent.ConcurrentHashMap<String, List<Object[]>>();
+    /** Each peer's stations on air, kept like its songs. */
+    private static final Map<String, List<StationHit>> stationsByPeer =
+        new java.util.concurrent.ConcurrentHashMap<String, List<StationHit>>();
     /** Each peer's albums and playlists, kept like its songs. */
     private static final Map<String, List<AlbumHit>> albumsByPeer =
         new java.util.concurrent.ConcurrentHashMap<String, List<AlbumHit>>();
@@ -65,7 +79,7 @@ public final class HammerActivity extends Activity {
     private interface Work {
         void run() throws Exception;
     }
-    static final int ALL = 0, HOSTING = 1, CIRCLES = 2, PEERS = 3, TRANSFERS = 4, COMPUTER = 5;
+    static final int ALL = 0, HOSTING = 1, CIRCLES = 2, PEERS = 3, TRANSFERS = 4, COMPUTER = 5, PROTECTION = 6;
     static void open(Context c) { c.startActivity(new Intent(c, HammerActivity.class)); }
     static void settings(Context c) { settings(c, ALL); }
     /** Sharing settings, grouped; section is the group to scroll to. The Settings tab opens these. */
@@ -89,6 +103,8 @@ public final class HammerActivity extends Activity {
     private static final Map<String, int[]> tallies = new java.util.concurrent.ConcurrentHashMap<String, int[]>();
     private static final Map<String, Long> counted = new java.util.concurrent.ConcurrentHashMap<String, Long>();
     private final ExecutorService voting = Executors.newFixedThreadPool(2);
+    /** Protected sends to a song's other hosts, and the mixnet's numbers in the settings. */
+    private final ExecutorService mixing = Executors.newFixedThreadPool(4);
     // covers and portraits, fetched one at a time so a peer's admission limit is never hit
     private final ExecutorService art = Executors.newSingleThreadExecutor();
     private final Map<String, android.graphics.Bitmap> pictures = new java.util.concurrent.ConcurrentHashMap<String, android.graphics.Bitmap>();
@@ -364,22 +380,57 @@ public final class HammerActivity extends Activity {
                 startActivityForResult(i, 840);
             }
         });
+        final View protection = group("Protection (experimental)",
+                                      "Send votes and comments through the mixnet, so hosts never learn your address.");
+        final CheckBox protect = new CheckBox(this);
+        protect.setText("Send votes and comments through the mixnet");
+        protect.setTextColor(Skin.TEXT);
+        protect.setChecked(Protection.on(this));
+        protect.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean on) {
+                Protection.set(HammerActivity.this, on);
+            }
+        });
+        body.addView(protect);
+        final TextView mixnet = Ui.text(this, "", Skin.DIM, 12);
+        body.addView(mixnet);
+        Runnable look = new Runnable() {
+            public void run() {
+                if (closed)
+                    return;
+                final Runnable again = this;
+                mixing.execute(new Runnable() {
+                    public void run() {
+                        final String line = Protection.status(HammerActivity.this);
+                        ui.post(new Runnable() {
+                            public void run() {
+                                mixnet.setText(line);
+                                ui.postDelayed(again, 3000);
+                            }
+                        });
+                    }
+                });
+            }
+        };
+        look.run();
+        TextView honest = Ui.text(this, Protection.TEXT, Skin.DIM, 12);
+        honest.setPadding(0, Ui.dp(this, 6), 0, 0);
+        body.addView(honest);
         group("Community headcount", "An optional monthly count of participating installations.");
         button(body, "Community headcount settings", new Runnable() {
             public void run() { startActivity(new Intent(HammerActivity.this, CommunityCountActivity.class)); }
         });
         group("Privacy", null);
         TextView fine = Ui.text(this,
-            "Connect using a trusted peer card. Direct connections need reachable addresses: Wi-Fi, a "
-            + "hotspot, or a reachable internet/VPN endpoint. No global tracker or NAT relay is bundled. "
-            + "Lossless/original mode transfers the existing file unchanged; an MP3 master cannot regain "
-            + "lost detail. Public metadata is public; encryption does not hide peer IP addresses. Search "
-            + "words stay here.", Skin.DIM, 12);
+            "Streams are encrypted, but encryption does not hide addresses: people who connect to you can see "
+            + "your internet address, and you see theirs. Shared songs leave without hidden data: only what "
+            + "describes the music, like title, your artist name, album, lyrics and cover, stays in the file. Titles, tags and "
+            + "profiles you publish are public. Search words stay here.", Skin.DIM, 12);
         body.addView(fine);
         if (section != ALL)
             scroll.post(new Runnable() {
                 public void run() {
-                    View[] at = {null, hosting, circles, peers, transfers, computer};
+                    View[] at = {null, hosting, circles, peers, transfers, computer, protection};
                     if (section < at.length && at[section] != null)
                         scroll.smoothScrollTo(0, at[section].getTop());
                 }
@@ -457,7 +508,16 @@ public final class HammerActivity extends Activity {
                     deck.invalidate();
                 }
                 // like a radio: when a song ends by itself, the next one in Discover plays
-                if (playing != null && HammerService.playback.startsWith("Finished") && !userStopped &&
+                String onAir = HammerService.stationSong;
+                if (onAir != null && (playing == null || !playing.song.id.equals(onAir)))
+                    for (Hit h : hits)
+                        if (h.song.id.equals(onAir)) {  // the station moved on: the player follows it
+                            playing = h;
+                            deck.cover = null;
+                            showVotes();
+                            break;
+                        }
+                if (onAir == null && playing != null && HammerService.playback.startsWith("Finished") && !userStopped &&
                     !playing.song.id.equals(advancedFor)) {
                     advancedFor = playing.song.id;
                     skip(1);
@@ -639,6 +699,10 @@ public final class HammerActivity extends Activity {
     }
     /** Plays the song before or after this one in Discover, as listed now. */
     private void skip(int by) {
+        if (HammerService.onStation()) {
+            Ui.toast(this, "Radio: everyone hears the same song. Tap a song to leave the station.");
+            return;
+        }
         if (shown.isEmpty())
             return;
         int at = -1;
@@ -718,7 +782,20 @@ public final class HammerActivity extends Activity {
         showVotes();
         voting.execute(new Runnable() {
             public void run() {
+                final boolean protect = Protection.on(HammerActivity.this);
                 try {
+                    if (protect) {
+                        // no direct connection to read the votes first or the count after: that would show the
+                        // host this phone's address right beside the protected vote
+                        sendVote(hit, now, new ArrayList<Hammer.Vote>(), new Hammer.Job());
+                        ui.post(new Runnable() {
+                            public void run() {
+                                if (!closed)
+                                    Ui.toast(HammerActivity.this, "Vote sent through the mixnet");
+                            }
+                        });
+                        return;
+                    }
                     sendVote(hit, now, Hammer.votes(hit.peer.card, hit.song.id, new Hammer.Job()), new Hammer.Job());
                     tally(hit, null);  // the host's count, now including this vote
                 } catch (final Exception e) {
@@ -726,8 +803,10 @@ public final class HammerActivity extends Activity {
                         public void run() {
                             if (closed)
                                 return;
-                            Ui.toast(HammerActivity.this, "Vote not sent: the artist is out of reach right now");
-                            tally(hit, null);
+                            Ui.toast(HammerActivity.this, protect ? "Vote not sent: " + e.getMessage()
+                                                                  : "Vote not sent: the artist is out of reach right now");
+                            if (!protect)
+                                tally(hit, null);
                         }
                     });
                 }
@@ -747,19 +826,42 @@ public final class HammerActivity extends Activity {
         for (Hammer.Vote old : list)
             if (old.key.equals(pub) && old.audience.equals(v.audience))
                 last = Math.max(last, old.sequence);
-        v.sequence = last + 1;
+        final boolean protect = Protection.on(this);
+        // a protected vote cannot read the host's last sequence first; the clock keeps a later vote ahead anyway, in
+        // minutes since 2026 (a sequence stays under a billion)
+        v.sequence = protect ? Math.max(last + 1, (System.currentTimeMillis() - 1767225600000L) / 60000) : last + 1;
         v.sign(key);
-        Hammer.vote(hit.peer.card, v, job);
+        final Hammer.Vote signed = v;
+        if (protect)
+            HammerMix.vote(hit.peer.card, v, job);
+        else
+            Hammer.vote(hit.peer.card, v, job);
         getSharedPreferences("hammer-votes", 0)
             .edit()
             .putLong(seq, v.sequence)
             .putLong("mine." + tallyKey(hit), value)
             .apply();
         if (!hit.peer.card.isPrivate())
-            for (Hammer.Card p : hosts(hit)) {
+            for (final Hammer.Card p : hosts(hit)) {
                 job.check();
                 if (p == hit.peer.card)
                     continue;
+                if (protect) {
+                    // each other host by its own paths, side by side: waiting for each answer in turn takes minutes
+                    if (p.isP2p())
+                        try {
+                            mixing.execute(new Runnable() {
+                                public void run() {
+                                    try {
+                                        HammerMix.vote(p, signed, new Hammer.Job());
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+                            });
+                        } catch (java.util.concurrent.RejectedExecutionException screenClosed) {
+                        }
+                    continue;
+                }
                 try {
                     Hammer.vote(p, v, job);
                 } catch (Exception ignored) {
@@ -844,8 +946,8 @@ public final class HammerActivity extends Activity {
             new Lux.Builder(this)
                 .setTitle("Host “" + title + "”")
                 .setMessage(
-                    "Only this audio, title and the tags you enter are shared. The existing audio file is "
-                    + "served directly; no second master is kept. Downloaded copies can outlive this host.")
+                    "Only this audio, title and the tags you enter are shared; hidden data in the file is removed "
+                    + "first. Downloaded copies can outlive this host. " + HammerLibrary.ADDRESS_VISIBLE)
                 .setView(v)
                 .setPositiveButton("Publish",
                                    new DialogInterface.OnClickListener() {
@@ -1096,6 +1198,68 @@ public final class HammerActivity extends Activity {
             }
         routes.put(key, next);
     }
+    /**
+     * Keeps stations going while their artists sleep: the newest copy of each station seen (and {@code own}, this
+     * phone's, when it has one) goes to every public host seen sharing all its songs that holds an older copy or none,
+     * and is kept here too when this phone shares those songs. In the background, at most 12 handings a call.
+     */
+    static void spreadStations(final HammerStore store, final HammerStation own) {
+        new Thread(new Runnable() {
+            public void run() {
+                List<HammerStation> copies = new ArrayList<HammerStation>();
+                try {
+                    copies.add(own != null ? own : store.publicObjects.station(
+                                                      Hammer.hash(HammerAndroid.identity().getPublic().getEncoded())));
+                } catch (Exception noIdentityYet) {
+                }
+                copies.remove(null);
+                for (List<StationHit> l : stationsByPeer.values())
+                    for (StationHit s : l)
+                        copies.add(s.station);
+                java.util.concurrent.ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+                int handed = 0;
+                try {
+                    for (HammerStation s : HammerStations.newest(copies).values()) {
+                        try {
+                            store.publicObjects.carry(s);
+                        } catch (Exception notHere) {
+                        }
+                        for (Map.Entry<String, List<Hit>> e : songsByPeer.entrySet()) {
+                            if (handed >= 12)
+                                return;
+                            List<Hit> songs = e.getValue();
+                            if (songs.isEmpty() || songs.get(0).peer.card.isPrivate())
+                                continue;
+                            Set<String> has = new HashSet<String>();
+                            for (Hit h : songs)
+                                if (h.song.key.equals(s.key))
+                                    has.add(h.song.id);
+                            if (!has.containsAll(s.songs))
+                                continue;
+                            long theirs = 0;
+                            List<StationHit> held = stationsByPeer.get(e.getKey());
+                            if (held != null)
+                                for (StationHit h : held)
+                                    if (h.station.id().equals(s.id()))
+                                        theirs = h.station.revision;
+                            if (theirs >= s.revision)
+                                continue;
+                            final Hammer.Job one = new Hammer.Job();
+                            java.util.concurrent.ScheduledFuture<?> stop = timer.schedule(new Runnable() {
+                                public void run() { one.cancel(); }
+                            }, 12, TimeUnit.SECONDS);
+                            handed++;
+                            HammerStations.spread(s, java.util.Collections.singletonList(songs.get(0).peer.card), one);
+                            stop.cancel(false);
+                        }
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    timer.shutdownNow();
+                }
+            }
+        }, "hammer-stations").start();
+    }
     /** Shows everything known: songs and artists from every peer that has answered. */
     private void collect() {
         hits.clear();
@@ -1111,6 +1275,18 @@ public final class HammerActivity extends Activity {
                 if (old == null || e.getValue().profile.revision > old.profile.revision)
                     profiles.put(e.getKey(), e.getValue());
             }
+        for (Map.Entry<String, ProfileHit> e : profiles.entrySet())
+            artistNames.put(e.getKey(), e.getValue().profile.name);
+    }
+    /** Artist names Discover has seen, by the hash of the artist's key, for screens that list songs. */
+    private static final Map<String, String> artistNames = new java.util.concurrent.ConcurrentHashMap<String, String>();
+    static String artistOf(String key) {
+        try {
+            String n = artistNames.get(Hammer.hash(java.util.Base64.getDecoder().decode(key)));
+            return n == null ? "" : n;
+        } catch (Exception e) {
+            return "";
+        }
     }
     private void refresh() {
         if (busy) {
@@ -1165,6 +1341,20 @@ public final class HammerActivity extends Activity {
                                                 albums.add(new AlbumHit(via, a));
                                         } catch (Exception olderHost) {
                                         }
+                                        List<StationHit> stations = new ArrayList<StationHit>();
+                                        try {
+                                            for (HammerStation s : Hammer.stations(card, one))
+                                                stations.add(new StationHit(via, s));
+                                        } catch (Exception olderHost) {
+                                        }
+                                        List<Object[]> open = new ArrayList<Object[]>();
+                                        if (!card.isPrivate())
+                                            try {
+                                                for (HammerCircle c : Hammer.circles(card, one))
+                                                    open.add(new Object[] {c, card});
+                                            } catch (Exception olderHostOrNoCircles) {
+                                            }
+                                        circlesByPeer.put(key, open);
                                         if (!card.isPrivate())
                                             try {
                                                 List<HammerPresence> hints = Hammer.directory(card, one);
@@ -1189,6 +1379,7 @@ public final class HammerActivity extends Activity {
                                         songsByPeer.put(key, songs);
                                         artistsByPeer.put(key, artists);
                                         albumsByPeer.put(key, albums);
+                                        stationsByPeer.put(key, stations);
                                         lastSeen.put(key, System.currentTimeMillis());
                                         worked(card);
                                         answered.incrementAndGet();
@@ -1224,6 +1415,30 @@ public final class HammerActivity extends Activity {
                             return;
                         collect();
                         render();
+                        spreadStations(store, null);
+                        Keeping.tend(HammerActivity.this, false);  // watches which helpers stay online; sends only if asked
+                        String tune = getIntent().getStringExtra("tune");  // Tune in on an artist page
+                        if (tune != null && newestStations().containsKey(tune)) {
+                            getIntent().removeExtra("tune");
+                            StationHit s = newestStations().get(tune);
+                            if (s.station.live(System.currentTimeMillis()))
+                                tuneIn(s);
+                            else
+                                Ui.toast(HammerActivity.this, "That station has gone off air");
+                        }
+                        String album = getIntent().getStringExtra("album");  // an album tile on an artist page
+                        if (album != null) {
+                            for (List<AlbumHit> l : albumsByPeer.values())
+                                for (AlbumHit a : l)
+                                    try {
+                                        if (a.album.id().equals(album)) {
+                                            getIntent().removeExtra("album");
+                                            albumFilter = a;
+                                            render();
+                                        }
+                                    } catch (Exception badAlbum) {
+                                    }
+                        }
                         String wanted = getIntent().getStringExtra("song");
                         if (wanted != null) {
                             getIntent().removeExtra("song");
@@ -1248,13 +1463,101 @@ public final class HammerActivity extends Activity {
                               : artists + (artists == 1 ? " artist · " : " artists · ") + hits.size() +
                                     (hits.size() == 1 ? " song" : " songs");
     }
+    private boolean touching, renderWaiting;
+    /** A rebuild under a finger moves what it was about to tap: while a finger is down, Discover waits. */
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent e) {
+        int a = e.getActionMasked();
+        if (a == android.view.MotionEvent.ACTION_DOWN)
+            touching = true;
+        else if (a == android.view.MotionEvent.ACTION_UP || a == android.view.MotionEvent.ACTION_CANCEL) {
+            touching = false;
+            if (renderWaiting)
+                scroll.postDelayed(new Runnable() {
+                    public void run() {
+                        if (!touching && renderWaiting)
+                            render();
+                    }
+                }, 350);  // after the tap has landed and any fling has begun
+        }
+        return super.dispatchTouchEvent(e);
+    }
+    /** Names for the rows of the list, so a rebuild can find again the row that was on screen. */
+    private String[] rowKeys() {
+        String[] keys = new String[results.getChildCount()];
+        Map<String, Integer> seen = new HashMap<String, Integer>();
+        String prev = "top";
+        for (int i = 0; i < keys.length; i++) {
+            View c = results.getChildAt(i);
+            Object t = c.getTag(R.id.anchor);
+            String k = t instanceof String ? (String) t
+                     : c instanceof TextView ? "text:" + ((TextView) c).getText()
+                     : prev + ">" + c.getClass().getSimpleName();
+            Integer n = seen.get(k);
+            seen.put(k, n == null ? 1 : n + 1);
+            keys[i] = n == null ? k : k + "#" + n;
+            prev = keys[i];
+        }
+        return keys;
+    }
+    private int topInScroll(View v) {
+        int y = 0;
+        for (View x = v; x != null && x.getParent() != scroll; x = (View) x.getParent())
+            y += x.getTop();
+        return y;
+    }
     private void render() {
         if (closed || results == null)
             return;
+        if (touching) {
+            renderWaiting = true;
+            return;
+        }
+        renderWaiting = false;
+        // keep the row at the top of the screen where it was, and the side-scrolling shelves where they were
+        String anchor = null;
+        int anchorOffset = 0;
+        final Map<String, Integer> sideways = new HashMap<String, Integer>();
+        if (scroll != null && results.getChildCount() > 0) {
+            String[] keys = rowKeys();
+            int sy = scroll.getScrollY();
+            for (int i = 0; i < keys.length; i++) {
+                View c = results.getChildAt(i);
+                if (c instanceof HorizontalScrollView)
+                    sideways.put(keys[i], c.getScrollX());
+                int top = topInScroll(c);
+                if (anchor == null && sy > 0 && top + c.getHeight() > sy) {
+                    anchor = keys[i];
+                    anchorOffset = top - sy;
+                }
+            }
+        }
+        renderRows();
+        if (scroll == null || (anchor == null && sideways.isEmpty()))
+            return;
+        final String[] keys = rowKeys();
+        final String keep = anchor;
+        final int offset = anchorOffset;
+        scroll.post(new Runnable() {
+            public void run() {
+                for (int i = 0; i < keys.length && i < results.getChildCount(); i++) {
+                    View c = results.getChildAt(i);
+                    Integer x = sideways.get(keys[i]);
+                    if (x != null && c instanceof HorizontalScrollView)
+                        c.scrollTo(x, 0);
+                    if (keys[i].equals(keep))
+                        scroll.scrollTo(0, Math.max(0, topInScroll(c) - offset));
+                }
+            }
+        });
+    }
+    private void renderRows() {
         results.removeAllViews();
         String q = query.getText().toString();
         int count = 0;
         if (artistFilter == null && albumFilter == null) {
+            onAir();
+            circlesRow();
             LinearLayout strip = Ui.row(this);
             strip.setGravity(android.view.Gravity.TOP);
             for (final ProfileHit profile : profiles.values())
@@ -1360,7 +1663,9 @@ public final class HammerActivity extends Activity {
                     first = false;
                 }
                 shown.add(hit);
-                results.addView(songCard(hit), Ui.gap(this, 8));
+                View card = songCard(hit);
+                card.setTag(R.id.anchor, "song:" + hit.song.key + "/" + hit.song.id);
+                results.addView(card, Ui.gap(this, 8));
             }
         TextView n = Ui.text(this,
                              count > 100 ? "Showing the first 100 matches. Narrow your search."
@@ -1390,6 +1695,232 @@ public final class HammerActivity extends Activity {
              : (n == null ? -1 : n[1]);
     }
     /** An album as a framed cover with its title; tap to open it. */
+    /** Songs Discover has seen on public hosts, each once, with every public host seen offering it. */
+    static LinkedHashMap<Hammer.Song, List<Hammer.Card>> songsSeen() {
+        LinkedHashMap<String, Hammer.Song> byId = new LinkedHashMap<String, Hammer.Song>();
+        Map<String, List<Hammer.Card>> hosts = new HashMap<String, List<Hammer.Card>>();
+        for (List<Hit> l : songsByPeer.values())
+            for (Hit h : l) {
+                if (h.peer.card.isPrivate())
+                    continue;
+                String k = h.song.key + "/" + h.song.id;
+                if (!byId.containsKey(k)) {
+                    byId.put(k, h.song);
+                    hosts.put(k, new ArrayList<Hammer.Card>());
+                }
+                if (hosts.get(k).size() < 3)
+                    hosts.get(k).add(h.peer.card);
+            }
+        LinkedHashMap<Hammer.Song, List<Hammer.Card>> out = new LinkedHashMap<Hammer.Song, List<Hammer.Card>>();
+        for (Map.Entry<String, Hammer.Song> e : byId.entrySet())
+            out.put(e.getValue(), hosts.get(e.getKey()));
+        return out;
+    }
+    /** Every public host Discover has heard from, for asking to carry a circle. */
+    static List<Hammer.Card> publicHosts() {
+        List<Hammer.Card> out = new ArrayList<Hammer.Card>();
+        for (Map.Entry<String, List<Hammer.Card>> e : routes.entrySet())
+            if (lastSeen.containsKey(e.getKey()))
+                for (Hammer.Card c : e.getValue())
+                    if (!c.isPrivate()) {
+                        out.add(c);
+                        break;
+                    }
+        Collections.shuffle(out);
+        return out;
+    }
+    /** The public hosts Discover last saw holding this artist's station, any revision. */
+    static List<Hammer.Card> stationHolders(String artist) {
+        List<Hammer.Card> out = new ArrayList<Hammer.Card>();
+        for (List<StationHit> l : stationsByPeer.values())
+            for (StationHit s : l)
+                try {
+                    if (s.station.id().equals(artist) && !s.peer.card.isPrivate()) {
+                        out.add(s.peer.card);
+                        break;
+                    }
+                } catch (Exception badStation) {
+                }
+        return out;
+    }
+    /** Circles, under On air: yours, the open ones found on hosts, and a way to start one. */
+    private void circlesRow() {
+        results.addView(heading("Circles"));
+        LinearLayout box = Ui.column(this);
+        Set<String> mine = new HashSet<String>();
+        for (final Circles.Joined j : Circles.joined(this)) {
+            mine.add(j.circle.id);
+            box.addView(circleRow(j.circle.title, (j.started ? "Yours" : "Joined") + (j.circle.open ? " · open" : " · invite-only"),
+                                  "Open", new Runnable() {
+                public void run() {
+                    startActivity(new Intent(HammerActivity.this, CircleActivity.class).putExtra("circle", j.circle.id));
+                }
+            }), Ui.gap(this, 8));
+        }
+        Map<String, Object[]> found = new LinkedHashMap<String, Object[]>();
+        for (List<Object[]> l : circlesByPeer.values())
+            for (Object[] o : l) {
+                HammerCircle c = (HammerCircle)o[0];
+                Object[] old = found.get(c.id);
+                if (!mine.contains(c.id) && (old == null || c.revision > ((HammerCircle)old[0]).revision))
+                    found.put(c.id, o);
+            }
+        for (final Object[] o : found.values()) {
+            final HammerCircle c = (HammerCircle)o[0];
+            box.addView(circleRow(c.title, c.about.isEmpty() ? "Open circle" : c.about, "Join", new Runnable() {
+                public void run() {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
+                            "killayue://c/" + c.id + "?k=" + c.secret + "&via=" + android.net.Uri.encode(((Hammer.Card)o[1]).encode())),
+                            HammerActivity.this, CircleActivity.class));
+                    } catch (Exception unreadable) {
+                    }
+                }
+            }), Ui.gap(this, 8));
+        }
+        Button start = Ui.chip(this, "Start a circle");
+        start.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { startCircle(); }
+        });
+        box.addView(start, Ui.gap(this, 4));
+        results.addView(box);
+    }
+    private View circleRow(String title, String under, String action, final Runnable go) {
+        LinearLayout row = Ui.row(this);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setBackground(new LuxFrame(14, 8));
+        int across = Ui.dp(this, 24), down = Ui.dp(this, 14);
+        row.setPadding(across, down, across, down);
+        LinearLayout words = Ui.column(this);
+        TextView t = Ui.text(this, "◎ " + title, Skin.ACCENT, 16);
+        t.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+        t.setSingleLine(true);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        words.addView(t);
+        TextView n = Ui.text(this, under, Skin.DIM, 13);
+        n.setSingleLine(true);
+        n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        words.addView(n);
+        row.addView(words, Ui.weight());
+        Button b = Ui.chip(this, action);
+        b.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { go.run(); }
+        });
+        row.addView(b);
+        return row;
+    }
+    private void startCircle() {
+        LinearLayout v = Ui.column(this);
+        final EditText name = Ui.edit(this, "Circle name", 1);
+        final EditText about = Ui.edit(this, "What it's for (optional)", 2);
+        final EditText me = Ui.edit(this, "Your name in it", 1);
+        me.setText(Circles.name(this));
+        final CheckBox open = new CheckBox(this);
+        open.setText("Open: anyone can find it in Discover and join");
+        open.setTextColor(Skin.TEXT);
+        open.setChecked(true);
+        v.addView(name);
+        v.addView(about, Ui.gap(this, 8));
+        v.addView(me, Ui.gap(this, 8));
+        v.addView(open, Ui.gap(this, 8));
+        new Lux.Builder(this).setTitle("Start a circle")
+            .setMessage("Listen together and talk. What's said is sealed with the circle's key: this phone and up to three "
+                        + "helpers carry it without reading it. Invite-only circles can be found only by invitation.")
+            .setView(v)
+            .setPositiveButton("Start", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    final String t = name.getText().toString().trim(), a = about.getText().toString().trim();
+                    final boolean o = open.isChecked();
+                    Circles.name(HammerActivity.this, me.getText().toString().trim());
+                    work("Starting the circle", new Work() {
+                        public void run() throws Exception {
+                            final Circles.Joined j = Circles.start(HammerActivity.this, t, a, o, publicHosts(), new Hammer.Job());
+                            ui.post(new Runnable() {
+                                public void run() {
+                                    HammerService.startHost(HammerActivity.this);
+                                    startActivity(new Intent(HammerActivity.this, CircleActivity.class).putExtra("circle", j.circle.id));
+                                }
+                            });
+                        }
+                    });
+                }
+            })
+            .setNegativeButton("Cancel", null).show();
+    }
+    /** The newest copy of each station seen, by artist: a host still holding an older one doesn't win. */
+    private static Map<String, StationHit> newestStations() {
+        Map<String, StationHit> out = new LinkedHashMap<String, StationHit>();
+        for (List<StationHit> list : stationsByPeer.values())
+            for (StationHit s : list)
+                try {
+                    StationHit old = out.get(s.station.id());
+                    if (old == null || s.station.revision > old.station.revision)
+                        out.put(s.station.id(), s);
+                } catch (Exception badStation) {
+                }
+        return out;
+    }
+    /** On air, at the top of Discover: each station once, with the song it has on now. */
+    private void onAir() {
+        Set<String> seen = new HashSet<String>();
+        long now = System.currentTimeMillis();
+        for (final StationHit s : newestStations().values())
+                try {
+                    if (!s.station.live(now) || !seen.add(s.station.id()))
+                        continue;
+                    if (seen.size() == 1)
+                        results.addView(heading("On air"));
+                    LinearLayout row = Ui.row(this);
+                    row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    row.setBackground(new LuxFrame(14, 8));
+                    int across = Ui.dp(this, 24), down = Ui.dp(this, 14);
+                    row.setPadding(across, down, across, down);
+                    LinearLayout words = Ui.column(this);
+                    TextView t = Ui.text(this, "● " + s.station.title, Skin.ACCENT, 16);
+                    t.setTypeface(Skin.text(), android.graphics.Typeface.BOLD);
+                    t.setSingleLine(true);
+                    t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    words.addView(t);
+                    String title = "";
+                    HammerStation.Spot at = s.station.at(now);
+                    for (Hit h : hits)
+                        if (at != null && h.song.id.equals(at.song))
+                            title = h.song.title;
+                    TextView n = Ui.text(this, artistName(s.station.key) + (title.isEmpty() ? "" : " · " + title), Skin.DIM, 13);
+                    n.setSingleLine(true);
+                    n.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    words.addView(n);
+                    row.addView(words, Ui.weight());
+                    Button tune = Ui.chip(this, "Tune in");
+                    tune.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) { tuneIn(s); }
+                    });
+                    row.addView(tune);
+                    results.addView(row, Ui.gap(this, 8));
+                } catch (Exception badStation) {
+                }
+    }
+    private void tuneIn(StationHit s) {
+        Map<String, Hammer.Song> songs = new HashMap<String, Hammer.Song>();
+        Map<String, List<Hammer.Card>> routes = new HashMap<String, List<Hammer.Card>>();
+        for (Hit h : hits)
+            if (h.song.key.equals(s.station.key) && s.station.songs.contains(h.song.id) && !songs.containsKey(h.song.id)) {
+                songs.put(h.song.id, h.song);
+                routes.put(h.song.id, hosts(h));
+            }
+        if (songs.isEmpty()) {
+            Ui.toast(this, "This station's songs are still loading");
+            return;
+        }
+        userStopped = false;
+        playing = null;
+        try {
+            HammerService.tune(this, s.station, songs, routes);
+            Ui.toast(this, "Tuning in to " + s.station.title);
+        } catch (Exception e) {
+            Ui.toast(this, "Could not tune in");
+        }
+    }
     private View albumTile(final AlbumHit a) {
         LinearLayout t = Ui.column(this);
         t.setPadding(0, 0, Ui.dp(this, 14), 0);
@@ -1625,10 +2156,12 @@ public final class HammerActivity extends Activity {
             .setItems(new String[] {"Listen · choose the quality",
                                     hit.song.reshare ? "Download / resume" : "Streaming only", "Comments",
                                     "Up / down votes", "Follow this artist", "Artist profile", "Song conversation / remixes",
-                                    "Lyrics"},
+                                    "Lyrics", "Remix this song"},
                       new DialogInterface.OnClickListener() {
                           public void onClick(DialogInterface d, int which) {
-                              if (which == 7) {
+                              if (which == 8) {
+                                  remix(hit);
+                              } else if (which == 7) {
                                   showLyrics(hit);
                               } else if (which == 6) {
                                   BackstageActivity.open(HammerActivity.this, hit.peer.card, "track", hit.song.id, false);
@@ -1662,6 +2195,27 @@ public final class HammerActivity extends Activity {
                       })
             .setNegativeButton("Close", null)
             .show();
+    }
+    /** Opens Create with this song's style and lyrics; the song made from it credits this one. */
+    private void remix(final Hit hit) {
+        work("Opening a remix", new Work() {
+            public void run() throws Exception {
+                HammerLyrics l = null;
+                try {
+                    l = Hammer.lyrics(hit.peer.card, hit.song, job);
+                } catch (Exception olderHost) {
+                    // a host from before lyrics were shared: style only
+                }
+                String artist = "";
+                try {
+                    for (HammerProfile p : store.publicObjects.profiles())
+                        if (p.key.equals(hit.song.key))
+                            artist = p.name;
+                } catch (Exception noProfile) {
+                }
+                Remixes.start(HammerActivity.this, hit.song, hit.peer.card, artist, l);
+            }
+        });
     }
     private void showLyrics(final Hit hit) {
         work("Reading lyrics", new Work() {
@@ -1745,7 +2299,7 @@ public final class HammerActivity extends Activity {
                         ui.post(new Runnable() {
                             public void run() { HammerService.startHost(HammerActivity.this); }
                         });
-                    } catch (Exception full) {  /* at most 256 songs */
+                    } catch (Exception full) {  /* at most Hammer.MAX_SONGS songs */
                     }
                 if (!hit.peer.card.isPrivate())
                     try {
@@ -2031,7 +2585,10 @@ public final class HammerActivity extends Activity {
                                 c.name = who;
                                 c.body = body;
                                 c.sign(HammerAndroid.identity());
-                                Hammer.comment(hit.peer.card, c, job);
+                                if (Protection.on(HammerActivity.this))
+                                    HammerMix.comment(hit.peer.card, c, job);
+                                else
+                                    Hammer.comment(hit.peer.card, c, job);
                             }
                         });
                     }
@@ -2262,6 +2819,7 @@ public final class HammerActivity extends Activity {
         worker.shutdownNow();
         art.shutdownNow();
         voting.shutdownNow();
+        mixing.shutdown(); // protected votes already on their way to other hosts still finish
         super.onDestroy();
     }
 }

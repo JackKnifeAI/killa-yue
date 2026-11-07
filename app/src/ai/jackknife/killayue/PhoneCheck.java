@@ -119,6 +119,34 @@ public class PhoneCheck {
         return gpuSupported() && "CPU".equals(cfg.getString("device", "Vulkan0"));
     }
 
+    /** The device-report form's link with its fields filled in (.github/ISSUE_TEMPLATE/device-report.yml ids). */
+    static String reportLink(Context c, String report, String log) {
+        String version = "";
+        try {
+            version = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            // leave it blank
+        }
+        String gpu = gpuModel();
+        StringBuilder u = new StringBuilder("https://github.com/JackKnifeAI/killa-yue/issues/new?template=device-report.yml");
+        param(u, "title", "Device report: " + Build.MANUFACTURER + " " + Build.MODEL);
+        param(u, "phone", Build.MANUFACTURER + " " + Build.MODEL + " (" + Build.DEVICE + ")");
+        param(u, "chip", socModel() + (gpu.length() > 0 ? ", " + gpu : ""));
+        param(u, "android", Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");
+        param(u, "version", version);
+        param(u, "notes", report);
+        if (log.trim().length() > 0) param(u, "log", log);
+        return u.toString();
+    }
+
+    private static void param(StringBuilder u, String key, String value) {
+        try {
+            u.append('&').append(key).append('=').append(java.net.URLEncoder.encode(value, "UTF-8"));
+        } catch (Exception e) {
+            // UTF-8 is always there
+        }
+    }
+
     /** For the GitHub device-report form. */
     static String report(Context c) {
         SharedPreferences cfg = c.getSharedPreferences("cfg", 0);
@@ -148,6 +176,7 @@ public class PhoneCheck {
             float v = eta.getFloat(keys[i], -1f);
             if (v > 0) b.append("Measured ").append(names[i]).append(": ").append(String.format(Locale.US, "%.1f", v)).append('\n');
         }
+        b.append(HeatGuard.report(c));
         String last = EngineService.lastError;
         if (last != null && last.length() > 0) b.append("Last engine error: ").append(last).append('\n');
         return b.toString();

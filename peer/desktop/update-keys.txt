@@ -1,0 +1,4 @@
+# Public keys a helper trusts for updates, one per line: release BASE64 or recovery BASE64.
+# With no keys here, every update is refused.
+release r4R9HLyL/5LhmP0zVT3yvSDitMd0QPE2cwAp1Z8Nl0w=
+recovery 9TXB3kgq8o5atMZEpLOsNWETLBOZFnxcY9hq9QHR5cs=

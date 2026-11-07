@@ -8,7 +8,14 @@ dest="$(cd "$dest" && pwd)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/classes" "$tmp/package"
-javac --release 8 -d "$tmp/classes" app/src/ai/jackknife/killayue/peer/*.java peer/desktop/HammerServer.java peer/desktop/EmbeddedArt.java
+javac --release 8 -d "$tmp/classes" app/src/ai/jackknife/killayue/peer/*.java peer/desktop/HammerServer.java peer/desktop/HelperUpdate.java peer/desktop/EmbeddedArt.java
+# what a helper calls itself and which keys it trusts: inside the jar, so nothing on the command line can change them
+sequence="${HELPER_SEQUENCE:-$(sed -n 's/.*android:versionCode="\([0-9]*\)".*/\1/p' app/AndroidManifest.xml)}"
+version="${HELPER_VERSION:-$(sed -n 's/.*android:versionName="\([^"]*\)".*/\1/p' app/AndroidManifest.xml)}"
+printf 'sequence=%s\nversion=%s\n' "$sequence" "$version" > "$tmp/classes/update-version.properties"
+cp "${HELPER_KEYS:-peer/desktop/update-keys.txt}" "$tmp/classes/update-keys.txt"
+echo "$sequence" > "$tmp/package/sequence"
+cp peer/helper-launcher.sh "$tmp/package/launcher.sh"
 jar cfe "$tmp/package/hammer-server.jar" ai.jackknife.killayue.peer.HammerServer -C "$tmp/classes" .
 cp peer/README.md "$tmp/package/README.md"
 cp docs/community-and-desktop-roadmap.md "$tmp/package/ROADMAP.md"

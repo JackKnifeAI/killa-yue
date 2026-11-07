@@ -60,13 +60,50 @@ public final class HammerServer {
         identity = new KeyPair(cert.getPublicKey(), (PrivateKey)keys.getKey("hammer", password));
         pin = Hammer.hash(cert.getPublicKey().getEncoded());
         store = new HammerStore(data);
+        int moved = store.recleanShared(identity, new Hammer.Job());
+        if (moved > 0)
+            System.out.println("Shared " + moved + " songs again without hidden data");
         this.address = address;
         server =
             new Hammer.Server(Hammer.serverContext(identity, cert), new InetSocketAddress(bind, port), store);
+        // a station newly carried here goes straight on to the hosts last seen holding an older copy of it
+        store.publicObjects.carried = new HammerPublic.StationListener() {
+            public void carried(final HammerStation s) throws Exception {
+                final String id = s.id();
+                discovery.execute(new Runnable() {
+                    public void run() {
+                        for (Object[] h : holders.values())
+                            try {
+                                if (id.equals(h[1]) && (Long)h[2] < s.revision &&
+                                    Hammer.carryStation((Hammer.Card)h[0], s, announceJob))
+                                    h[2] = s.revision;
+                            } catch (Exception unavailable) {
+                            }
+                    }
+                });
+            }
+        };
         discovery.scheduleWithFixedDelay(new Runnable() {
-            public void run() { announce(); }
+            public void run() {
+                announce();
+                stationRound();
+            }
         }, 1, 600, java.util.concurrent.TimeUnit.SECONDS);
+        // each circle carried here catches up from its other hosts, so one that was down or missed a post has it
+        discovery.scheduleWithFixedDelay(new Runnable() {
+            public void run() {
+                for (HammerCircle c : store.circles.all())
+                    for (Hammer.Card h : c.hostCards())
+                        if (!h.pin.equals(pin) && !announceJob.cancelled)
+                            try {
+                                store.circles.sync(h, c.id, announceJob);
+                            } catch (Exception unavailable) {
+                            }
+            }
+        }, 30, 60, java.util.concurrent.TimeUnit.SECONDS);
     }
+    /** Hosts seen holding a station, by host and station: {card, station id, revision}. */
+    private final Map<String, Object[]> holders = new java.util.concurrent.ConcurrentHashMap<String, Object[]>();
     private static void privatePermissions(File file, boolean directory) throws Exception {
         if (Files.getFileStore(file.toPath()).supportsFileAttributeView("posix"))
             Files.setPosixFilePermissions(file.toPath(),
@@ -112,7 +149,7 @@ public final class HammerServer {
         for (HammerStore.Hosted h : store.hosted()) {
             if (!h.publicSong)
                 continue;
-            String album = EmbeddedArt.read(h.file).album;
+            String album = EmbeddedArt.read(h.source.isFile() ? h.source : h.file).album;
             if (album.isEmpty())
                 continue;
             if (!byAlbum.containsKey(album))
@@ -168,7 +205,7 @@ public final class HammerServer {
         Hammer.require(dir.isDirectory(), "Choose a folder");
         Set<String> hosted = new HashSet<String>();
         for (HammerStore.Hosted h : store.hosted())
-            hosted.add(h.file.getCanonicalPath());
+            hosted.add(h.source.getCanonicalPath());
         List<File> found = new ArrayList<File>();
         collect(dir, found, 0);
         Collections.sort(found);
@@ -237,6 +274,52 @@ public final class HammerServer {
             Exception invalidAddress) { /* LAN-only hosts remain available through their local address. */
         }
     }
+    /** Public hosts this one knows, other than itself: followed, then those that announced themselves here. */
+    private List<Hammer.Card> stationHosts() {
+        List<Hammer.Card> cards = new ArrayList<Hammer.Card>();
+        Set<String> seen = new HashSet<String>();
+        seen.add(pin);
+        for (HammerStore.Peer p : store.followed())
+            if (!p.card.isPrivate() && seen.add(p.card.pin))
+                cards.add(p.card);
+        try {
+            List<HammerPresence> announced = store.directory().list();
+            Collections.shuffle(announced);
+            for (HammerPresence p : announced)
+                if (seen.add(p.card.pin) && cards.size() < 32)
+                    cards.add(p.card);
+        } catch (Exception noDirectory) {
+        }
+        return cards;
+    }
+    /**
+     * Keeps the stations this host carries current, every ten minutes: asks up to 16 public hosts it knows for their
+     * stations, takes newer copies of the ones whose songs it shares (a new note, or going off air), and hands its
+     * newer copies to hosts still holding older ones.
+     */
+    private void stationRound() {
+        List<Hammer.Card> cards = stationHosts();
+        Collections.shuffle(cards);
+        int asked = 0;
+        for (Hammer.Card card : cards) {
+            if (asked++ >= 16 || announceJob.cancelled)
+                break;
+            try {
+                for (HammerStation theirs : Hammer.stations(card, announceJob)) {
+                    try {
+                        if (holders.size() < 4096)
+                            holders.put(card.pin + "/" + theirs.id(), new Object[] {card, theirs.id(), theirs.revision});
+                        store.publicObjects.carry(theirs);
+                        HammerStation mine = store.publicObjects.station(theirs.id());
+                        if (mine != null && mine.revision > theirs.revision)
+                            HammerStations.spread(mine, Collections.singletonList(card), announceJob);
+                    } catch (Exception refused) {
+                    }
+                }
+            } catch (Exception unavailable) {
+            }
+        }
+    }
     private Hammer.Card card(boolean circle) throws Exception {
         if (KillaNet.running()) return Hammer.Card.p2p(KillaNet.peerId(), pin, circle ? store.token() : "");
         return new Hammer.Card(address, server.port(), pin, circle ? store.token() : "");
@@ -298,11 +381,20 @@ public final class HammerServer {
             + "  albums                                Publish the albums named in the songs' own tags\n"
             + "  album TITLE SONG_HASH...              Publish an album or playlist of hosted songs, in order\n"
             + "  stats                                 Plays and downloads served per song\n"
+            + "  station TITLE [NOTE]                  Go on air with this artist's public songs, looping\n"
+            + "  station-stop                          Go off air\n"
+            + "  stations                              Stations held here, this artist's and carried ones\n"
+            + "  circles                               Circles carried here (sealed: their words can't be read here)\n"
+            + "  forget-circle CIRCLE_ID               Stop carrying a circle and drop what it said\n"
             + "  profile NAME BIO TAGS                  Publish signed public artist metadata\n"
             + "  withdraw-profile                      Remove this host public artist profile\n"
             + "  join CARD                             Join a public entry peer and announce this host\n"
             + "  hosted                                List hosted songs\n"
             + "  unpublish SONG_HASH                    Stop offering a song; keep its master\n"
+            + "  adopted                                Hidden artists' songs this helper adopted (mixnet, experimental)\n"
+            + "  remove-adopted SONG_HASH               Stop hosting an adopted song and never take it again\n"
+            + "  kept                                   Artists who asked this helper to keep their songs\n"
+            + "  remove-kept ARTIST_ID                  Drop an artist's kept songs and refuse them from now on\n"
             + "  revoke                                Replace all private invitations\n"
             + "  follow CARD NAME                      Follow a peer (no public introduction)\n"
             + "  introduce PEER_NUMBER                 Opt in to introducing a public peer\n"
@@ -362,6 +454,7 @@ public final class HammerServer {
             System.out.println("Hosting and signed community metadata; native audio/transcode (Opus); remote generation: disabled");
             System.out.println("Network: " + (KillaNet.running() ? KillaNet.status() : "off"));
             System.out.println("Monthly counter: " + (store.census.enabled ? "enabled" : "off"));
+            System.out.println(HelperUpdate.status);
         } else if (op.equals("count")) {
             System.out.println(store.census.count(HammerCensus.month(), "", false) + " participating installations · " + HammerCensus.month());
         } else if (op.equals("board")) {
@@ -387,7 +480,7 @@ public final class HammerServer {
         } else if (op.equals("covers")) {
             int n = 0, words = 0;
             for (HammerStore.Hosted h : store.hosted()) {
-                EmbeddedArt e = EmbeddedArt.read(h.file);
+                EmbeddedArt e = EmbeddedArt.read(h.source.isFile() ? h.source : h.file);
                 if (store.publicObjects.localCover(h.song.id) == null && attachCover(h.song, e))
                     n++;
                 if (store.publicObjects.localLyrics(h.song.id) == null && !e.lyrics.isEmpty())
@@ -405,7 +498,7 @@ public final class HammerServer {
         } else if (op.equals("lyrics")) {  // lyrics again from the files, replacing what was offered
             int words = 0;
             for (HammerStore.Hosted h : store.hosted()) {
-                EmbeddedArt e = EmbeddedArt.read(h.file);
+                EmbeddedArt e = EmbeddedArt.read(h.source.isFile() ? h.source : h.file);
                 if (e.lyrics.isEmpty())
                     continue;
                 try {
@@ -434,6 +527,51 @@ public final class HammerServer {
             al.sign(identity);
             store.publicObjects.putAlbum(al);
             System.out.println("Album published: " + al.title + " (" + al.songs.size() + " songs)");
+        } else if (op.equals("station")) {
+            HammerStation s = new HammerStation();
+            s.title = a.get(1);
+            s.note = a.size() > 2 ? a.get(2) : "";
+            String key = Hammer.publicKey(identity.getPublic());
+            for (HammerStore.Hosted h : store.hosted())
+                if (h.publicSong && h.song.key.equals(key) && s.songs.size() < HammerStation.SONGS) {
+                    s.songs.add(h.song.id);
+                    s.lengths.add((int)(HammerMedia.codec.frames(h.file) * 1000 / HammerMedia.RATE));
+                }
+            Hammer.require(!s.songs.isEmpty(), "No public songs of this artist to play");
+            s.started = System.currentTimeMillis();
+            s.ends = s.started + HammerStation.LONGEST;
+            HammerStation old = store.publicObjects.station(Hammer.hash(identity.getPublic().getEncoded()));
+            s.revision = Math.max(s.started, old == null ? 1 : old.revision + 1);
+            s.sign(identity);
+            store.publicObjects.putStation(s);
+            System.out.println("On air: " + s.title + " (" + s.songs.size() + " songs); handed to " +
+                               HammerStations.spread(s, stationHosts(), announceJob) + " hosts that carry it");
+        } else if (op.equals("station-stop")) {
+            HammerStation s = store.publicObjects.station(Hammer.hash(identity.getPublic().getEncoded()));
+            Hammer.require(s != null, "No station here");
+            long now = System.currentTimeMillis();
+            s.ends = Math.max(s.started + 1, now);
+            s.revision = Math.max(s.revision + 1, now);
+            s.sign(identity);
+            store.publicObjects.putStation(s);
+            HammerStations.spread(s, stationHosts(), announceJob);
+            System.out.println("Off air");
+        } else if (op.equals("circles")) {
+            for (HammerCircle c : store.circles.all())
+                System.out.println((c.open ? "open    " : "invite  ") + c.title + " | " + c.id + " | "
+                                   + store.circles.read(c.id, HammerCircle.ROOM, 0).size() + " room, "
+                                   + store.circles.read(c.id, HammerCircle.BOARD, 0).size() + " board (sealed)");
+            System.out.println(store.circles.enabled ? "Carried here sealed: this host can't read them" : "Carrying circles is off (--no-circles)");
+        } else if (op.equals("forget-circle")) {
+            store.circles.forget(a.get(1));
+            System.out.println("No longer carrying that circle");
+        } else if (op.equals("stations")) {
+            long now = System.currentTimeMillis();
+            String me = Hammer.hash(identity.getPublic().getEncoded());
+            for (HammerStation s : store.publicObjects.stations(""))
+                System.out.println((s.live(now) ? "on air  " : "ended   ") + s.title +
+                                   (s.id().equals(me) ? " (yours)" : " (carried)") + " | revision " + s.revision);
+            System.out.println("Carried while their artists' phones sleep: a station is held when this host shares all its songs");
         } else if (op.equals("stats")) {
             for (HammerStore.Hosted h : store.hosted()) {
                 long[] n = store.stats(h.song.id, h.publicSong ? "" : store.token());
@@ -467,6 +605,28 @@ public final class HammerServer {
                                    h.song.title);
         } else if (op.equals("unpublish")) {
             store.unpublish(a.get(1));
+            server.disconnect();
+        } else if (op.equals("adopted")) {
+            HammerAdoption adopt = HammerMix.adoption;
+            if (adopt == null)
+                System.out.println("This helper does not adopt hidden songs (start it with --help-network)");
+            else
+                for (Hammer.Song s : adopt.adopted())
+                    System.out.println(s.id + " | " + s.title + " | " + (s.size >> 10) + " KiB");
+        } else if (op.equals("remove-adopted")) {
+            Hammer.require(HammerMix.adoption != null, "This helper does not adopt hidden songs");
+            HammerMix.adoption.remove(a.get(1));  // and never take it again
+            server.disconnect();
+        } else if (op.equals("kept")) {
+            HammerKeeper k = store.keeper;
+            if (k == null)
+                System.out.println("This helper doesn't keep songs for artists (start it with --help-network)");
+            else
+                for (String line : k.report())
+                    System.out.println(line);
+        } else if (op.equals("remove-kept")) {
+            Hammer.require(store.keeper != null, "This helper doesn't keep songs for artists");
+            store.keeper.remove(a.get(1));  // drops their songs and refuses them from now on
             server.disconnect();
         } else if (op.equals("revoke")) {
             store.revoke();
@@ -603,8 +763,11 @@ public final class HammerServer {
     public static void main(String[] args) throws Exception {
         File data = new File(System.getProperty("user.home"), ".hammer");
         String address = "127.0.0.1", bind = "0.0.0.0";
-        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false;
+        int port = Hammer.PORT; boolean daemon = false, network = false, helper = false, count = false, upnp = false, adopt = true, circles = true, keep = true;
+        long keepBytes = -1;
         int networkPort = KillaNet.PORT; String entry = "", watch = ""; boolean watchPrivate = false;
+        boolean updates = true; String updateFrom = null; int updatePeers = -1;
+        long updateEvery = -1, updateSpread = -1, updateHealthy = -1, updateDeadline = -1;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--data"))
                 data = new File(args[++i]);
@@ -619,13 +782,24 @@ public final class HammerServer {
             else if (args[i].equals("--help-network")) { network = true; helper = true; }
             else if (args[i].equals("--community-count")) count = true;
             else if (args[i].equals("--upnp")) upnp = true;
+            else if (args[i].equals("--no-adopt")) adopt = false;
+            else if (args[i].equals("--no-circles")) circles = false;
+            else if (args[i].equals("--no-keep")) keep = false;
+            else if (args[i].equals("--keep-gb")) keepBytes = Long.parseLong(args[++i]) << 30;
+            else if (args[i].equals("--no-auto-update")) updates = false;
+            else if (args[i].equals("--update-from")) updateFrom = args[++i];
+            else if (args[i].equals("--update-every")) updateEvery = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-spread")) updateSpread = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-healthy-after")) updateHealthy = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-deadline")) updateDeadline = Long.parseLong(args[++i]);
+            else if (args[i].equals("--update-peers")) updatePeers = Integer.parseInt(args[++i]);
             else if (args[i].equals("--network-port")) networkPort = Integer.parseInt(args[++i]);
             else if (args[i].equals("--entry")) entry = args[++i];
             else if (args[i].equals("--watch")) watch = args[++i];
             else if (args[i].equals("--watch-private")) watchPrivate = true;
             else
                 throw new IllegalArgumentException(
-                    "Use --daemon --network --help-network --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
+                    "Use --daemon --network --help-network --no-adopt --no-circles --no-keep --keep-gb GB --no-auto-update --community-count --network-port PORT --entry MULTIADDR --watch MUSIC_FOLDER --watch-private --data DIR --address REACHABLE_IP --bind BIND_IP --port PORT");
         }
         final HammerServer app = new HammerServer(data, address, bind, port);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
@@ -635,10 +809,38 @@ public final class HammerServer {
             "HAMMER desktop host listening on " + bind + ":" + app.server.port() +
             ". Nothing is public until you publish it.\nPublic card: " + app.card(false).encode());
         app.store.census.enabled = count;
+        app.store.circles.enabled = circles;
         if (network) {
             try {
-                KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);
+                KillaNet.start(new File(data, "network"), app.pin, (helper ? KillaNet.HELP | KillaNet.COMPUTER : 0) | (upnp ? 0 : KillaNet.NO_UPNP), networkPort, entry);
                 KillaNet.serve(app.server); app.announce();
+                // a helper adopts hidden artists' songs that arrive through the mixnet, unless its owner says no
+                if (helper && adopt)
+                    HammerMix.adoption = new HammerAdoption(app.store, new File(data, "adopted"));
+                // and keeps copies of artists' songs when they ask, so their music stays up while their phones sleep
+                if (helper && keep) {
+                    final HammerKeeper keeper = new HammerKeeper(app.store, new File(data, "kept"), app.pin);
+                    if (keepBytes > 0) keeper.bytesInAll = keepBytes;
+                    keeper.log = new HammerKeeper.Log() {
+                        public void said(String line) { System.out.println(line); }
+                    };
+                    app.store.keeper = keeper;
+                    app.discovery.scheduleWithFixedDelay(new Runnable() {
+                        public void run() { keeper.kick(); }  // on its own thread: downloads don't hold up the rest
+                    }, 2, 600, java.util.concurrent.TimeUnit.SECONDS);
+                }
+                HammerMix.start(); // votes, comments and hidden songs that reach this host through the mixnet
+                HelperUpdate update = helper ? HelperUpdate.create() : null;
+                if (update != null) {
+                    update.off = !updates;
+                    if (updateFrom != null) update.from = updateFrom;
+                    if (updateEvery >= 0) update.everyMillis = updateEvery * 1000;
+                    if (updateSpread >= 0) update.spreadMillis = updateSpread * 1000;
+                    if (updateHealthy >= 0) update.healthyAfterMillis = updateHealthy * 1000;
+                    if (updateDeadline >= 0) update.deadlineMillis = updateDeadline * 1000;
+                    if (updatePeers >= 0) update.needPeers = updatePeers;
+                    update.start();
+                }
                 System.out.println("Network card: " + app.card(false).encode());
             } catch (Exception e) { app.close(); throw e; }
         }

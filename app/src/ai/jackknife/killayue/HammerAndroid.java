@@ -19,6 +19,7 @@ final class HammerAndroid {
         if (store == null) {
             store = new HammerStore(new File(c.getFilesDir(), "hammer"));
             HammerMedia.codec = new HammerCodec(c);
+            Circles.carryMine(c);  // this phone carries the circles it started, and no others
         }
         return store;
     }
@@ -59,6 +60,15 @@ final class HammerAndroid {
         KeyStore k = keys(alias);
         return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey)k.getKey(alias, null));
     }
+    /**
+     * The key of one hidden artist name: made for that name only, never used for anything sent from this phone's own
+     * address (no presence, hosting, comments or votes), so nothing links the name to the phone.
+     */
+    static KeyPair hiddenIdentity(String name) throws Exception {
+        String alias = "hammer-hidden-" + Hammer.hash(name.getBytes("UTF-8"));
+        KeyStore k = keys(alias);
+        return new KeyPair(k.getCertificate(alias).getPublicKey(), (PrivateKey)k.getKey(alias, null));
+    }
     private static android.net.wifi.WifiManager.MulticastLock multicast;
     /**
      * Starts the Killa YuE network node once (libkillanet.so), with the multicast lock Android needs before peers on
@@ -77,15 +87,38 @@ final class HammerAndroid {
         int flags = helper(c) ? KillaNet.HELP : 0;
         String id = KillaNet.start(new File(c.getFilesDir(), "network"), pin(), flags, KillaNet.PORT, "");
         watchHelping(c.getApplicationContext());
+        HammerMix.start(); // votes and comments reaching our host through the mixnet, and answers to ours
+        Protection.watch(c);
+        Protection.refresh(c);
         return id;
     }
     private static boolean watching;
+    private static String network = "";
+    /**
+     * Tells the node about a real change of network or address. Android follows every new default network with this
+     * report, and repeats it often, so only a different network or address set counts.
+     */
+    private static synchronized void moved(android.net.Network n, android.net.LinkProperties p) {
+        StringBuilder now = new StringBuilder(n.toString());
+        for (android.net.LinkAddress a : p.getLinkAddresses())
+            now.append(' ').append(a.getAddress().getHostAddress());
+        String seen = now.toString();
+        if (seen.equals(network))
+            return;
+        boolean first = network.isEmpty();
+        network = seen;
+        if (!first)
+            KillaNet.moved();
+    }
     private static void watchHelping(final Context c) {
         if (watching)
             return;
         watching = true;
         final Runnable check = new Runnable() {
-            public void run() { KillaNet.help(helper(c)); }
+            public void run() {
+                KillaNet.help(helper(c));
+                Protection.refresh(c); // cover traffic is slower on mobile data
+            }
         };
         android.content.IntentFilter power = new android.content.IntentFilter();
         power.addAction(android.content.Intent.ACTION_POWER_CONNECTED);
@@ -100,6 +133,11 @@ final class HammerAndroid {
                         check.run();
                     }
                     public void onLost(android.net.Network n) { check.run(); }
+                    // a new default network (Wi-Fi to mobile data and back) or new addresses on it (a carrier
+                    // handing out another address): the node reconnects now, not when old connections time out
+                    public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties p) {
+                        moved(n, p);
+                    }
                 });
         } catch (Exception noCallback) {
         }

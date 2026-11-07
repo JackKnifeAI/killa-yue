@@ -19,6 +19,17 @@ import java.util.List;
  *
  *   NetworkTest host IDENTITY.p12 DATA CARD_FILE      (prints "ready", serves until killed)
  *   NetworkTest listen IDENTITY.p12 DATA CARD_FILE
+ *
+ * The mixnet (experimental), for peer/test/network.sh:
+ *   NetworkTest mixlisten ID.p12 DATA PEERID_OUT [FLAGS [ENTRY]]   a client behind a relay, waiting for a message
+ *   NetworkTest mixsend ID.p12 DATA RECEIVER_FILE [FLAGS [ENTRY]]  sends one, waits for the answer to its reply block
+ *   NetworkTest mixhost ID.p12 DATA CARD_OUT [FLAGS [ENTRY]]       a host behind a relay, taking votes and comments
+ *                                                                  through the mixnet (Protection)
+ *   NetworkTest mixvote ID.p12 DATA CARD [FLAGS [ENTRY]]           votes and comments on its song through the mixnet
+ *   NetworkTest adopter ID.p12 DATA ENTRY_OUT [FLAGS [ENTRY]]      a helper that mixes and adopts hidden songs; its card
+ *                                                                  goes to ENTRY_OUT.card
+ *   NetworkTest hidden ID.p12 DATA CARDS [FLAGS [ENTRY]]           publishes a hidden song through the mixnet; CARDS
+ *                                                                  lists the adopters, which must all end up hosting it
  */
 public final class NetworkTest {
     static int passed;
@@ -30,9 +41,14 @@ public final class NetworkTest {
     }
 
     /**
-     * relay  ID.p12 DATA ENTRY_OUT                 a helper node (relays, answers the DHT); writes its address
+     * relay  ID.p12 DATA ENTRY_OUT [FLAGS [ENTRY]] a helper node (relays, answers the DHT, mixes); writes its
+     *                                              address; FLAGS are ignored, ENTRY joins other helpers
      * host   ID.p12 DATA CARD_OUT [FLAGS [ENTRY]]  publishes test tones and offers itself in the public host list
      * listen ID.p12 DATA CARD [FLAGS [ENTRY [relayed]]]
+     * mixlisten ID.p12 DATA PEERID_OUT [FLAGS [ENTRY]]  a client behind a relay, waiting for a mixnet message;
+     *                                                   writes its PeerId, answers through the reply block
+     * mixsend ID.p12 DATA RECEIVER_FILE [FLAGS [ENTRY]] sends a message with a reply block through three mix
+     *                                                   nodes, waits for the answer
      * FLAGS as in KillaNet (2 no mDNS, 4 no Mainline, 8 relay only, 16 no UPnP); ENTRY a file of multiaddrs.
      */
     public static void main(String[] args) throws Exception {
@@ -48,9 +64,9 @@ public final class NetworkTest {
         int flags = args.length > 4 ? Integer.parseInt(args[4]) : 0;
         String entry = args.length > 5 ? new String(Files.readAllBytes(new File(args[5]).toPath()), "UTF-8") : "";
         File out = new File(args[3]);
-        if ("relay".equals(args[0])) {
+        if ("relay".equals(args[0]) || "adopter".equals(args[0]) || "natrelay".equals(args[0])) {
             String id = KillaNet.start(new File(root, "network"), pin, KillaNet.HELP | KillaNet.NO_MDNS | KillaNet.NO_MAINLINE |
-                                       KillaNet.NO_UPNP | KillaNet.TEST_REACHABLE, 0, "");
+                                       KillaNet.NO_UPNP | KillaNet.TEST_REACHABLE, 0, entry);
             String quic = null;
             for (String a : KillaNet.addresses().split(" "))
                 if (a.startsWith("/ip4/127.0.0.1/udp/") && a.endsWith("/quic-v1"))
@@ -61,15 +77,237 @@ public final class NetworkTest {
                     if (a.startsWith("/ip4/127.0.0.1/udp/") && a.endsWith("/quic-v1"))
                         quic = a;
             }
+            if ("natrelay".equals(args[0]))
+                KillaNet.mixServe(false); // only the relay: the mixes behind routers carry the mixnet alone
+            if ("adopter".equals(args[0])) {
+                // a helper as the desktop companion runs one: hosting, and adopting hidden songs from the mixnet
+                HammerStore store = new HammerStore(new File(root, "store"));
+                Hammer.Server server =
+                    new Hammer.Server(Hammer.serverContext(pair, cert), new InetSocketAddress("127.0.0.1", 0), store);
+                KillaNet.serve(server);
+                HammerMix.adoption = new HammerAdoption(store, new File(root, "adopted"));
+                HammerMix.start();
+                Files.write(new File(out.getPath() + ".card").toPath(),
+                            (Hammer.Card.p2p(id, pin, "").encode() + "\n").getBytes("UTF-8"));
+            }
             Files.write(out.toPath(), (quic + "/p2p/" + id + "\n").getBytes("UTF-8"));
             System.out.println("ready relay " + id);
             Thread.sleep(600000);
             return;
         }
+        if ("natmix".equals(args[0])) {
+            // an always-on computer behind a router, as Fodenn is: no address anyone can dial, no test switch to
+            // serve; it must take a relay spot and serve as a mix through it on its own
+            String id = KillaNet.start(new File(root, "network"), pin, KillaNet.HELP | KillaNet.COMPUTER |
+                                       KillaNet.RELAY_ONLY | KillaNet.NO_MDNS | KillaNet.NO_MAINLINE | KillaNet.NO_UPNP, 0, entry);
+            boolean serving = false;
+            for (int i = 0; i < 150 && !serving; i++) {
+                String[] look = KillaNet.mixLook().split("\t");
+                serving = look.length >= 3 && "1".equals(look[2]);
+                if (!serving)
+                    Thread.sleep(200);
+            }
+            check(serving, "a computer behind a router serves as a mix through its relay spot");
+            Files.write(out.toPath(), (id + "\n").getBytes("UTF-8"));
+            System.out.println("ready natmix " + id);
+            Thread.sleep(600000);
+            return;
+        }
+        if ("mixlisten".equals(args[0])) {
+            // a phone-like client: no address of its own, reached through a relay, waiting on the mixnet
+            String id = KillaNet.start(new File(root, "network"), pin, flags | KillaNet.RELAY_ONLY, 0, entry);
+            Files.write(out.toPath(), (id + "\n").getBytes("UTF-8"));
+            System.out.println("ready " + id);
+            long until = System.currentTimeMillis() + 120000;
+            String got = null;
+            while (got == null && System.currentTimeMillis() < until) {
+                for (String line : KillaNet.mixInbox().split("\n"))
+                    if (line.startsWith("got\t"))
+                        got = line;
+                if (got == null)
+                    Thread.sleep(300);
+            }
+            check(got != null, "a message arrived through the mixnet");
+            byte[] message = unhex(got.split("\t")[2]);
+            check(message.length > 8 && new String(message, 0, 8, "UTF-8").equals("MIXSRB01"),
+                  "the message carried a reply block");
+            String r = KillaNet.mixReply(java.util.Arrays.copyOfRange(message, 8, message.length),
+                                        "answered through the mixnet".getBytes("UTF-8"));
+            check("ok".equals(r), "the answer was queued through the reply block");
+            System.exit(0);
+        }
+        if ("mixsend".equals(args[0])) {
+            // the sender: three mix nodes carry its message, and only the first knows the phone at all
+            KillaNet.start(new File(root, "network"), pin, flags, 0, entry);
+            String to = new String(Files.readAllBytes(out.toPath()), "UTF-8").trim();
+            int mixes = 0;
+            for (int i = 0; i < 300 && mixes < 3; i++) {
+                String look = KillaNet.mixLook();
+                if (!look.startsWith("error"))
+                    mixes = Integer.parseInt(look.split("\t")[0]);
+                if (mixes < 3)
+                    Thread.sleep(200);
+            }
+            check(mixes >= 3, "three mix nodes found in the DHT");
+            byte[] block = KillaNet.mixSurb();
+            check(block != null && block.length > 0, "a reply block was made");
+            byte[] head = "MIXSRB01".getBytes("UTF-8");
+            byte[] message = new byte[head.length + block.length];
+            System.arraycopy(head, 0, message, 0, head.length);
+            System.arraycopy(block, 0, message, head.length, block.length);
+            String sent = KillaNet.mixSend(to, message);
+            check("ok".equals(sent), "the message was queued for the mixnet");
+            long until = System.currentTimeMillis() + 120000;
+            String back = null;
+            while (back == null && System.currentTimeMillis() < until) {
+                for (String line : KillaNet.mixInbox().split("\n"))
+                    if (line.startsWith("back\t"))
+                        back = line;
+                if (back == null)
+                    Thread.sleep(300);
+            }
+            check(back != null, "the answer came back through the reply block");
+            check("answered through the mixnet".equals(new String(unhex(back.split("\t")[2]), "UTF-8")),
+                  "the answer arrived intact");
+            // cover traffic: loops leave through the gateway and come back to us through it
+            KillaNet.mixCover(100);
+            long loopsBack = 0;
+            for (int i = 0; i < 150 && loopsBack == 0; i++) {
+                Thread.sleep(200);
+                String[] look = KillaNet.mixLook().split("\t");
+                if (look.length >= 6)
+                    loopsBack = Long.parseLong(look[5]);
+            }
+            check(loopsBack > 0, "cover loops came back through the gateway");
+            KillaNet.mixCover(0);
+            System.out.println("ok mixnet message through three helpers, answer through the reply block");
+            System.exit(0);
+        }
+        if ("mixhost".equals(args[0])) {
+            String id = KillaNet.start(new File(root, "network"), pin, flags | KillaNet.RELAY_ONLY, 0, entry);
+            host(pair, cert, root, out);
+            HammerMix.start();
+            System.out.println("ready " + id);
+            Thread.sleep(600000);
+            return;
+        }
+        if ("mixvote".equals(args[0])) {
+            // Protection: the vote and the comment reach the host through three mixes, sealed, and its answers
+            // come back through reply blocks; only the test reads the song list and checks the result directly
+            KillaNet.start(new File(root, "network"), pin, flags | KillaNet.TEST_NETWORKS, 0, entry);
+            Hammer.Card card = Hammer.Card.parse(Files.readAllLines(out.toPath()).get(0));
+            String why = null;
+            for (int i = 0; i < 300; i++) {
+                why = HammerMix.unready(card);
+                if (why == null)
+                    break;
+                Thread.sleep(200);
+            }
+            check(why == null, "ready for a protected send" + (why == null ? "" : ": " + why));
+            check(HammerMix.unready(new Hammer.Card("192.0.2.1", 7000, card.pin, "")) != null,
+                  "a host reached by address is refused, not sent to directly");
+            Hammer.Job job = new Hammer.Job();
+            Hammer.Song song = Hammer.catalog(card, job).get(0);
+            Hammer.Vote v = new Hammer.Vote();
+            v.song = song.id;
+            v.value = 1;
+            v.sequence = (System.currentTimeMillis() - 1767225600000L) / 60000;
+            v.sign(pair);
+            long t0 = System.nanoTime();
+            HammerMix.vote(card, v, job);
+            long voteMs = (System.nanoTime() - t0) / 1000000;
+            boolean counted = false;
+            for (Hammer.Vote got : Hammer.votes(card, song.id, job))
+                counted |= got.key.equals(v.key) && got.value == 1;
+            check(counted, "the host took the vote that came through the mixnet (" + voteMs + " ms)");
+            Hammer.Comment c = new Hammer.Comment();
+            c.song = song.id;
+            c.id = Hammer.random();
+            c.time = System.currentTimeMillis();
+            c.name = "mixnet test";
+            StringBuilder body = new StringBuilder();
+            while (body.length() < 1800)
+                body.append("A comment long enough for two packets. ");
+            c.body = body.toString();
+            c.sign(pair);
+            t0 = System.nanoTime();
+            HammerMix.comment(card, c, job);
+            long commentMs = (System.nanoTime() - t0) / 1000000;
+            boolean posted = false;
+            for (Hammer.Comment got : Hammer.comments(card, song.id, job))
+                posted |= got.id.equals(c.id) && got.body.equals(c.body);
+            check(posted, "the host took a comment in two parts, whole (" + commentMs + " ms)");
+            Hammer.Vote stray = new Hammer.Vote();
+            stray.song = Hammer.hash("no such song".getBytes("UTF-8"));
+            stray.value = 1;
+            stray.sequence = 1;
+            stray.sign(pair);
+            String refused = null;
+            try {
+                HammerMix.vote(card, stray, job);
+            } catch (Exception e) {
+                refused = e.getMessage();
+            }
+            check(refused != null && refused.startsWith("The host refused"),
+                  "a refusal comes back with the host's reason (" + refused + ")");
+            System.out.println("ok protected vote and comment through three helpers");
+            System.exit(0);
+        }
+        if ("hidden".equals(args[0])) {
+            // a hidden artist: the song goes in pieces through three mixes to helpers that adopt it, offered to every
+            // mix node in turn (the ones that do not adopt refuse); then a listener finds it on each adopter
+            KillaNet.start(new File(root, "network"), pin, flags | KillaNet.TEST_NETWORKS, 0, entry);
+            List<String> cards = Files.readAllLines(out.toPath());
+            String why = null;
+            for (int i = 0; i < 300; i++) {
+                why = HammerMix.unready();
+                if (why == null && KillaNet.mixNodes().size() >= cards.size() + 3)
+                    break;
+                Thread.sleep(200);
+            }
+            check(why == null, "ready for a hidden upload" + (why == null ? "" : ": " + why));
+            java.security.KeyPairGenerator g = java.security.KeyPairGenerator.getInstance("EC");
+            g.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            KeyPair hidden = g.generateKeyPair();
+            File tone = HammerIntegration.wave(root, "hidden.wav", 6, 44100, 5); // about 1 MB: 70 pieces for each helper
+            long t0 = System.nanoTime();
+            HammerHidden.Prepared p = HammerHidden.prepare(tone, new File(root, "hidden"), "Hidden tone", "test",
+                                                           "Nobody in particular", hidden, new Hammer.Job());
+            check(HammerHidden.stampOk(p.song.id, p.stamp), "a clean, signed song with its stamp (" +
+                  (System.nanoTime() - t0) / 1000000 + " ms)");
+            t0 = System.nanoTime();
+            List<String> hosting = HammerHidden.publish(p, KillaNet.mixNodes(), new HammerHidden.Progress() {
+                public void progress(int done, int total, List<String> hosts) {}
+            }, new Hammer.Job());
+            long ms = (System.nanoTime() - t0) / 1000000;
+            check(hosting.size() == HammerHidden.COPIES, hosting.size() + " helpers adopted the " +
+                  HammerHidden.pieces(p.song.size) + "-piece song (" + ms + " ms)");
+            Hammer.Job job = new Hammer.Job();
+            for (String line : cards) {
+                Hammer.Card card = Hammer.Card.parse(line.trim());
+                boolean listed = false, named = false;
+                for (Hammer.Song s : Hammer.catalog(card, job))
+                    listed |= s.id.equals(p.song.id);
+                for (HammerProfile pr : Hammer.profiles(card, job))
+                    named |= pr.name.equals("Nobody in particular") && pr.key.equals(p.song.key);
+                check(listed && named, "an adopter lists the song under the hidden name");
+            }
+            Hammer.Card first = Hammer.Card.parse(cards.get(0).trim());
+            File got = new File(root, "got.part"), whole = new File(root, "got.wav");
+            Hammer.download(first, p.song, got, whole, job);
+            check(Hammer.hash(whole).equals(p.song.id), "a listener downloads it whole from an adopter");
+            System.out.println("ok hidden song adopted by three helpers");
+            System.exit(0);
+        }
         if ("host".equals(args[0])) {
             String id = KillaNet.start(new File(root, "network"), pin, flags, 0, entry);
             host(pair, cert, root, out);
             KillaNet.announce(true);
+            String move = System.getenv("MOVE_AFTER");  // seconds: then act as if the phone changed networks
+            if (move != null) {
+                Thread.sleep(Long.parseLong(move) * 1000);
+                KillaNet.moved();
+            }
             System.out.println("ready " + id);
             Thread.sleep(600000);
             return;
@@ -81,6 +319,13 @@ public final class NetworkTest {
         if (linger != null)
             Thread.sleep(Long.parseLong(linger) * 1000);
         System.exit(0);
+    }
+
+    static byte[] unhex(String text) {
+        byte[] out = new byte[text.length() / 2];
+        for (int i = 0; i < out.length; i++)
+            out[i] = (byte)Integer.parseInt(text.substring(2 * i, 2 * i + 2), 16);
+        return out;
     }
 
     /**

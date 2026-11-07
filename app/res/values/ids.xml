@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="lux_done" type="id"/>
+    <item name="anchor" type="id"/>
 </resources>

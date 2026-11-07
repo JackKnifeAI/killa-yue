@@ -14,9 +14,13 @@
 //! separated text, so the desktop needs no JSON library). Inbound HAMMER streams reach Java's loopback bridge with a
 //! token and the remote PeerId first, so HAMMER's admission limits apply per peer, not to the loopback address.
 
+pub mod mix;
+pub mod mixnet;
+
 use futures::StreamExt;
 use libp2p::{
     autonat, dcutr, identify, identity, kad, mdns, multiaddr::Protocol, noise, ping, relay,
+    core::transport::ListenerId,
     swarm::{behaviour::toggle::Toggle, NetworkBehaviour, SwarmEvent},
     tcp, upnp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm,
 };
@@ -29,9 +33,33 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, Semaphore};
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
-/// Diagnostics on stderr when KILLANET_DEBUG is set (desktop tests); silent otherwise.
+/// Diagnostics when KILLANET_DEBUG is set: on stderr on a desktop, in logcat (tag killanet) on Android, where stderr
+/// goes nowhere; silent otherwise.
 macro_rules! debug {
-    ($($t:tt)*) => { if std::env::var_os("KILLANET_DEBUG").is_some() { eprintln!("[killanet] {}", format!($($t)*)); } };
+    ($($t:tt)*) => { if std::env::var_os("KILLANET_DEBUG").is_some() { $crate::say(&format!($($t)*)); } };
+}
+pub(crate) use debug;
+
+/// KILLANET_DEBUG=mix keeps only the mixnet's own lines: Android thins out an app that logs much, and the DHT's
+/// chatter crowded out what mattered.
+fn wanted(line: &str) -> bool {
+    std::env::var("KILLANET_DEBUG").map_or(true, |v| v != "mix" || line.starts_with("mix:"))
+}
+
+#[cfg(not(target_os = "android"))]
+pub(crate) fn say(line: &str) {
+    if wanted(line) { eprintln!("[killanet] {line}"); }
+}
+
+#[cfg(target_os = "android")]
+pub(crate) fn say(line: &str) {
+    if !wanted(line) { return }
+    #[link(name = "log")]
+    extern "C" {
+        fn __android_log_write(prio: i32, tag: *const std::ffi::c_char, text: *const std::ffi::c_char) -> i32;
+    }
+    let text = std::ffi::CString::new(line.replace('\0', " ")).unwrap_or_default();
+    unsafe { __android_log_write(3, c"killanet".as_ptr(), text.as_ptr()) }; // 3: debug
 }
 
 pub const HAMMER: StreamProtocol = StreamProtocol::new("/killa-yue/hammer/1.0.0");
@@ -58,6 +86,14 @@ pub const NO_UPNP: i32 = 16;
 /// Tests only: treat this node's own addresses, loopback included, as confirmed reachable. A relay offers relaying
 /// only once confirmed reachable, which AutoNAT never does for loopback.
 pub const TEST_REACHABLE: i32 = 32;
+/// Tests only: serve as a mix node without being reachable directly, so a test bench behind NAT can carry the mixnet
+/// through relay circuits the way an outside phone would reach it, without claiming addresses nobody outside can
+/// dial.
+pub const TEST_MIX: i32 = 64;
+/// An always-on computer that helps (the desktop helper, never a phone): it serves as a mix node from behind a
+/// router too, reached through its relay spots and hole punched to direct links where the routers allow, and claims
+/// the network its peers see it on. Phones move and sleep, so they mix only for themselves.
+pub const COMPUTER: i32 = 256;
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
@@ -86,6 +122,11 @@ struct State {
     worldwide: bool, // confirmed reachable on a public internet address, not only on a LAN or a VPN
     helping: bool,   // volunteers as a relay and DHT server (a computer, or a phone on Wi-Fi and charging)
     test_reachable: bool,
+    test_mix: bool,
+    computer: bool,
+    /// the networks peers saw this node on (identify's observed address), with who said so: a node behind a
+    /// router learns its own network only this way
+    observed: HashMap<[u8; 5], HashSet<PeerId>>,
     interface_public: bool, // a public IPv4 address on the machine's own interface: a server, whatever AutoNAT says
     relays: HashSet<PeerId>,
     hosts: HashSet<PeerId>,
@@ -95,11 +136,18 @@ struct State {
 type Waiter = Arc<Mutex<Option<oneshot::Sender<bool>>>>;
 
 enum Cmd {
-    Find(PeerId, oneshot::Sender<bool>),
+    /// find a peer; `fresh` asks the DHT even when a connection or addresses are known, which may be dead
+    Find(PeerId, oneshot::Sender<bool>, bool),
     Dial(Vec<Multiaddr>),
     Announce(bool),
     Lookup,
     Help(bool),
+    Moved,
+    Mixes,
+    MixPublish(Vec<u8>),
+    MixStop,
+    /// close the connections to these peers: the mixnet's links to them died with the network the phone left
+    Disconnect(Vec<PeerId>),
 }
 
 pub struct Node {
@@ -107,7 +155,9 @@ pub struct Node {
     control: libp2p_stream::Control,
     state: Arc<Mutex<State>>,
     cmd: mpsc::UnboundedSender<Cmd>,
+    pub mix: mixnet::Mixnet,
     stop: Arc<AtomicBool>,
+    alive: Arc<AtomicBool>,
     pub peer_id: PeerId,
 }
 
@@ -155,6 +205,15 @@ fn is_loopback(a: &Multiaddr) -> bool {
     a.iter().any(|p| matches!(p, Protocol::Ip4(ip) if ip.is_loopback()) || matches!(p, Protocol::Ip6(ip) if ip.is_loopback()))
 }
 
+/// An IPv4 or IPv6 link-local address (169.254.0.0/16, fe80::/10): only reachable on its own network segment.
+fn link_local(a: &Multiaddr) -> bool {
+    a.iter().any(|p| match p {
+        Protocol::Ip4(ip) => ip.is_link_local(),
+        Protocol::Ip6(ip) => (ip.segments()[0] & 0xffc0) == 0xfe80,
+        _ => false,
+    })
+}
+
 /// Not loopback, not an unspecified or link-local address: worth telling another node about.
 fn dialable(a: &Multiaddr) -> bool {
     !is_loopback(a)
@@ -167,7 +226,7 @@ fn dialable(a: &Multiaddr) -> bool {
 
 /// A public internet address: not private, carrier-grade NAT, a VPN such as Tailscale (100.64.0.0/10, fd00::/8),
 /// link-local or loopback. Being reachable only on one of those does not make a phone on mobile data reachable.
-fn worldwide(a: &Multiaddr) -> bool {
+pub(crate) fn worldwide(a: &Multiaddr) -> bool {
     a.iter().any(|p| match p {
         Protocol::Ip4(ip) => {
             let o = ip.octets();
@@ -273,6 +332,7 @@ fn read_addrs(peer: &PeerId, value: &[u8]) -> Vec<Multiaddr> {
 pub struct Options {
     pub key_file: String,
     pub peers_file: String,
+    pub mix_file: String,
     pub agent: String,
     pub inbound_port: u16,
     pub token: Vec<u8>,
@@ -310,6 +370,9 @@ impl Node {
                     kc.set_provider_record_ttl(Some(Duration::from_secs(48 * 3600)));
                     kc.set_provider_publication_interval(Some(Duration::from_secs(12 * 3600)));
                     kc.set_record_ttl(Some(Duration::from_secs(2 * 3600)));
+                    // 256 KiB, not 16: an answer listing twenty providers with all their addresses (many-homed
+                    // helpers, relay circuits) passed 16 KiB and was dropped, so a lookup found nobody
+                    kc.set_max_packet_size(256 * 1024);
                     let store = kad::store::MemoryStore::with_config(
                         me,
                         kad::store::MemoryStoreConfig { max_providers_per_key: 1024, ..Default::default() },
@@ -374,13 +437,17 @@ impl Node {
         // in routing tables where nobody can reach it.
         swarm.behaviour_mut().kad.set_mode(Some(if flags & HELP != 0 { kad::Mode::Server } else { kad::Mode::Client }));
         if flags & RELAY_ONLY == 0 {
+            // tests on one machine may bind loopback only (KILLANET_LOOPBACK=1, set by peer/test/network.sh): where
+            // interfaces cannot be listed, as in a PRoot, a wildcard listener never names a loopback address the
+            // other test nodes could dial. The app never sets it, so real nodes always listen on every interface.
+            let (v4, v6) = if std::env::var_os("KILLANET_LOOPBACK").is_some() { ("127.0.0.1", "::1") } else { ("0.0.0.0", "::") };
             for port in [o.port, 0] {
                 let mut ok = false;
                 for addr in [
-                    format!("/ip4/0.0.0.0/udp/{port}/quic-v1"),
-                    format!("/ip6/::/udp/{port}/quic-v1"),
-                    format!("/ip4/0.0.0.0/tcp/{port}"),
-                    format!("/ip6/::/tcp/{port}"),
+                    format!("/ip4/{v4}/udp/{port}/quic-v1"),
+                    format!("/ip6/{v6}/udp/{port}/quic-v1"),
+                    format!("/ip4/{v4}/tcp/{port}"),
+                    format!("/ip6/{v6}/tcp/{port}"),
                 ] {
                     // IPv6 may be missing on some networks; one working listener is enough
                     ok |= swarm.listen_on(addr.parse::<Multiaddr>().unwrap()).is_ok();
@@ -393,10 +460,15 @@ impl Node {
         let control = swarm.behaviour().stream.new_control();
         let mut incoming = control.clone().accept(HAMMER).map_err(|e| format!("stream protocol: {e}"))?;
         let state = Arc::new(Mutex::new(State { nat: "unknown".into(), helping: flags & HELP != 0,
-                                                   test_reachable: flags & TEST_REACHABLE != 0, ..Default::default() }));
-        relay_serves(&mut swarm, &state);  // before any connection: off until this node is reachable
+                                                   test_reachable: flags & TEST_REACHABLE != 0, test_mix: flags & TEST_MIX != 0,
+                                                   computer: flags & COMPUTER != 0,
+                                                   ..Default::default() }));
         let (cmd, mut cmds) = mpsc::unbounded_channel::<Cmd>();
         let stop = Arc::new(AtomicBool::new(false));
+        // the mixnet (mixnet.rs) moves its own frames on our streams and asks us for DHT work
+        let mix = mixnet::Mixnet::start(&o.mix_file, signing.clone(), control.clone(), cmd.clone())?;
+        let to_mixnet = mix.tell();
+        relay_serves(&mut swarm, &state, &to_mixnet);  // before any connection: off until this node is reachable
 
         // inbound HAMMER streams → Java's loopback bridge, token and PeerId first
         let gate = Arc::new(Semaphore::new(INBOUND_AT_ONCE));
@@ -425,8 +497,10 @@ impl Node {
 
         // first contact through the Mainline DHT: find reachable Killa YuE nodes, announce ourselves when reachable
         let public_port = Arc::new(AtomicU16::new(0));
+        // set when the phone moves to another network: the meeting point is asked again at once
+        let kick = Arc::new(AtomicBool::new(false));
         if flags & NO_MAINLINE == 0 {
-            let (tx, port, halt) = (cmd.clone(), public_port.clone(), stop.clone());
+            let (tx, port, halt, again) = (cmd.clone(), public_port.clone(), stop.clone(), kick.clone());
             std::thread::Builder::new()
                 .name("killanet-mainline".into())
                 .spawn(#[allow(deprecated)] // the blocking API is right for its own thread
@@ -460,10 +534,14 @@ impl Node {
                             let r = dht.announce_peer(meeting, Some(p));
                             debug!("mainline: announced port {p}: {}", r.is_ok());
                         }
-                        // look again in ten minutes (announcements expire after about thirty)
+                        // look again in ten minutes (announcements expire after about thirty), or at once after a
+                        // move to another network
                         for _ in 0..600 {
                             if halt.load(Ordering::Relaxed) {
                                 return;
+                            }
+                            if again.swap(false, Ordering::Relaxed) {
+                                break;
                             }
                             std::thread::sleep(Duration::from_secs(1));
                         }
@@ -497,7 +575,9 @@ impl Node {
         let halt = stop.clone();
         let peers_file = o.peers_file.clone();
         let relay_only = flags & RELAY_ONLY != 0;
-        rt.spawn(async move {
+        let to_mix = to_mixnet.clone();
+        let alive = Arc::new(AtomicBool::new(true));
+        let task = rt.spawn(async move {
             let mut dialled: HashSet<PeerId> = HashSet::new();
             // neighbours on this network have their own budget, so dead hosts lingering in the DHT's host list
             // (provider records live 48 hours) can never use up the dials before the artist next door is found
@@ -507,13 +587,28 @@ impl Node {
             // DHT lookups for a peer's addresses: who, who is waiting, and whether to dial once found
             let mut finds: HashMap<kad::QueryId, (PeerId, Waiter, bool)> = HashMap::new();
             let mut hop: HashMap<PeerId, Multiaddr> = HashMap::new(); // relays and an address we reached them on
+            let mut circuits: HashMap<ListenerId, PeerId> = HashMap::new(); // our relay spots, by listener
+            // a lost relay spot is asked for again after a pause that doubles while asking fails (1 s up to a
+            // minute), never in a loop: a spot that cannot be had at once would otherwise be asked for hundreds of
+            // times a second
+            let mut retry: Option<tokio::time::Instant> = None;
+            let mut backoff = Duration::from_secs(1);
             let mut announcing = false;
+            // the mixnet's own lookups: mix nodes offering themselves, and the descriptors fetched for them
+            let mut mixes_qs: HashSet<kad::QueryId> = HashSet::new();
+            let mut mix_records: HashMap<kad::QueryId, (PeerId, bool)> = HashMap::new(); // publisher, fresh one found
+            let mut mix_fetched: HashMap<PeerId, tokio::time::Instant> = HashMap::new(); // when each descriptor was last asked for
+            let mut mix_put: Option<kad::QueryId> = None; // our descriptor, on its way into the DHT
             // the first round runs five seconds in, once the listeners are up
             let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(5), Duration::from_secs(60));
             let mut minutes: u64 = 0;
             let hosts_key = kad::RecordKey::new(&HOSTS_KEY);
             loop {
                 tokio::select! {
+                    _ = tokio::time::sleep_until(retry.unwrap_or_else(tokio::time::Instant::now)), if retry.is_some() => {
+                        retry = None;
+                        reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
+                    }
                     _ = tick.tick() => {
                         if halt.load(Ordering::Relaxed) { break; }
                         minutes += 1;
@@ -521,6 +616,7 @@ impl Node {
                         if minutes == 1 || minutes % 5 == 0 {
                             let _ = swarm.behaviour_mut().kad.bootstrap();
                             swarm.behaviour_mut().kad.get_providers(hosts_key.clone());
+                            for k in mixnet::mixes_keys(now_secs()) { mixes_qs.insert(swarm.behaviour_mut().kad.get_providers(k)); }
                             // offer this host again: the first offer, made at start-up, reached only the few
                             // nodes known then, and the network changes; a stale offer expires by itself
                             if announcing { let _ = swarm.behaviour_mut().kad.start_providing(hosts_key.clone()); }
@@ -528,8 +624,8 @@ impl Node {
                         }
                     }
                     Some(c) = cmds.recv() => match c {
-                        Cmd::Find(peer, reply) => {
-                            let known = { let s = st.lock().unwrap(); s.connected.contains(&peer) || s.addrs.get(&peer).map_or(false, |a| !a.is_empty()) };
+                        Cmd::Find(peer, reply, fresh) => {
+                            let known = !fresh && { let s = st.lock().unwrap(); s.connected.contains(&peer) || s.addrs.get(&peer).map_or(false, |a| !a.is_empty()) };
                             if known {
                                 let _ = reply.send(true);
                             } else {
@@ -546,7 +642,7 @@ impl Node {
                         }
                         Cmd::Announce(on) => {
                             if on && !announcing {
-                                reachable_as(&mut swarm, &st);
+                                reachable_as(&mut swarm, &st, &to_mix);
                                 let _ = swarm.behaviour_mut().kad.start_providing(hosts_key.clone());
                                 publish_addrs(&mut swarm, &signing);
                             } else if !on && announcing {
@@ -555,6 +651,51 @@ impl Node {
                             announcing = on;
                         }
                         Cmd::Lookup => { swarm.behaviour_mut().kad.get_providers(hosts_key.clone()); }
+                        Cmd::Mixes => {
+                            for k in mixnet::mixes_keys(now_secs()) { mixes_qs.insert(swarm.behaviour_mut().kad.get_providers(k)); }
+                        }
+                        Cmd::MixPublish(record) => {
+                            let me = *swarm.local_peer_id();
+                            // a short life: the mix renews it every five minutes while it serves, and a mix that went
+                            // away is gone from the DHT within a quarter of an hour, not the default two hours
+                            let mut r = kad::Record::new(mixnet::mix_key(&me), record);
+                            r.expires = Some(std::time::Instant::now() + mixnet::RECORD_LIFE);
+                            mix_put = swarm.behaviour_mut().kad.put_record(r, kad::Quorum::One).ok();
+                            // the descriptor is renewed every five minutes, so the offer reaches each new hour's key
+                            let _ = swarm.behaviour_mut().kad.start_providing(mixnet::mixes_key(now_secs() / mixnet::MIXES_HOUR));
+                        }
+                        Cmd::Disconnect(peers) => {
+                            for p in peers { let _ = swarm.disconnect_peer_id(p); }
+                        }
+                        Cmd::MixStop => {
+                            for k in mixnet::mixes_keys(now_secs()) { swarm.behaviour_mut().kad.stop_providing(&k); }
+                        }
+                        Cmd::Moved => {
+                            // the phone moved to another network (Wi-Fi to mobile data, a new carrier address):
+                            // connections made on the old one are dead, though they look alive until they time out.
+                            // Drop the relay links and their spots, take new ones, and ask everyone again now.
+                            for (id, relay) in circuits.drain() {
+                                swarm.remove_listener(id);
+                                let _ = swarm.disconnect_peer_id(relay);
+                            }
+                            {
+                                let mut s = st.lock().unwrap();
+                                s.relays.clear();
+                                s.observed.clear(); // the old network's address is no claim on this one
+                            }
+                            failed.clear();  // a peer unreachable from the old network may answer on this one
+                            // new spots in a second, once the old connections are gone
+                            backoff = Duration::from_secs(1);
+                            retry = Some(tokio::time::Instant::now() + backoff);
+                            // the address record is published again when the new relay spot is granted, not now:
+                            // now it would name no way in
+                            let _ = swarm.behaviour_mut().kad.bootstrap();
+                            swarm.behaviour_mut().kad.get_providers(hosts_key.clone());
+                            for k in mixnet::mixes_keys(now_secs()) { mixes_qs.insert(swarm.behaviour_mut().kad.get_providers(k)); }
+                            // the mixnet's links went with the old network too: a frame written into one now is lost
+                            let _ = to_mix.send(mixnet::Event::Moved);
+                            kick.store(true, Ordering::Relaxed);
+                        }
                         Cmd::Help(on) => {
                             let changed = {
                                 let mut s = st.lock().unwrap();
@@ -564,7 +705,7 @@ impl Node {
                             };
                             if changed {
                                 swarm.behaviour_mut().kad.set_mode(Some(if on { kad::Mode::Server } else { kad::Mode::Client }));
-                                reachable_as(&mut swarm, &st);
+                                reachable_as(&mut swarm, &st, &to_mix);
                             }
                         }
                     },
@@ -578,7 +719,9 @@ impl Node {
                     }
                     match event {
                         SwarmEvent::NewListenAddr { address, .. } => {
-                            if flags & TEST_REACHABLE != 0 { swarm.add_external_address(address.clone()); }
+                            // a test node takes its listen addresses as reachable, but never link-local ones: no other
+                            // machine can dial fe80:: without a scope, and test helpers on a real network offered dozens
+                            if flags & TEST_REACHABLE != 0 && !link_local(&address) { swarm.add_external_address(address.clone()); }
                             let circuit = is_circuit(&address);
                             // a public IPv4 address on this machine's own interface (a server, not a phone behind
                             // NAT): offer it and the relay at once, or nobody could ever meet the first such node to
@@ -592,18 +735,37 @@ impl Node {
                                     s.helping
                                 };
                                 if helping { swarm.add_external_address(address.clone()); }
-                                relay_serves(&mut swarm, &st);
+                                relay_serves(&mut swarm, &st, &to_mix);
                                 if let Some(p) = udp_port(&address) { public_port.store(p, Ordering::Relaxed); }
                             }
                             st.lock().unwrap().listen.push(address);
                             if circuit {
                                 // reachable through a relay now: say so in the address record and the host list
-                                reachable_as(&mut swarm, &st);
+                                reachable_as(&mut swarm, &st, &to_mix);
                                 publish_addrs(&mut swarm, &signing);
                                 if announcing { let _ = swarm.behaviour_mut().kad.start_providing(hosts_key.clone()); }
                             }
                         }
                         SwarmEvent::ExpiredListenAddr { address, .. } => st.lock().unwrap().listen.retain(|a| a != &address),
+                        SwarmEvent::ListenerClosed { listener_id, addresses, .. } => {
+                            {
+                                let mut s = st.lock().unwrap();
+                                s.listen.retain(|a| !addresses.contains(a));
+                                if let Some(relay) = circuits.remove(&listener_id) {
+                                    if !circuits.values().any(|r| *r == relay) {
+                                        s.relays.remove(&relay);
+                                    }
+                                }
+                            }
+                            // a mix behind a router without a relay spot cannot be reached: it stops serving
+                            relay_serves(&mut swarm, &st, &to_mix);
+                            // a relay spot ends with its connection (the relay restarted, or this phone moved):
+                            // take another soon
+                            if retry.is_none() {
+                                retry = Some(tokio::time::Instant::now() + backoff);
+                                backoff = (backoff * 2).min(Duration::from_secs(60));
+                            }
+                        }
                         SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
                             let addr = endpoint.get_remote_address().clone();
                             let mut s = st.lock().unwrap();
@@ -640,8 +802,8 @@ impl Node {
                                 };
                                 dialled.remove(&peer_id);  // found again later, it is dialled again
                                 dialled_local.remove(&peer_id);
-                                if lost_relay {
-                                    reserve(&mut swarm, &st, &hop, relay_only);
+                                if lost_relay && retry.is_none() {
+                                    retry = Some(tokio::time::Instant::now() + backoff);
                                 }
                             }
                         }
@@ -681,9 +843,20 @@ impl Node {
                             let relay_peer = info.protocols.contains(&HOP);
                             debug!("identify {peer_id}: kad {kad_peer} relay {relay_peer} addrs {:?}", info.listen_addrs);
                             let addrs: Vec<Multiaddr> = info.listen_addrs.into_iter().take(16).collect();
+                            let mut newly = false;
                             {
                                 let mut s = st.lock().unwrap();
                                 s.agents.insert(peer_id, info.agent_version);
+                                // where this peer saw us: from behind a router, the only word on our own network
+                                if worldwide(&info.observed_addr) {
+                                    if let Some(n) = mixnet::net_of(&info.observed_addr) {
+                                        let relay = s.relays.contains(&peer_id);
+                                        if s.observed.len() < 16 || s.observed.contains_key(&n) {
+                                            let by = s.observed.entry(n).or_default();
+                                            newly = by.len() < 8 && by.insert(peer_id) && (by.len() == 2 || relay);
+                                        }
+                                    }
+                                }
                                 let set = s.addrs.entry(peer_id).or_default();
                                 for a in &addrs { set.insert(a.clone()); }
                             }
@@ -694,10 +867,21 @@ impl Node {
                             if relay_peer {
                                 // a relay on the home network, a VPN or a container bridge is no use to a phone
                                 // on mobile data: only an internet address (tests run on loopback)
-                                let reach = addrs.iter().find(|a| !is_circuit(a) && (relay_only || worldwide(a))).cloned();
+                                // without a trailing /p2p/<relay>: reserve() adds it, and a doubled one is malformed
+                                let reach = addrs
+                                    .iter()
+                                    .find(|a| !is_circuit(a) && (relay_only || worldwide(a)))
+                                    .map(|a| {
+                                        let mut a = a.clone();
+                                        if matches!(a.iter().last(), Some(Protocol::P2p(_))) {
+                                            a.pop();
+                                        }
+                                        a
+                                    });
                                 if let Some(a) = reach { hop.insert(peer_id, a); }
                             }
-                            reserve(&mut swarm, &st, &hop, relay_only);
+                            reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
+                            if newly { relay_serves(&mut swarm, &st, &to_mix); }
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Autonat(autonat::Event::StatusChanged { new, .. })) => {
                             let label = match &new {
@@ -713,9 +897,9 @@ impl Node {
                                 let mut s = st.lock().unwrap();
                                 s.worldwide = s.interface_public;  // too few AutoNAT servers must not demote a server
                             }
-                            reachable_as(&mut swarm, &st);
+                            reachable_as(&mut swarm, &st, &to_mix);
                             st.lock().unwrap().nat = label.into();
-                            reserve(&mut swarm, &st, &hop, relay_only);
+                            reserve(&mut swarm, &st, &hop, &mut circuits, relay_only);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Upnp(upnp::Event::NewExternalAddr { external_addr, .. })) => {
                             if let Some(p) = udp_port(&external_addr) { public_port.store(p, Ordering::Relaxed); }
@@ -723,14 +907,16 @@ impl Node {
                             s.nat = "public (router opened a port)".into();
                             s.worldwide = worldwide(&external_addr);
                             drop(s);
-                            relay_serves(&mut swarm, &st);
+                            relay_serves(&mut swarm, &st, &to_mix);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Dcutr(dcutr::Event { remote_peer_id, result: Ok(_) })) => {
                             st.lock().unwrap().punched.insert(remote_peer_id);
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::RelayClient(relay::client::Event::ReservationReqAccepted { relay_peer_id, .. })) => {
                             st.lock().unwrap().relays.insert(relay_peer_id);
+                            backoff = Duration::from_secs(1);
                             publish_addrs(&mut swarm, &signing);
+                            relay_serves(&mut swarm, &st, &to_mix); // the relay may vouch for our network now
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::Kad(kad::Event::OutboundQueryProgressed { id, result, step, .. })) => match result {
                             kad::QueryResult::GetClosestPeers(r) => {
@@ -743,27 +929,66 @@ impl Node {
                                 if step.last { finished(&mut finds, id); }
                             }
                             kad::QueryResult::GetRecord(r) => {
-                                let target = finds.get(&id).map(|f| f.0);
-                                if let (Some(target), Ok(kad::GetRecordOk::FoundRecord(found))) = (target, r) {
-                                    let addrs = read_addrs(&target, &found.record.value);
-                                    if !addrs.is_empty() { learned(&mut swarm, &st, &mut finds, id, target, addrs); }
+                                if let Some(&(publisher, _)) = mix_records.get(&id) {
+                                    // a mix node's descriptor record, asked for on the mixnet's behalf
+                                    if let Ok(kad::GetRecordOk::FoundRecord(found)) = &r {
+                                        if mix::read_descriptor(&publisher, &found.record.value).is_some_and(|n| n.fresh(now_secs())) {
+                                            mix_records.insert(id, (publisher, true));
+                                        }
+                                        let addrs = st.lock().unwrap().addrs.get(&publisher).map(|s| s.iter().cloned().collect()).unwrap_or_default();
+                                        let _ = to_mix.send(mixnet::Event::Descriptor(publisher, found.record.value.clone(), addrs));
+                                    }
+                                    if step.last {
+                                        // no fresh descriptor (not stored yet, or only a stale copy): the next lookup
+                                        // of the mix nodes asks again, instead of leaving this mix out all day
+                                        if mix_records.remove(&id).is_some_and(|(_, fresh)| !fresh) { mix_fetched.remove(&publisher); }
+                                    }
+                                } else {
+                                    let target = finds.get(&id).map(|f| f.0);
+                                    if let (Some(target), Ok(kad::GetRecordOk::FoundRecord(found))) = (target, r) {
+                                        let addrs = read_addrs(&target, &found.record.value);
+                                        if !addrs.is_empty() { learned(&mut swarm, &st, &mut finds, id, target, addrs); }
+                                    }
+                                    if step.last { finished(&mut finds, id); }
                                 }
-                                if step.last { finished(&mut finds, id); }
                             }
-                            kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders { providers, .. })) => {
-                                let me = *swarm.local_peer_id();
-                                for p in providers {
-                                    if p == me { continue; }
-                                    st.lock().unwrap().hosts.insert(p);
-                                    let connected = st.lock().unwrap().connected.contains(&p);
-                                    let resting = failed.get(&p).map_or(false, |t| t.elapsed() < Duration::from_secs(600));
-                                    if !connected && !resting && dialled.len() < AUTO_DIALS * 2 && dialled.insert(p) {
-                                        // try what the swarm knows, and look up its signed address record too
-                                        let _ = swarm.dial(p);
-                                        let q = swarm.behaviour_mut().kad.get_record(addr_key(&p));
-                                        finds.insert(q, (p, Arc::new(Mutex::new(None)), true));
+                            kad::QueryResult::PutRecord(r) => {
+                                // the mixnet retries until the DHT takes its descriptor
+                                if Some(id) == mix_put {
+                                    mix_put = None;
+                                    let _ = to_mix.send(mixnet::Event::Stored(r.is_ok()));
+                                }
+                            }
+                            kad::QueryResult::GetProviders(r) => {
+                                if let Ok(kad::GetProvidersOk::FoundProviders { providers, .. }) = r {
+                                if mixes_qs.contains(&id) {
+                                    // mix nodes: fetch each one's signed descriptor for the mixnet, again every five
+                                    // minutes, so a mix that went away drops out once its descriptor is no longer fresh
+                                    let me = *swarm.local_peer_id();
+                                    for p in providers {
+                                        if p == me || mix_fetched.get(&p).is_some_and(|t| t.elapsed() < mixnet::REFETCH) { continue; }
+                                        mix_fetched.insert(p, tokio::time::Instant::now());
+                                        let q = swarm.behaviour_mut().kad.get_record(mixnet::mix_key(&p));
+                                        mix_records.insert(q, (p, false));
+                                    }
+                                } else {
+                                    let me = *swarm.local_peer_id();
+                                    for p in providers {
+                                        if p == me { continue; }
+                                        st.lock().unwrap().hosts.insert(p);
+                                        let connected = st.lock().unwrap().connected.contains(&p);
+                                        let resting = failed.get(&p).map_or(false, |t| t.elapsed() < Duration::from_secs(600));
+                                        if !connected && !resting && dialled.len() < AUTO_DIALS * 2 && dialled.insert(p) {
+                                            // try what the swarm knows, and look up its signed address record too
+                                            let _ = swarm.dial(p);
+                                            let q = swarm.behaviour_mut().kad.get_record(addr_key(&p));
+                                            finds.insert(q, (p, Arc::new(Mutex::new(None)), true));
+                                        }
                                     }
                                 }
+                                }
+                                // finished, timed out or failed: either way this query is done
+                                if step.last { mixes_qs.remove(&id); }
                             }
                             _ => {}
                         },
@@ -773,7 +998,15 @@ impl Node {
             }
             save_remembered(&peers_file, &remembered);
         });
-        Ok(Node { rt, control, state, cmd, stop, peer_id })
+        // the node's thread ending for any reason, a panic included, is seen from Java, which starts a new node
+        let ended = alive.clone();
+        rt.spawn(async move {
+            if let Err(e) = task.await {
+                debug!("network thread ended: {e}");
+            }
+            ended.store(false, Ordering::Relaxed);
+        });
+        Ok(Node { rt, control, state, cmd, mix, stop, alive, peer_id })
     }
 
     /// A loopback port for one HAMMER connection to `peer`. The connecting side must send `token` first; anything
@@ -796,7 +1029,7 @@ impl Node {
                 return;
             }
             let (tx, rx) = oneshot::channel();
-            if cmd.send(Cmd::Find(peer, tx)).is_ok() {
+            if cmd.send(Cmd::Find(peer, tx, false)).is_ok() {
                 let _ = tokio::time::timeout(Duration::from_secs(25), rx).await;
             }
             let Ok(Ok(stream)) = tokio::time::timeout(Duration::from_secs(30), control.open_stream(peer, HAMMER)).await else { return };
@@ -804,6 +1037,16 @@ impl Node {
             let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
         });
         Ok(port)
+    }
+
+    /// The phone moved to another network: reconnect, take new relay spots and look everyone up again now.
+    pub fn moved(&self) {
+        let _ = self.cmd.send(Cmd::Moved);
+    }
+
+    /// False once the node's network thread has ended (stopped, or a panic); the app then starts a new node.
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
     }
 
     /// Offer (or stop offering) this host in the DHT's public host list.
@@ -873,7 +1116,7 @@ impl Node {
 /// reservation is proof of reachability through that relay), and its own interface addresses only while it helps
 /// and is confirmed reachable from the internet. A node behind NAT, or reachable only on a LAN or a VPN, never
 /// offers relay spots that nobody outside could use; its own addresses still go into its DHT record and identify.
-fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
+fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, mix: &mpsc::UnboundedSender<mixnet::Event>) {
     let (direct, test) = {
         let s = st.lock().unwrap();
         (s.test_reachable || (s.worldwide && s.helping), s.test_reachable)
@@ -899,20 +1142,37 @@ fn reachable_as(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
     for a in mine {
         swarm.add_external_address(a);
     }
-    relay_serves(swarm, st);
+    relay_serves(swarm, st, mix);
 }
 
 /// The relay serves exactly while this node helps and is reachable directly (or a test says it is). Set here, not
 /// left to the relay library, which serves whenever any external address is confirmed, relay circuits included: a
 /// phone behind NAT then offered relay spots nobody could reach, and nodes chained relay through relay.
-fn relay_serves(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>) {
-    let on = {
+fn relay_serves(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, mix: &mpsc::UnboundedSender<mixnet::Event>) {
+    let spot = swarm.listeners().any(is_circuit);
+    let (on, behind, test_mix, claimed) = {
         let s = st.lock().unwrap();
-        s.test_reachable || (s.worldwide && s.helping)
+        (s.test_reachable || (s.worldwide && s.helping), s.computer && s.helping && spot, s.test_mix, claimed(&s))
     };
     if let Some(r) = swarm.behaviour_mut().relay.as_mut() {
         r.set_status(Some(if on { relay::Status::Enable } else { relay::Status::Disable }));
     }
+    // the mixnet serves as a mix node under the same condition, or from behind a router through a relay spot (an
+    // always-on computer only); then it claims the network peers see it on, having no public address to count by
+    let _ = mix.send(mixnet::Event::Nets(if on { Vec::new() } else { claimed }));
+    let _ = mix.send(mixnet::Event::Reach(on || behind || test_mix));
+}
+
+/// The networks this node may claim from behind a router: those at least two peers saw it on, or a relay that
+/// holds a spot for it (a reachable helper, already trusted with every packet through that spot), most often seen
+/// first. Any one other peer alone could make it claim any network.
+fn claimed(s: &State) -> Vec<[u8; 5]> {
+    let mut seen: Vec<(&[u8; 5], usize)> = s.observed.iter()
+        .filter(|(_, by)| by.len() >= 2 || by.iter().any(|p| s.relays.contains(p)))
+        .map(|(n, by)| (n, by.len()))
+        .collect();
+    seen.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    seen.into_iter().take(mix::NETS).map(|(n, _)| *n).collect()
 }
 
 /// Addresses for a peer arrived from the DHT: remember them, wake whoever waits, dial if this was a host lookup.
@@ -953,7 +1213,13 @@ fn finished(finds: &mut HashMap<kad::QueryId, (PeerId, Waiter, bool)>, id: kad::
 /// Nodes not confirmed reachable from the internet (behind NAT, still unknown, or reachable only on a LAN or a VPN
 /// such as Tailscale) listen through up to two relays, so peers anywhere can reach them; DCUtR then tries to turn
 /// each relayed connection into a direct one.
-fn reserve(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, hop: &HashMap<PeerId, Multiaddr>, relay_only: bool) {
+fn reserve(
+    swarm: &mut Swarm<Behaviour>,
+    st: &Arc<Mutex<State>>,
+    hop: &HashMap<PeerId, Multiaddr>,
+    circuits: &mut HashMap<ListenerId, PeerId>,
+    relay_only: bool,
+) {
     let (worldwide, have) = {
         let s = st.lock().unwrap();
         (s.worldwide, s.relays.len())
@@ -961,22 +1227,22 @@ fn reserve(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, hop: &HashMap<P
     if (worldwide && !relay_only) || have >= RELAYS {
         return;
     }
-    let listening: HashSet<PeerId> = swarm
-        .listeners()
-        .flat_map(|a| a.iter().filter_map(|p| if let Protocol::P2p(id) = p { Some(id) } else { None }).collect::<Vec<_>>())
-        .collect();
-    let mut asked = listening.len();
+    // relays holding a spot for us or asked for one: a spot still being asked for is not among the listeners yet,
+    // and asking again would open a second listener at the same relay on every identify
+    let asked_at: HashSet<PeerId> = circuits.values().copied().collect();
+    let mut asked = asked_at.len();
     for (relay, addr) in hop {
         if asked >= RELAYS {
             break;
         }
-        if listening.contains(relay) {
+        if asked_at.contains(relay) {
             continue;
         }
         let circuit = addr.clone().with(Protocol::P2p(*relay)).with(Protocol::P2pCircuit);
         let r = swarm.listen_on(circuit.clone());
         debug!("reserve on {circuit}: {r:?}");
-        if r.is_ok() {
+        if let Ok(id) = r {
+            circuits.insert(id, *relay);
             asked += 1;
         }
     }
@@ -987,7 +1253,7 @@ fn reserve(swarm: &mut Swarm<Behaviour>, st: &Arc<Mutex<State>>, hop: &HashMap<P
 mod jni_api {
     use super::*;
     use jni::objects::{JByteArray, JClass, JString};
-    use jni::sys::{jboolean, jint, jstring};
+    use jni::sys::{jboolean, jbyteArray, jint, jstring};
     use jni::JNIEnv;
 
     static NODE: Mutex<Option<Node>> = Mutex::new(None);
@@ -1027,6 +1293,7 @@ mod jni_api {
         let options = Options {
             key_file: format!("{dir}/node.key"),
             peers_file: format!("{dir}/peers.txt"),
+            mix_file: format!("{dir}/mix.txt"),
             agent,
             inbound_port: inbound_port as u16,
             token,
@@ -1083,6 +1350,18 @@ mod jni_api {
     }
 
     #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMoved(_env: JNIEnv, _c: JClass) {
+        if let Some(n) = NODE.lock().unwrap().as_ref() {
+            n.moved();
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeAlive(_env: JNIEnv, _c: JClass) -> jboolean {
+        NODE.lock().unwrap().as_ref().map_or(0, |n| n.alive() as jboolean)
+    }
+
+    #[no_mangle]
     pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeLookup(_env: JNIEnv, _c: JClass) {
         if let Some(n) = NODE.lock().unwrap().as_ref() {
             n.lookup();
@@ -1099,6 +1378,139 @@ mod jni_api {
     pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeStatus(mut env: JNIEnv, _c: JClass) -> jstring {
         let s = NODE.lock().unwrap().as_ref().map(|n| n.status()).unwrap_or_default();
         reply(&mut env, s)
+    }
+
+    /// The running node's mixnet, taken out of the lock: a mixnet call waits up to 5 s for its engine, and must not
+    /// hold the node meanwhile, or the UI thread asking for the status waits too and the app stops responding.
+    fn mixnet() -> Option<mixnet::Mixnet> {
+        NODE.lock().unwrap().as_ref().map(|n| n.mix.clone())
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixSend(
+        mut env: JNIEnv,
+        _c: JClass,
+        peer: JString,
+        message: JByteArray,
+    ) -> jstring {
+        let peer = string(&mut env, &peer);
+        let message = env.convert_byte_array(&message).unwrap_or_default();
+        let Some(mix) = mixnet() else { return reply(&mut env, "error: not running".into()) };
+        let out = match peer.parse::<PeerId>() {
+            Ok(p) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mix.send(p, &message)))
+                .unwrap_or(Err("the mixnet failed".into())),
+            Err(_) => Err("not a peer id".into()),
+        };
+        reply(&mut env, out.map_or_else(|e| format!("error: {e}"), |()| "ok".into()))
+    }
+
+    /// A reply block for this node, or null: embed it in a message and the answer arrives in the inbox.
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixSurb(
+        env: JNIEnv,
+        _c: JClass,
+    ) -> jbyteArray {
+        let Some(mix) = mixnet() else { return std::ptr::null_mut() };
+        let block = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mix.surb()))
+            .unwrap_or(Err("the mixnet failed".into()));
+        match block {
+            Ok(b) => env.byte_array_from_slice(&b).map(|b| b.into_raw()).unwrap_or(std::ptr::null_mut()),
+            Err(_) => std::ptr::null_mut(),
+        }
+    }
+
+    /// The cover rate in milliseconds; 0 turns the clock off.
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixCover(
+        _env: JNIEnv,
+        _c: JClass,
+        mean_ms: jint,
+    ) {
+        // a negative mean paces without cover loops (an upload)
+        if let Some(n) = NODE.lock().unwrap().as_ref() {
+            if mean_ms < 0 {
+                n.mix.pace(Duration::from_millis(mean_ms.unsigned_abs() as u64));
+            } else {
+                n.mix.cover((mean_ms > 0).then(|| Duration::from_millis(mean_ms as u64)));
+            }
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixReply(
+        mut env: JNIEnv,
+        _c: JClass,
+        block: JByteArray,
+        message: JByteArray,
+    ) -> jstring {
+        let block = env.convert_byte_array(&block).unwrap_or_default();
+        let message = env.convert_byte_array(&message).unwrap_or_default();
+        let Some(mix) = mixnet() else { return reply(&mut env, "error: not running".into()) };
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mix.reply(&block, &message)))
+            .unwrap_or(Err("the mixnet failed".into()));
+        reply(&mut env, out.map_or_else(|e| format!("error: {e}"), |()| "ok".into()))
+    }
+
+    /// The inbox as lines of "got" or "back", the id and the message, tab separated, both hex-encoded.
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixInbox(
+        mut env: JNIEnv,
+        _c: JClass,
+    ) -> jstring {
+        let Some(mix) = mixnet() else { return reply(&mut env, String::new()) };
+        let inbox = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mix.inbox()))
+            .unwrap_or_default();
+        let mut out = String::new();
+        for m in inbox {
+            match m {
+                mixnet::In::Delivered { id, message } => out.push_str(&format!("got\t{}\t{}\n", mixnet::hex(&id), mixnet::hex(&message))),
+                mixnet::In::Replied { id, message } => out.push_str(&format!("back\t{}\t{}\n", mixnet::hex(&id), mixnet::hex(&message))),
+            }
+        }
+        reply(&mut env, out)
+    }
+
+    /// The mixnet's honest numbers, tab separated: mixes, independent networks, serving, cover (0/1), cover loops
+    /// sent, cover loops back, the gateway gone and not yet replaced (0/1).
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixLook(
+        mut env: JNIEnv,
+        _c: JClass,
+    ) -> jstring {
+        let Some(mix) = mixnet() else { return reply(&mut env, "error: not running".into()) };
+        let look = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mix.look()))
+            .unwrap_or(Err("the mixnet failed".into()));
+        let out = look.map_or_else(
+            |e| format!("error: {e}"),
+            |l| format!("{}\t{}\t{}\t{}\t{}\t{}\t{}", l.mixes, l.networks, l.serving as u8, l.cover as u8, l.loops_sent,
+                        l.loops_back, l.gateway_gone as u8),
+        );
+        reply(&mut env, out)
+    }
+
+    /// The PeerIds of the mix nodes a path may use now, one a line.
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixNodes(
+        mut env: JNIEnv,
+        _c: JClass,
+    ) -> jstring {
+        let Some(mix) = mixnet() else { return reply(&mut env, String::new()) };
+        let nodes = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mix.nodes()))
+            .unwrap_or(Err("the mixnet failed".into()))
+            .unwrap_or_default();
+        reply(&mut env, nodes.iter().map(|p| format!("{p}\n")).collect())
+    }
+
+    /// The owner's choice whether this node serves as a mix node when it is a reachable helper.
+    #[no_mangle]
+    pub extern "system" fn Java_ai_jackknife_killayue_peer_KillaNet_nativeMixServe(
+        _env: JNIEnv,
+        _c: JClass,
+        on: jboolean,
+    ) {
+        if let Some(n) = NODE.lock().unwrap().as_ref() {
+            n.mix.serve(on != 0);
+        }
     }
 
     #[no_mangle]

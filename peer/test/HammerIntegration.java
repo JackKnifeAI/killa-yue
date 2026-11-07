@@ -28,6 +28,16 @@ public final class HammerIntegration {
         }
         check(failed, name);
     }
+    static byte[] envelopeBytes(HammerCircle.Envelope e) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        e.write(new DataOutputStream(b));
+        return b.toByteArray();
+    }
+    static byte[] stationBytes(HammerStation s) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        s.write(new DataOutputStream(b));
+        return b.toByteArray();
+    }
     public static File wave(File root, String name, int seconds, int rate, int seed) throws Exception {
         File f = new File(root, name);
         int frames = seconds * rate, bytes = frames * 4;
@@ -120,6 +130,230 @@ public final class HammerIntegration {
                   "public catalog excludes private songs");
             check(Hammer.catalog(privateCard, new Hammer.Job()).size() == 2,
                   "private circle sees authorized catalog");
+            String seenSong = Hammer.catalog(publicCard, new Hammer.Job()).get(0).id, circleSong = "";
+            for (Hammer.Song song : Hammer.catalog(privateCard, new Hammer.Job()))
+                if (!song.id.equals(seenSong))
+                    circleSong = song.id;
+            a.counted(seenSong, 0);
+            a.counted(seenSong, 1);
+            a.counted(seenSong, 1);
+            a.counted(circleSong, 0);
+            KeyPairGenerator stationKeys = KeyPairGenerator.getInstance("EC");
+            stationKeys.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+            KeyPair stationKey = stationKeys.generateKeyPair();
+            final HammerStation station = new HammerStation();
+            station.title = "Test radio";
+            station.songs.add(Hammer.hash(new byte[] {1}));
+            station.songs.add(Hammer.hash(new byte[] {2}));
+            station.lengths.add(1000);
+            station.lengths.add(3000);
+            station.started = System.currentTimeMillis() - 60000;
+            station.ends = station.started + 120000;
+            station.revision = 5;
+            station.sign(stationKey);
+            long begun = station.started;
+            check(station.at(begun + 500).index == 0 && station.at(begun + 500).offset == 500, "a station starts at its first song");
+            check(station.at(begun + 1500).index == 1 && station.at(begun + 1500).offset == 500, "a station moves on by the clock");
+            check(station.at(begun + 4500).index == 0 && station.at(begun + 4500).offset == 500, "a station loops");
+            check(station.at(begun - 1) == null && station.at(station.ends) == null, "a station is off air outside its hours");
+            station.note = "changed after signing";
+            rejects(new Attempt() {
+                public void run() throws Exception { station.validate(); }
+            }, "a changed station is refused");
+            station.note = "";
+            a.publicObjects.putStation(station);
+            check(Hammer.stations(publicCard, new Hammer.Job()).isEmpty(), "a station with songs this host lacks is not offered");
+            final HammerStation real = new HammerStation();
+            real.title = "On air";
+            for (Hammer.Song song : Hammer.catalog(publicCard, new Hammer.Job())) {
+                real.songs.add(song.id);
+                real.lengths.add(2000);
+            }
+            real.started = System.currentTimeMillis() - 1000;
+            real.ends = real.started + 120000;
+            real.revision = 1;
+            real.sign(key);
+            a.publicObjects.putStation(real);
+            check(Hammer.stations(publicCard, new Hammer.Job()).size() == 1
+                      && Hammer.stations(publicCard, new Hammer.Job()).get(0).id().equals(real.id()),
+                  "a station on air is offered and verified");
+            rejects(new Attempt() {
+                public void run() throws Exception { a.publicObjects.putStation(real); }
+            }, "a station can't be replaced by the same revision");
+            real.ends = real.started + 500;
+            real.revision = 2;
+            real.sign(key);
+            a.publicObjects.putStation(real);
+            check(Hammer.stations(publicCard, new Hammer.Job()).size() == 1
+                      && !Hammer.stations(publicCard, new Hammer.Job()).get(0).live(System.currentTimeMillis()),
+                  "a stopped station is still handed out, marked ended, so older copies learn it");
+            // carrying: another host keeps the station going while the artist is away
+            final HammerStore carrierStore = new HammerStore(new File(root, "c"));
+            final Hammer.Server third =
+                new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), carrierStore);
+            try {
+                final Hammer.Card carrier = new Hammer.Card("127.0.0.1", third.port(), fingerprint, "");
+                real.ends = System.currentTimeMillis() + 120000;
+                real.revision = 3;
+                real.sign(key);
+                a.publicObjects.putStation(real);
+                check(!Hammer.carryStation(carrier, real, new Hammer.Job()) && carrierStore.publicObjects.station(real.id()) == null,
+                      "a host without the station's songs doesn't carry it");
+                carrierStore.publish(source, "Public tone", "jazz koto", true, true, key);  // the same signed recording
+                check(Hammer.carryStation(carrier, real, new Hammer.Job()), "a host sharing every song carries the station");
+                check(Hammer.stations(carrier, new Hammer.Job()).size() == 1
+                          && Hammer.stations(carrier, new Hammer.Job()).get(0).revision == 3,
+                      "a carried station is on air from the carrier");
+                check(!Hammer.carryStation(carrier, real, new Hammer.Job()), "a carrier doesn't take the same revision twice");
+                final String one = Hammer.random(), two = Hammer.random();
+                check(Hammer.listening(carrier, real.id(), one, new Hammer.Job()).size() == 1
+                          && Hammer.listening(carrier, real.id(), two, new Hammer.Job()).size() == 2
+                          && Hammer.listening(carrier, real.id(), one, new Hammer.Job()).size() == 2
+                          && Hammer.listening(carrier, real.id(), "", new Hammer.Job()).size() == 2,
+                      "listeners are counted once each by their tune-in tags");
+                java.util.Set<String> both = new java.util.HashSet<String>(Hammer.listening(carrier, real.id(), "", new Hammer.Job()));
+                both.addAll(Hammer.listening(publicCard, real.id(), one, new Hammer.Job()));
+                check(both.size() == 2 && !both.contains(one), "a listener heard by two hosts counts once, and no tag is given out");
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.listening(carrier, Hammer.random(), one, new Hammer.Job()); }
+                }, "listeners are counted only for stations held here");
+                final int[] passedOn = {0};
+                carrierStore.publicObjects.carried = new HammerPublic.StationListener() {
+                    public void carried(HammerStation s) { passedOn[0]++; }
+                };
+                real.note = "a new note";
+                real.revision = 4;
+                real.sign(key);
+                a.publicObjects.putStation(real);
+                check(HammerStations.gather(carrierStore.publicObjects, publicCard, new Hammer.Job()) == 1
+                          && "a new note".equals(Hammer.stations(carrier, new Hammer.Job()).get(0).note),
+                      "a carrier gathers a newer note from another host");
+                real.ends = real.started + 500;
+                real.revision = 5;
+                real.sign(key);
+                a.publicObjects.putStation(real);
+                check(HammerStations.gather(carrierStore.publicObjects, publicCard, new Hammer.Job()) == 1
+                          && !Hammer.stations(carrier, new Hammer.Job()).get(0).live(System.currentTimeMillis()),
+                      "going off air reaches the carrier");
+                check(passedOn[0] == 2, "a carrier is told of each newer revision, to pass it straight on");
+                final HammerStation forged = HammerStation.read(new DataInputStream(new ByteArrayInputStream(
+                    stationBytes(real))));
+                forged.revision = 6;
+                forged.ends = System.currentTimeMillis() + 120000;
+                rejects(new Attempt() {
+                    public void run() throws Exception { carrierStore.publicObjects.carry(forged); }
+                }, "a carrier can't put a station back on air without the artist's signature");
+                final HammerStore d = new HammerStore(new File(root, "d"));
+                d.publish(source, "Public tone", "jazz koto", true, true, key);
+                check(!d.publicObjects.carry(real) && d.publicObjects.station(real.id()) == null,
+                      "a host that never held a station doesn't take it once ended");
+                keeping(root, key, cert, fingerprint);
+                // circles: rooms carried sealed by hosts that can't read them
+                KeyPair starter = HammerCircle.memberKey(), member = HammerCircle.memberKey(), stranger = HammerCircle.memberKey();
+                final HammerCircle room = HammerCircle.start("Late night", "Listening till dawn", true);
+                room.hosts.add(carrier.encode());
+                room.sign(starter);
+                check(Hammer.carryCircle(carrier, room, new Hammer.Job()) && Hammer.circles(carrier, new Hammer.Job()).size() == 1
+                          && Hammer.circles(carrier, new Hammer.Job()).get(0).secret.equals(room.secret),
+                      "an open circle is carried and listed with its key");
+                final HammerCircle impostor = HammerCircle.start("Late night", "", true);
+                impostor.id = room.id;
+                impostor.secret = room.secret;
+                impostor.revision = room.revision + 1;
+                impostor.sign(stranger);
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.carryCircle(carrier, impostor, new Hammer.Job()); }
+                }, "only the circle's starter can change it");
+                HammerCircle.Message hello = new HammerCircle.Message();
+                hello.name = "Ava";
+                hello.body = "hello room";
+                HammerCircle.Envelope said = hello.seal(room, member);
+                check(Hammer.circlePost(carrier, said, new Hammer.Job()) && !Hammer.circlePost(carrier, said, new Hammer.Job()),
+                      "a sealed line is kept once");
+                List<HammerCircle.Envelope> heard = Hammer.circleRead(carrier, room.id, HammerCircle.ROOM, 0, new Hammer.Job());
+                HammerCircle.Message back = heard.size() == 1 ? HammerCircle.Message.open(room, heard.get(0)) : null;
+                check(back != null && back.body.equals("hello room") && back.key.equals(hello.key),
+                      "a member unseals the line and knows who said it");
+                check(!new String(heard.get(0).sealed, "ISO-8859-1").contains("hello room"), "the host holds only ciphertext");
+                HammerCircle other = HammerCircle.start("Elsewhere", "", true);
+                other.sign(starter);
+                check(HammerCircle.Message.open(other, heard.get(0)) == null, "another circle's key opens nothing");
+                final HammerCircle.Envelope moved = HammerCircle.Envelope.read(new DataInputStream(new ByteArrayInputStream(envelopeBytes(said))));
+                moved.time++;
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.circlePost(carrier, moved, new Hammer.Job()); }
+                }, "a message moved in time is refused by its stamp");
+                final HammerCircle.Envelope bent = HammerCircle.Envelope.read(new DataInputStream(new ByteArrayInputStream(envelopeBytes(said))));
+                bent.sealed[bent.sealed.length - 1] ^= 1;
+                bent.stamp = HammerCircle.work(bent.work(), 16);
+                check(HammerCircle.Message.open(room, bent) == null, "a changed sealed line doesn't open");
+                // invite-only: the key travels only in the invitation
+                final HammerCircle quiet = HammerCircle.start("Just us", "", false);
+                quiet.hosts.add(carrier.encode());
+                quiet.sign(starter);
+                check(Hammer.carryCircle(carrier, quiet, new Hammer.Job()) && Hammer.circles(carrier, new Hammer.Job()).size() == 1,
+                      "an invite-only circle is carried but not listed");
+                check(carrierStore.circles.record(quiet.id).secret.isEmpty()
+                          && Hammer.circle(carrier, quiet.id, "", new Hammer.Job()).secret.isEmpty(),
+                      "a host never holds an invite-only circle's key");
+                HammerCircle joined = Hammer.circle(carrier, quiet.id, quiet.secret, new Hammer.Job());
+                HammerCircle.Message whisper = new HammerCircle.Message();
+                whisper.body = "only us";
+                Hammer.circlePost(carrier, whisper.seal(joined, member), new Hammer.Job());
+                HammerCircle.Envelope got = Hammer.circleRead(carrier, quiet.id, HammerCircle.ROOM, 0, new Hammer.Job()).get(0);
+                check("only us".equals(HammerCircle.Message.open(joined, got).body)
+                          && HammerCircle.Message.open(Hammer.circle(carrier, quiet.id, "", new Hammer.Job()), got) == null,
+                      "the invitation's key opens it, the host's copy can't");
+                rejects(new Attempt() {
+                    public void run() throws Exception { Hammer.circle(carrier, quiet.id, Hammer.random(), new Hammer.Job()); }
+                }, "a wrong invitation key is refused");
+                // the board outlives a restart, and a second host catches up
+                HammerCircle.Message post = new HammerCircle.Message();
+                post.kind = "post";
+                post.name = "Ava";
+                post.body = "Tonight's theme: songs about rivers";
+                Hammer.circlePost(carrier, post.seal(room, member), new Hammer.Job());
+                check(new HammerCircles(new File(carrierStore.root, "circles")).read(room.id, HammerCircle.BOARD, 0).size() == 1,
+                      "board posts are kept across a restart");
+                b.circles.carry(room);
+                check(b.circles.sync(carrier, room.id, new Hammer.Job()) == 2
+                          && b.circles.read(room.id, HammerCircle.BOARD, 0).size() == 1,
+                      "a second host of the circle catches up from the first");
+                int took = 0;
+                for (int i = 0; i < 22; i++) {
+                    HammerCircle.Message m = new HammerCircle.Message();
+                    m.kind = "react";
+                    m.body = "!";
+                    try {
+                        if (Hammer.circlePost(carrier, m.seal(room, member), new Hammer.Job()))
+                            took++;
+                    } catch (Exception busy) {
+                    }
+                }
+                check(took < 22, "a circle can't be flooded");
+                HammerCircle.Message song = new HammerCircle.Message();
+                song.kind = "add";
+                song.song = Hammer.catalog(publicCard, new Hammer.Job()).get(0);
+                song.cards.add(publicCard.encode());
+                song.length = 12000;
+                rejects(new Attempt() {
+                    public void run() throws Exception {
+                        HammerCircle.Message m = new HammerCircle.Message();
+                        m.kind = "add";
+                        m.length = 1000;
+                        m.seal(room, HammerCircle.memberKey());
+                    }
+                }, "a song added needs its signed record and a host");
+                check(HammerCircle.Message.open(room, song.seal(room, member)).song.id.equals(song.song.id),
+                      "a song added to the queue carries its signed record");
+            } finally {
+                third.close();
+            }
+            java.util.Map<String, long[]> counts = Hammer.allStats(publicCard, new Hammer.Job());
+            check(counts.size() == 1 && counts.get(seenSong)[0] == 1 && counts.get(seenSong)[1] == 2,
+                  "all counts at once match the public songs");
+            check(Hammer.allStats(privateCard, new Hammer.Job()).containsKey(circleSong),
+                  "a circle member sees the counts of circle songs");
             rejects(new Attempt() {
                 public void run() throws Exception {
                     Hammer.catalog(new Hammer.Card("127.0.0.1", first.port(), fingerprint, Hammer.random()),
@@ -528,6 +762,134 @@ public final class HammerIntegration {
         } finally {
             first.close();
             second.close();
+        }
+    }
+    /** Keeping: an artist asks a helper to hold copies of their songs, changes the list, and takes them back. */
+    static void keeping(File root, KeyPair key, X509Certificate cert, String fingerprint) throws Exception {
+        final HammerStore artist = new HammerStore(new File(root, "keep-artist")), helper = new HammerStore(new File(root, "keep-helper"));
+        final Hammer.Song one = artist.publish(wave(root, "keep1.wav", 3, 44100, 11), "Kept one", "", true, true, key),
+                          two = artist.publish(wave(root, "keep2.wav", 3, 44100, 12), "Kept two", "", true, true, key);
+        artist.publish(wave(root, "keep3.wav", 3, 44100, 13), "Streaming only", "", false, true, key);
+        final Hammer.Song owners = helper.publish(wave(root, "keep4.wav", 3, 44100, 14), "Owner's own", "", true, true, key);
+        final HammerKeeper keeper = new HammerKeeper(helper, new File(root, "keep-helper-kept"), fingerprint);
+        helper.keeper = keeper;
+        Hammer.Server from = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), artist),
+                      at = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), helper);
+        try {
+            final Hammer.Card fromCard = new Hammer.Card("127.0.0.1", from.port(), fingerprint, ""),
+                              helperCard = new Hammer.Card("127.0.0.1", at.port(), fingerprint, "");
+            final HammerKeep k = new HammerKeep();
+            k.helper = Hammer.hash(new byte[] {1});
+            k.from = fromCard.encode();
+            k.revision = 1;
+            k.songs.add(one.id);
+            k.songs.add(two.id);
+            k.sign(key);
+            rejects(new Attempt() {
+                public void run() throws Exception { Hammer.keep(helperCard, k, new Hammer.Job()); }
+            }, "a keep request meant for another helper is refused");
+            k.helper = fingerprint;
+            k.sign(key);
+            boolean refusedWithReason = false;
+            try {
+                Hammer.keep(helperCard, k, new Hammer.Job());
+            } catch (Hammer.Refused r) {
+                refusedWithReason = r.getMessage().contains("stamp");
+            }
+            check(refusedWithReason, "a new artist must pay the stamp, and the refusal says why");
+            k.stamp = HammerHidden.stamp(k.id(), new Hammer.Job());
+            check(Hammer.keep(helperCard, k, new Hammer.Job()).isEmpty(), "a keep request is taken before anything is copied");
+            final HammerKeep tampered = HammerKeep.read(new DataInputStream(new ByteArrayInputStream(k.bytes())));
+            tampered.songs.remove(1);
+            rejects(new Attempt() {
+                public void run() throws Exception { keeper.ask(tampered); }
+            }, "a changed keep request is refused");
+            keeper.round(new Hammer.Job());
+            List<String> held = Hammer.keep(helperCard, k, new Hammer.Job());
+            check(held.size() == 2 && held.contains(one.id) && held.contains(two.id),
+                  "the helper fetched both songs from the artist and says so");
+            check(Hammer.catalog(helperCard, new Hammer.Job()).size() == 3, "kept songs are hosted publicly with the owner's own");
+            from.close();
+            check(Hammer.catalog(helperCard, new Hammer.Job()).size() == 3, "kept songs stay up while the artist is away");
+            from = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), artist);
+            final Hammer.Card again = new Hammer.Card("127.0.0.1", from.port(), fingerprint, "");
+            k.revision = 2;
+            k.songs.remove(two.id);
+            k.sign(key);
+            check(Hammer.keep(helperCard, k, new Hammer.Job()).size() == 1
+                      && Hammer.catalog(helperCard, new Hammer.Job()).size() == 2
+                      && !helper.downloadFile(two).isFile(),
+                  "a song left out of a newer request is dropped and deleted");
+            final HammerKeep older = HammerKeep.read(new DataInputStream(new ByteArrayInputStream(k.bytes())));
+            older.revision = 1;
+            older.songs.clear();
+            older.sign(key);
+            check(Hammer.keep(helperCard, older, new Hammer.Job()).size() == 1, "an older request changes nothing");
+            k.revision = 3;
+            k.songs.clear();
+            k.sign(key);
+            check(Hammer.keep(helperCard, k, new Hammer.Job()).isEmpty() && Hammer.catalog(helperCard, new Hammer.Job()).size() == 1
+                      && Hammer.catalog(helperCard, new Hammer.Job()).get(0).id.equals(owners.id) && keeper.records().isEmpty(),
+                  "taking the songs back drops every kept copy, and only those");
+
+            // a big host: more songs than one catalog answer carries
+            final HammerStore big = new HammerStore(new File(root, "big"));
+            for (int i = 0; i < Hammer.PAGE + 44; i++)
+                big.publish(wave(root, "big" + i + ".wav", 1, 8000, 100 + i), "Big " + i, "", true, true, key);
+            Hammer.Server bigServer = new Hammer.Server(Hammer.serverContext(key, cert), new InetSocketAddress("127.0.0.1", 0), big);
+            try {
+                Hammer.Card bigCard = new Hammer.Card("127.0.0.1", bigServer.port(), fingerprint, "");
+                List<Hammer.Song> all = Hammer.catalog(bigCard, new Hammer.Job());
+                Set<String> distinct = new HashSet<String>();
+                for (Hammer.Song song : all)
+                    distinct.add(song.id);
+                check(all.size() == Hammer.PAGE + 44 && distinct.size() == all.size(),
+                      "a host past 256 songs gives its whole catalog, page by page");
+            } finally {
+                bigServer.close();
+            }
+
+            // the artist's side: proven helpers, three copies, taking back
+            HammerKeeping side = new HammerKeeping(new File(root, "keep-artist"));
+            long[] clock = {System.currentTimeMillis()};
+            side.clock = clock;
+            Map<String, Hammer.Card> online = new HashMap<String, Hammer.Card>();
+            online.put(fingerprint, helperCard);
+            side.look(online);
+            check(!side.proven(fingerprint), "a helper seen once isn't proven");
+            for (int i = 0; i < 80; i++) {
+                clock[0] += HammerKeeping.HOUR;
+                side.look(i % 10 == 0 ? new HashMap<String, Hammer.Card>() : online);
+            }
+            check(side.proven(fingerprint), "a helper online at nine looks in ten over three days is proven");
+            String flaky = Hammer.hash(new byte[] {2});
+            for (int i = 0; i < 80; i++) {
+                clock[0] += HammerKeeping.HOUR;
+                Map<String, Hammer.Card> m = new HashMap<String, Hammer.Card>(online);
+                if (i % 2 == 0)
+                    m.put(flaky, helperCard);
+                side.look(m);
+            }
+            check(!side.proven(flaky), "a helper online at half the looks isn't proven");
+            Map<String, Hammer.Card> steady = new HashMap<String, Hammer.Card>(online);
+            check(side.tend(artist, key, again, steady, new Hammer.Job()).isEmpty() && keeper.records().isEmpty(),
+                  "nothing is copied before the artist turns keeping on");
+            side.turn(true);
+            side.tend(artist, key, again, steady, new Hammer.Job());
+            keeper.round(new Hammer.Job());
+            side.tend(artist, key, again, steady, new Hammer.Job());
+            HammerKeeping.Status st = side.status(artist, Hammer.publicKey(key.getPublic()), steady);
+            check(st.songs == 2 && st.streamingOnly == 1 && st.whole() == 1 && st.carriers.size() == 1 && st.carriers.get(0)[1] == 1,
+                  "turned on, the artist's songs that allow rehosting go to the proven helper");
+            side.turn(false);
+            side.tend(artist, key, again, steady, new Hammer.Job());
+            check(keeper.records().isEmpty() && Hammer.catalog(helperCard, new Hammer.Job()).size() == 1
+                      && side.status(artist, Hammer.publicKey(key.getPublic()), steady).carriers.isEmpty(),
+                  "turned off, every copy is taken back");
+        } finally {
+            from.close();
+            at.close();
+            keeper.close();
         }
     }
     public static void main(String[] args) throws Exception {

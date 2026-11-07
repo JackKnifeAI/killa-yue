@@ -48,13 +48,33 @@ GOT=$( (sha256sum "$TMP/helper.zip" 2>/dev/null || shasum -a 256 "$TMP/helper.zi
 
 mkdir -p "$HOME_DIR/state"
 rm -rf "$HOME_DIR/hammer-server"
-unzip -q "$TMP/helper.zip" -d "$HOME_DIR"
-APP="$HOME_DIR/hammer-server"
+# one folder per version: a new helper proves itself before the old one goes, and state/ is never touched
+unzip -q "$TMP/helper.zip" -d "$TMP/unpacked"
+SEQUENCE=$(cat "$TMP/unpacked/hammer-server/sequence")
+rm -rf "$HOME_DIR/versions/$SEQUENCE"
+mkdir -p "$HOME_DIR/versions/$SEQUENCE" "$HOME_DIR/update"
+mv "$TMP/unpacked/hammer-server" "$HOME_DIR/versions/$SEQUENCE/"
+APP="$HOME_DIR/versions/$SEQUENCE/hammer-server"
+cp "$APP/launcher.sh" "$HOME_DIR/launcher.sh"
+chmod +x "$HOME_DIR/launcher.sh"
+rm -f "$HOME_DIR/update/next" "$HOME_DIR/update/trying"
+echo "$SEQUENCE" > "$HOME_DIR/update/current"
 ARGS="--daemon --help-network --upnp --network-port 47291 --data $HOME_DIR/state --address 127.0.0.1 --bind 127.0.0.1"
 [ -n "$MUSIC" ] && ARGS="$ARGS --watch $MUSIC"
+[ -n "${KILLA_HELPER_FROM:-}" ] && ARGS="$ARGS --update-from $KILLA_HELPER_FROM"
 JAVA=$(command -v java)
 
 if command -v systemctl >/dev/null 2>&1 && [ "$(uname -s)" = Linux ]; then
+    printf "JAVA='%s'\nARGS='%s'\n" "$JAVA" "$ARGS" > "$HOME_DIR/launcher.env"
+    cat > "$HOME_DIR/update.sh" <<EOF
+#!/bin/sh
+# Automatic updates: sh update.sh off, or sh update.sh on
+case "\${1:-}" in
+    off) touch "$HOME_DIR/update/off"; echo "Automatic updates are off. Run the install line by hand to update." ;;
+    on) rm -f "$HOME_DIR/update/off"; echo "Automatic updates are on." ;;
+    *) echo "Use: sh update.sh on, or sh update.sh off" ;;
+esac
+EOF
     mkdir -p "$HOME/.config/systemd/user"
     cat > "$HOME/.config/systemd/user/killa-yue-helper.service" <<EOF
 [Unit]
@@ -62,8 +82,7 @@ Description=Killa YuE network helper
 After=network-online.target
 
 [Service]
-WorkingDirectory=$APP
-ExecStart=$JAVA -XX:ActiveProcessorCount=2 -Xms32m -Xmx384m -Djava.awt.headless=true -Djava.library.path=native/linux-x86_64 -jar hammer-server.jar $ARGS
+ExecStart=$HOME_DIR/launcher.sh
 Restart=always
 RestartSec=10
 
@@ -91,3 +110,8 @@ say ""
 say "Killa YuE helper is running. Thank you for helping phones find each other."
 [ -n "$MUSIC" ] && say "Every song in $MUSIC is shared publicly, with the cover, title and lyrics inside each file; new songs appear within five minutes."
 say "Port 47291 (TCP and UDP) open on your router lets it help the most. Remove it: sh $HOME_DIR/uninstall.sh"
+if [ -f "$HOME_DIR/update.sh" ]; then
+    say ""
+    say "This helper updates itself, so the network stays safe. Each update is signed by the Killa YuE release key, and"
+    say "that key can run code on this computer as you. Turn it off: sh $HOME_DIR/update.sh off"
+fi

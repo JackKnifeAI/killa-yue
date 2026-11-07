@@ -24,14 +24,44 @@ import java.util.Arrays;
  * A song that stopped while it was being rendered can also be heard as far as it got: the same
  * request with "preview" makes the engine decode the saved render, its unfinished part carried to
  * the solver's guess of the end (engine/yue2-preview.patch). The checkpoint is left as it was.
+ *
+ * An unfinished song is kept for KEEP_DAYS after it was last worked on, then deleted (the Resume list says until
+ * when). One with nothing saved goes after a day.
  */
 public class Resume {
+    static final int KEEP_DAYS = 30;
+    private static final long DAY = 24L * 3600 * 1000;
+    private static volatile boolean pruned;
+
+    /** Once per app start, off the screen thread: removes unfinished songs past their keeping time. */
+    static void prune(final Context c) {
+        if (pruned) return;
+        pruned = true;
+        new Thread(new Runnable() {
+            public void run() {
+                list(c, MainActivity.runningCheckpoint);
+            }
+        }, "resume-prune").start();
+    }
+
+    /** When a checkpoint folder was last written: the folder or the newest file in it. */
+    static long touched(File d) {
+        long t = d.lastModified();
+        File[] f = d.listFiles();
+        if (f != null) for (File x : f) t = Math.max(t, x.lastModified());
+        return t;
+    }
     static File root(Context c) {
         return Store.dir(c, "checkpoints");
     }
 
     /** Gives a new song its checkpoint folder and keeps the request there. */
     static void prepare(Context c, JSONObject req, String title, String album) {
+        prepare(c, req, title, album, null);
+    }
+
+    /** remixOf: the parent of a remix (Remixes), kept so a resumed remix still credits it. */
+    static void prepare(Context c, JSONObject req, String title, String album, JSONObject remixOf) {
         try {
             req.remove("preview"); // a song is always made in full; only listen() asks for a preview
             if (req.has("checkpoint")) return; // a resumed song keeps its folder
@@ -43,6 +73,7 @@ public class Resume {
             JSONObject keep = new JSONObject(req.toString());
             keep.put("_title", title == null ? "" : title);
             keep.put("_album", album == null ? "" : album);
+            if (remixOf != null) keep.put("_remix_of", remixOf);
             Store.write(new File(d, "request.json"), keep.toString().getBytes("UTF-8"));
         } catch (Exception e) {
             // without a checkpoint the song is made as before
@@ -74,7 +105,9 @@ public class Resume {
             String what = composed == null ? "nothing saved yet"
                     : stepsDone == 0 ? "composed, not rendered yet"
                     : stepsDone + " of " + stepsTotal + " render steps done";
-            return (title.length() > 0 ? title : "Untitled") + "  ·  " + what;
+            String until = new java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+                    .format(new java.util.Date(when + KEEP_DAYS * DAY));
+            return (title.length() > 0 ? title : "Untitled") + "  ·  " + what + "  ·  kept until " + until;
         }
 
         boolean resumable() {
@@ -104,14 +137,19 @@ public class Resume {
             try {
                 Unfinished u = new Unfinished();
                 u.dir = d;
-                u.when = d.lastModified();
+                u.when = touched(d);
                 u.request = new JSONObject(new String(Store.read(new File(d, "request.json")), "UTF-8"));
                 u.title = u.request.optString("_title");
                 File comp = new File(d, "composed-0.json");
                 if (comp.isFile()) u.composed = new JSONObject(new String(Store.read(comp), "UTF-8"));
                 progress(u, new File(d, "render-0.bin"));
-                if (!u.resumable() && System.currentTimeMillis() - u.when > 24L * 3600 * 1000) {
+                long age = System.currentTimeMillis() - u.when;
+                if (!u.resumable() && age > DAY) {
                     delete(d); // stopped before anything was saved, a day ago
+                    continue;
+                }
+                if (age > KEEP_DAYS * DAY) {
+                    delete(d); // unfinished and untouched for a month
                     continue;
                 }
                 out.add(u);
@@ -152,6 +190,30 @@ public class Resume {
         return (s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
     }
 
+    /**
+     * After the engine restarted mid-song (a cooling break, or the GPU driver crashed): adds the composition the song
+     * has already written, so the engine skips the writing and the render carries on from its last saved step.
+     * Without this the same request would write the whole song again.
+     */
+    static void carryOn(JSONObject req) {
+        try {
+            String cp = req.optString("checkpoint");
+            if (cp.length() == 0 || req.has("semantic_tokens")) return;
+            File comp = new File(cp, "composed-0.json");
+            if (!comp.isFile()) return; // still writing when it stopped: it starts the writing again
+            JSONObject c = new JSONObject(new String(Store.read(comp), "UTF-8"));
+            req.put("semantic_tokens", c.getString("semantic_tokens"));
+            req.put("seed", c.getLong("seed"));
+            String abc = c.optString("abc");
+            if (abc.length() > 0) {
+                req.put("abc", abc);
+                req.put("abc_tokens", c.optString("abc_tokens"));
+            }
+        } catch (Exception e) {
+            // an unreadable composition: the song is written again
+        }
+    }
+
     /** The request that plays the song as far as it got, leaving its checkpoint as it was. */
     static JSONObject previewRequest(Unfinished u) throws Exception {
         JSONObject r = request(u);
@@ -164,6 +226,7 @@ public class Resume {
         JSONObject r = new JSONObject(u.request.toString());
         r.remove("_title");
         r.remove("_album");
+        r.remove("_remix_of");
         r.put("checkpoint", u.dir.getAbsolutePath());
         r.put("semantic_tokens", u.composed.getString("semantic_tokens"));
         r.put("seed", u.composed.getLong("seed"));

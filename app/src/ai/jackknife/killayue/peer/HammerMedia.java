@@ -5,6 +5,8 @@ import java.io.*;
 /** Android installs an isolated-process implementation; desktop uses the bounded native codec. */
 public final class HammerMedia {
     private HammerMedia() {}
+    /** Frames per second, whatever the song's own rate: what frames() counts in. */
+    public static final int RATE = 48000;
     public interface Codec {
         long frames(File file) throws Exception;
         byte[] encode(File file, String identity, int segment, int bitrate) throws Exception;
