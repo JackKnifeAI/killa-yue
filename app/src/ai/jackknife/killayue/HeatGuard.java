@@ -35,9 +35,12 @@ public class HeatGuard {
     /** After a break the song runs at least this long before the next one. */
     static final long RUN_MIN_MS = 90_000;
 
-    /** Whether cooling breaks are on (Settings), on unless turned off. */
+    /**
+     * Whether cooling breaks are on (Settings), off unless turned on. On by default in 1.8.0, songs could wait hours
+     * to start: a fast charger can keep the battery above 44 °C, and the queue waited for it to cool.
+     */
     static boolean on(Context c) {
-        return c.getSharedPreferences("cfg", 0).getBoolean("cool_breaks", true);
+        return c.getSharedPreferences("cfg", 0).getBoolean("cool_breaks", false);
     }
 
     static void on(Context c, boolean on) {

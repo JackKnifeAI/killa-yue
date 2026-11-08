@@ -610,9 +610,11 @@ public class EngineService extends Service {
         HeatGuard.noteReading(this, r);
         if (!HeatGuard.on(this) || !r.hot()) return;
         if (System.currentTimeMillis() - runSince < HeatGuard.RUN_MIN_MS) return;
-        // between render steps nothing is lost; while the song is being written, only when the phone is very hot
+        // only between render steps, which carry on from their checkpoint. Never while the song is being written:
+        // the writing has no checkpoint, so it started over after each break and a hot phone (Jan's Xiaomi 17 on a
+        // 67 W charger, issue #51) went round and round without ever finishing the song.
         boolean rendering = "Rendering audio".equals(stage) && progCur >= 1;
-        if (!rendering && !r.critical()) return;
+        if (!rendering) return;
         coolDown(r);
     }
 

@@ -1362,8 +1362,8 @@ public class MainActivity extends Activity {
                     + (charging[0] ? ", charging)" : ", not charging)");
             return;
         }
-        String heat = gpuHeat();
-        if (heat.length() > 0 || (HeatGuard.on(this) && HeatGuard.read(this).hot())) {
+        // only with cooling breaks on: Android slows the GPU after almost every song, so this could wait for hours
+        if (HeatGuard.on(this) && (gpuHeat().length() > 0 || HeatGuard.read(this).hot())) {
             queueNote = "Queue is waiting for the phone to cool down.";
             return;
         }
