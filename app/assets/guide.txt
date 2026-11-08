@@ -69,7 +69,7 @@ Keeps the engine in memory between songs: faster, but it needs much more memory.
 ## Gentle mode
 Songs take longer, and the phone stays smooth while one is made.
 ## Cooling breaks
-On by default. When Android says the phone is getting hot (or the battery passes 44 °C), the song pauses between render steps: the engine stops completely so the phone can cool, and the song carries on from the same step once it is cooler (at least 1 minute, at most 15). The screen shows the temperature while it waits. Nothing is lost, and Cancel still works during a break. A queue also waits for a hot phone to cool before it starts the next song.
+Off by default; turn it on if your phone gets too hot while making songs. When Android says the phone is getting hot (or the battery passes 44 °C), the song pauses between render steps: the engine stops completely so the phone can cool, and the song carries on from the same step once it is cooler (at least 1 minute, at most 15). The screen shows the temperature while it waits. Nothing is lost, and Cancel still works during a break. With cooling breaks on, a queue also waits for a hot phone to cool before it starts the next song.
 ## Studio jobs at full speed
 Studio jobs such as splitting stems run on the phone's fast cores instead of in the background. Faster, but music may stutter while one runs. Off by default.
 ## Run the engine in its own app process
