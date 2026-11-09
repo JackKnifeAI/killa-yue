@@ -16,7 +16,7 @@ The big gold button under the lyrics. A songwriter model on the phone writes the
 ## Save these lyrics / My saved lyrics
 Keeps the lyrics to use again. The name offered is the song's title, or the first sung line when there is no title yet.
 ## Length
-How long the song is. Longer songs take longer to make and need more memory (see Settings > Memory for song length).
+The longest the song may be, not the length it will have. A song ends by itself once its lyrics have been sung, usually before this limit. If the limit is shorter than your lyrics need, the song is cut off when it reaches it, often in the middle of a line or a chorus. So set it long enough for all your lyrics (if unsure, use the maximum), and for a shorter song, write shorter lyrics. Longer songs take longer to make and need more memory (see Settings > Memory for song length).
 ## Score
 How much of a written score the engine plans before it sings:
 - Full score (melody and chords): the most structured songs.
